@@ -6,6 +6,7 @@ members = ["crates/*"]
 logos = "0.15"
 clap = { version = "4.5", features = ["derive"] }
 insta = { version = "1.43", features = ["yaml"] }
+ariadne = "0.5"
 
 brasa_arena = { path = "crates/brasa_arena" }
 brasa_source = { path = "crates/brasa_source" }

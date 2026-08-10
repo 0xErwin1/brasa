@@ -1,0 +1,13 @@
+---
+source: crates/brasa_diagnostics/src/render.rs
+expression: "render_to_string(&diagnostic, &sources)"
+---
+[BRS-E002] Error: unclosed parameter list
+   ╭─[ <multiline>:1:1 ]
+   │
+ 1 │ ╭─▶ def broken(
+   ┆ ┆   
+ 4 │ ├─▶ ): int
+   │ │            
+   │ ╰──────────── starts here
+───╯

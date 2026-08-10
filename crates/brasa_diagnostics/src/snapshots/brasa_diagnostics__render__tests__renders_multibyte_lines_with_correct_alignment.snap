@@ -1,0 +1,11 @@
+---
+source: crates/brasa_diagnostics/src/render.rs
+expression: "render_to_string(&diagnostic, &sources)"
+---
+[BRS-W001] Warning: shadowed identifier
+   ╭─[ <multibyte>:2:10 ]
+   │
+ 2 │ let 世界 = niño + 1
+   │            ──┬─  
+   │              ╰─── shadows the outer `niño`
+───╯

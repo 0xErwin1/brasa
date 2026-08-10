@@ -7,3 +7,7 @@ edition.workspace = true
 
 [dependencies]
 brasa_source = { workspace = true }
+ariadne = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

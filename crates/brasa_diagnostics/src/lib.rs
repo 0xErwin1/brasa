@@ -2,8 +2,9 @@
 //!
 //! Every phase reports errors as a [`Diagnostic`] built against a
 //! [`brasa_source::Span`]; only the CLI decides how to render them.
-//! Rendering (via `ariadne` or otherwise) is out of scope here — see
-//! BRS-12.
+//! Pretty rendering (via `ariadne`) lives in [`render`].
+
+pub mod render;
 
 use brasa_source::Span;
 

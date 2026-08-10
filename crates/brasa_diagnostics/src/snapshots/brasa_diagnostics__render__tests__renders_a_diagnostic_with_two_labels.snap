@@ -1,0 +1,14 @@
+---
+source: crates/brasa_diagnostics/src/render.rs
+expression: "render_to_string(&diagnostic, &sources)"
+---
+[BRS-E001] Error: undefined variable `z`
+   ╭─[ <two_labels>:2:14 ]
+   │
+ 1 │ let x = 1
+   │     ┬  
+   │     ╰── did you mean this?
+ 2 │ let y = x + z
+   │              ┬  
+   │              ╰── used here
+───╯
