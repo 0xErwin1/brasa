@@ -198,26 +198,46 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
     })
 }
 
+/// Why [`parse_int`] rejected an `INT` literal's text.
+///
+/// The lexer's `INT` pattern (`docs/spec/02-grammar.md`) accepts `0x`/`0b`
+/// with nothing but underscores after the prefix (`0x_`, `0b__`), per the
+/// grammar's own note that underscore placement is lenient; that shape is
+/// a distinct failure from a value too big for `i64`, and callers should
+/// report it as such rather than a misleading "out of range".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntParseError {
+    /// A `0x`/`0b` prefix with no hex/binary digits after stripping `_`.
+    NoDigits,
+    /// The value does not fit in `i64`.
+    Overflow,
+}
+
 /// Parses an `INT` literal (`docs/spec/02-grammar.md`): decimal, `0x`
 /// hex, or `0b` binary, with optional `_` digit separators. No octal form
 /// exists in Brasa.
 ///
-/// Returns `None` on overflow (values must fit in `i64`) or malformed
-/// input; the lexer only ever calls this with text it already matched
-/// against the `INT` pattern, so `None` here always means overflow in
-/// practice.
-pub fn parse_int(text: &str) -> Option<i64> {
+/// The lexer only ever calls this with text it already matched against
+/// the `INT` pattern, so the only failure modes are the two named in
+/// [`IntParseError`].
+pub fn parse_int(text: &str) -> Result<i64, IntParseError> {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
 
     if let Some(rest) = cleaned.strip_prefix("0x") {
-        return i64::from_str_radix(rest, 16).ok();
+        if rest.is_empty() {
+            return Err(IntParseError::NoDigits);
+        }
+        return i64::from_str_radix(rest, 16).map_err(|_| IntParseError::Overflow);
     }
 
     if let Some(rest) = cleaned.strip_prefix("0b") {
-        return i64::from_str_radix(rest, 2).ok();
+        if rest.is_empty() {
+            return Err(IntParseError::NoDigits);
+        }
+        return i64::from_str_radix(rest, 2).map_err(|_| IntParseError::Overflow);
     }
 
-    cleaned.parse::<i64>().ok()
+    cleaned.parse::<i64>().map_err(|_| IntParseError::Overflow)
 }
 
 /// Parses a `FLOAT` literal, stripping `_` digit separators first.
@@ -226,47 +246,88 @@ pub fn parse_float(text: &str) -> Option<f64> {
     cleaned.parse::<f64>().ok()
 }
 
+/// An escape sequence outside the allowed set (`\n \t \" \\ \#`), reported
+/// by [`unescape_string_text_checked`] with the byte offset of its
+/// backslash, relative to the start of the scanned text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownEscape {
+    pub offset: u32,
+    pub escaped: char,
+}
+
 /// Decodes the escape sequences allowed inside `STRING`/`RAWSTRING` text
-/// (`\n \t \" \\ \#`), leaving any other backslash sequence untouched.
+/// (`\n \t \" \\ \#`).
+///
+/// Per `docs/spec/02-grammar.md`'s ambiguity table, any other `\<c>` is an
+/// error, never a silent pass-through or drop. This validates that ruling
+/// and collects every offending escape found; [`unescape_string_text`]
+/// stays available for raw-string callers that never see escapes at all.
 ///
 /// `text` is the raw source slice of a `StringText` token, so it never
 /// contains a bare `"` or an unescaped `#{`.
-pub fn unescape_string_text(text: &str) -> String {
+pub fn unescape_string_text_checked(text: &str) -> (String, Vec<UnknownEscape>) {
     let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
+    let mut unknown = Vec::new();
+    let mut chars = text.char_indices().peekable();
 
-    while let Some(c) = chars.next() {
+    while let Some((offset, c)) = chars.next() {
         if c != '\\' {
             out.push(c);
             continue;
         }
 
-        match chars.peek() {
-            Some('n') => {
+        match chars.peek().copied() {
+            Some((_, 'n')) => {
                 out.push('\n');
                 chars.next();
             }
-            Some('t') => {
+            Some((_, 't')) => {
                 out.push('\t');
                 chars.next();
             }
-            Some('"') => {
+            Some((_, '"')) => {
                 out.push('"');
                 chars.next();
             }
-            Some('\\') => {
+            Some((_, '\\')) => {
                 out.push('\\');
                 chars.next();
             }
-            Some('#') => {
+            Some((_, '#')) => {
                 out.push('#');
                 chars.next();
             }
-            _ => out.push('\\'),
+            Some((_, other)) => {
+                unknown.push(UnknownEscape {
+                    offset: offset as u32,
+                    escaped: other,
+                });
+                out.push(other);
+                chars.next();
+            }
+            None => {
+                unknown.push(UnknownEscape {
+                    offset: offset as u32,
+                    escaped: '\\',
+                });
+            }
         }
     }
 
-    out
+    (out, unknown)
+}
+
+/// Decodes the escape sequences allowed inside `STRING`/`RAWSTRING` text
+/// (`\n \t \" \\ \#`), leaving any other backslash sequence untouched.
+///
+/// Kept for callers that never see unvalidated escapes (raw strings have
+/// none at all); see [`unescape_string_text_checked`] for the validating
+/// variant used by non-raw strings.
+///
+/// `text` is the raw source slice of a `StringText` token, so it never
+/// contains a bare `"` or an unescaped `#{`.
+pub fn unescape_string_text(text: &str) -> String {
+    unescape_string_text_checked(text).0
 }
 
 #[cfg(test)]
@@ -275,21 +336,30 @@ mod tests {
 
     #[test]
     fn parse_int_decimal() {
-        assert_eq!(parse_int("0"), Some(0));
-        assert_eq!(parse_int("42"), Some(42));
-        assert_eq!(parse_int("1_000_000"), Some(1_000_000));
+        assert_eq!(parse_int("0"), Ok(0));
+        assert_eq!(parse_int("42"), Ok(42));
+        assert_eq!(parse_int("1_000_000"), Ok(1_000_000));
     }
 
     #[test]
     fn parse_int_hex_and_binary() {
-        assert_eq!(parse_int("0xFF_AB"), Some(0xFF_AB));
-        assert_eq!(parse_int("0b10_10"), Some(0b10_10));
+        assert_eq!(parse_int("0xFF_AB"), Ok(0xFF_AB));
+        assert_eq!(parse_int("0b10_10"), Ok(0b10_10));
     }
 
     #[test]
-    fn parse_int_overflow_is_none() {
-        assert_eq!(parse_int("99999999999999999999"), None);
-        assert_eq!(parse_int("0xFFFFFFFFFFFFFFFFF"), None);
+    fn parse_int_overflow_is_distinguished_from_no_digits() {
+        assert_eq!(
+            parse_int("99999999999999999999"),
+            Err(IntParseError::Overflow)
+        );
+        assert_eq!(
+            parse_int("0xFFFFFFFFFFFFFFFFF"),
+            Err(IntParseError::Overflow)
+        );
+        assert_eq!(parse_int("0x_"), Err(IntParseError::NoDigits));
+        assert_eq!(parse_int("0b_"), Err(IntParseError::NoDigits));
+        assert_eq!(parse_int("0b__"), Err(IntParseError::NoDigits));
     }
 
     #[test]
@@ -315,5 +385,25 @@ mod tests {
             "a\nb\tc\"d\\e#f"
         );
         assert_eq!(unescape_string_text("plain"), "plain");
+    }
+
+    #[test]
+    fn unescape_checked_reports_unknown_escapes() {
+        let (text, unknown) = unescape_string_text_checked(r#"a\qb"#);
+        assert_eq!(text, "aqb");
+        assert_eq!(
+            unknown,
+            vec![UnknownEscape {
+                offset: 1,
+                escaped: 'q'
+            }]
+        );
+    }
+
+    #[test]
+    fn unescape_checked_accepts_every_valid_escape_with_no_reports() {
+        let (text, unknown) = unescape_string_text_checked(r#"a\nb\tc\"d\\e\#f"#);
+        assert_eq!(text, "a\nb\tc\"d\\e#f");
+        assert!(unknown.is_empty());
     }
 }

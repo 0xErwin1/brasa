@@ -16,8 +16,24 @@ impl<'a> Parser<'a> {
     /// that inconsistency by accepting either an `Ident` or a `TypeIdent`
     /// as a type name.
     pub(crate) fn parse_type(&mut self) -> TypeExprId {
-        match self.kind() {
-            TokenKind::Ident | TokenKind::TypeIdent => self.parse_named_type(),
+        if !self.enter_recursion() {
+            let span = self.span();
+            let bail = self.ast.alloc_type_expr(
+                TypeExpr::Named {
+                    name: "<error>".to_string(),
+                    args: Vec::new(),
+                },
+                span,
+            );
+            self.exit_recursion();
+            return bail;
+        }
+
+        let result = match self.kind() {
+            // `unit` lexes as its own keyword (`TokenKind::Unit`), not as
+            // a lowercase `Ident`, so it needs its own arm even though it
+            // is otherwise an ordinary named primitive type.
+            TokenKind::Ident | TokenKind::TypeIdent | TokenKind::Unit => self.parse_named_type(),
             TokenKind::LParen => self.parse_paren_or_fn_type(),
             _ => {
                 let span = self.span();
@@ -30,7 +46,10 @@ impl<'a> Parser<'a> {
                     span,
                 )
             }
-        }
+        };
+
+        self.exit_recursion();
+        result
     }
 
     fn parse_named_type(&mut self) -> TypeExprId {

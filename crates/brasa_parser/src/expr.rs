@@ -153,7 +153,21 @@ impl<'a> Parser<'a> {
     }
 
     /// The Pratt loop for binary operators at precedence levels 2-10.
+    ///
+    /// This is the single reentry point for the whole expression mutual
+    /// recursion cluster (parens, vectors, maps, call arguments, lambda
+    /// bodies, `if`/`match` branches, ...): every one of those constructs
+    /// reaches a fresh primary through [`Self::parse_expr`], which always
+    /// comes back through here. Guarding recursion here alone is enough
+    /// to bound the whole cluster's native stack usage.
     fn parse_bp(&mut self, min_bp: u8) -> ExprId {
+        if !self.enter_recursion() {
+            let span = self.span();
+            let bail = self.ast.alloc_expr(Expr::Unit, span);
+            self.exit_recursion();
+            return bail;
+        }
+
         let start = self.ast_start_span();
         let mut lhs = self.parse_unary();
         let mut just_built_range = false;
@@ -211,6 +225,7 @@ impl<'a> Parser<'a> {
             just_built_range = is_range;
         }
 
+        self.exit_recursion();
         lhs
     }
 
@@ -440,8 +455,14 @@ impl<'a> Parser<'a> {
 
         match self.kind() {
             TokenKind::Int => {
-                let value = brasa_token::parse_int(self.slice()).unwrap_or_else(|| {
-                    self.error_at(start, "integer literal out of range".to_string());
+                let value = brasa_token::parse_int(self.slice()).unwrap_or_else(|err| {
+                    let message = match err {
+                        brasa_token::IntParseError::NoDigits => {
+                            "integer literal has no digits after its `0x`/`0b` prefix"
+                        }
+                        brasa_token::IntParseError::Overflow => "integer literal out of range",
+                    };
+                    self.error_at(start, message.to_string());
                     0
                 });
                 self.bump();
@@ -458,7 +479,8 @@ impl<'a> Parser<'a> {
                 self.ast.alloc_expr(Expr::Bool(value), start)
             }
             TokenKind::Char => {
-                let value = crate::pattern::parse_char_literal(self.slice());
+                let (value, unknown_escape) = crate::pattern::parse_char_literal(self.slice());
+                self.report_char_unknown_escape(start, unknown_escape);
                 self.bump();
                 self.ast.alloc_expr(Expr::Char(value), start)
             }
@@ -520,10 +542,21 @@ impl<'a> Parser<'a> {
         } else if self.at(TokenKind::LBrace) {
             self.bump();
             let mut fields = Vec::new();
+            let mut seen_fields = std::collections::HashSet::new();
 
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
                 let checkpoint = self.pos;
+                let field_start = self.span();
                 let field_name = self.expect_ident_text("a field name");
+                // A repeated field is recovery-friendly, not fatal: report
+                // it and keep both occurrences in the AST (the checker's
+                // problem, not the parser's, to decide which value wins).
+                if !seen_fields.insert(field_name.clone()) {
+                    self.error_at(
+                        field_start,
+                        format!("duplicate field `{field_name}` in struct literal"),
+                    );
+                }
                 self.expect(TokenKind::Colon, "':' before the field value");
                 let value = self.parse_expr();
                 fields.push((field_name, value));
@@ -797,7 +830,9 @@ impl<'a> Parser<'a> {
                     let text = if raw {
                         slice.to_string()
                     } else {
-                        brasa_token::unescape_string_text(slice)
+                        let (text, unknown) = brasa_token::unescape_string_text_checked(slice);
+                        self.report_unknown_escapes(tok.span, &unknown);
+                        text
                     };
                     parts.push(StringPart::Text { text, raw });
                 }
@@ -865,5 +900,21 @@ impl<'a> Parser<'a> {
     /// be parsed; a plain read of the current token's span.
     fn ast_start_span(&self) -> Span {
         self.span()
+    }
+
+    /// Reports every `UnknownEscape` found in a `StringText` token, one
+    /// diagnostic per escape at its exact span (see
+    /// [`Parser::report_unknown_escape`]).
+    fn report_unknown_escapes(&mut self, text_span: Span, unknown: &[brasa_token::UnknownEscape]) {
+        for esc in unknown {
+            let backslash_start = text_span.start.0 + esc.offset;
+            let end = backslash_start + 1 + esc.escaped.len_utf8() as u32;
+            let span = Span::new(
+                text_span.file,
+                brasa_source::BytePosition(backslash_start),
+                brasa_source::BytePosition(end),
+            );
+            self.report_unknown_escape(span, esc.escaped);
+        }
     }
 }

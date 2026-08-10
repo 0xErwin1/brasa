@@ -10,7 +10,16 @@ use crate::Parser;
 impl<'a> Parser<'a> {
     /// `block = ( stmt NL )*`, stopping at any of `terminators`, `end` of
     /// input, or (for arm bodies elsewhere) a line that starts a new arm.
+    ///
+    /// The reentry point for statement/block mutual recursion (nested
+    /// `if`/`while`/`for`/`def`/... bodies all come back through here), so
+    /// this is where that cluster's recursion depth is guarded.
     pub(crate) fn parse_block(&mut self, terminators: &[TokenKind]) -> Block {
+        if !self.enter_recursion() {
+            self.exit_recursion();
+            return Vec::new();
+        }
+
         let mut stmts = Vec::new();
         self.skip_stmt_seps();
 
@@ -33,6 +42,7 @@ impl<'a> Parser<'a> {
             self.ensure_progress(checkpoint);
         }
 
+        self.exit_recursion();
         stmts
     }
 
@@ -40,6 +50,11 @@ impl<'a> Parser<'a> {
     /// also stops as soon as the current line looks like the start of
     /// another arm (see [`Parser::line_has_top_level_fat_arrow`]).
     pub(crate) fn parse_arm_block(&mut self) -> Block {
+        if !self.enter_recursion() {
+            self.exit_recursion();
+            return Vec::new();
+        }
+
         let mut stmts = Vec::new();
         self.skip_stmt_seps();
 
@@ -53,6 +68,7 @@ impl<'a> Parser<'a> {
             self.ensure_progress(checkpoint);
         }
 
+        self.exit_recursion();
         stmts
     }
 

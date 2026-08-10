@@ -320,6 +320,15 @@ impl<'a> Parser<'a> {
         let end_tok = self.expect(TokenKind::End, "'end' to close the enum");
         let end = end_tok.map(|t| t.span).unwrap_or_else(|| self.span());
 
+        // Grammar: `enum_def = ... NL variant+ "end"` — at least one
+        // variant is required.
+        if variants.is_empty() {
+            self.error_at(
+                Span::merge(&start, &end),
+                format!("enum `{name}` must have at least one variant"),
+            );
+        }
+
         self.ast.alloc_item(
             Item::EnumDef(EnumDef {
                 is_pub,
@@ -364,6 +373,15 @@ impl<'a> Parser<'a> {
 
         let end_tok = self.expect(TokenKind::End, "'end' to close the interface");
         let end = end_tok.map(|t| t.span).unwrap_or_else(|| self.span());
+
+        // Grammar: `interface_def = ... NL iface_member+ "end"` — at least
+        // one member is required.
+        if methods.is_empty() {
+            self.error_at(
+                Span::merge(&start, &end),
+                format!("interface `{name}` must have at least one member"),
+            );
+        }
 
         self.ast.alloc_item(
             Item::InterfaceDef(InterfaceDef {

@@ -312,6 +312,32 @@ fn scan_string_segment(rest: &str, raw: bool) -> (usize, StringSegmentEnd) {
     (rest.len(), StringSegmentEnd::UnterminatedEof)
 }
 
+/// Scans forward from just after an opening `'` that failed to match the
+/// `CHAR` token (its contents are not a single scalar or a single escape,
+/// e.g. `'ab'`), looking for a plausible closing `'` so the whole
+/// malformed literal can be reported as one diagnostic instead of one per
+/// stray character reached by generic "unexpected character" recovery.
+/// Stops at a newline (char literals never span lines) or EOF.
+///
+/// Returns the byte length up to (not including) the closing quote, and
+/// whether one was found.
+fn scan_malformed_char_literal(rest: &str) -> (usize, bool) {
+    let mut i = 0usize;
+
+    while i < rest.len() {
+        let c = rest[i..].chars().next().expect("i < rest.len()");
+        if c == '\'' {
+            return (i, true);
+        }
+        if c == '\n' {
+            return (i, false);
+        }
+        i += c.len_utf8();
+    }
+
+    (rest.len(), false)
+}
+
 /// What the driver is currently scanning.
 #[derive(Clone, Copy)]
 enum Mode {
@@ -336,11 +362,29 @@ enum Mode {
 /// can keep consuming tokens after a bad character or an unterminated
 /// string/interpolation.
 pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
+    // A leading UTF-8 BOM (U+FEFF, 3 bytes) is silently skipped: some
+    // editors and Windows tooling prepend it, and it carries no meaning in
+    // Brasa source. The lexer itself only ever scans `content` (the text
+    // after the BOM), but every span it emits is shifted back by
+    // `bom_len` so it still indexes correctly into the original `source`
+    // this function was called with, preserving that contract for every
+    // caller of this public API.
+    let bom_len = source
+        .strip_prefix('\u{FEFF}')
+        .map_or(0, |_| '\u{FEFF}'.len_utf8()) as u32;
+    let content = &source[bom_len as usize..];
+
     let mut tokens = Vec::new();
     let mut errors = Vec::new();
-    let mut lexer = Main::lexer(source);
+    let mut lexer = Main::lexer(content);
     let mut modes = vec![Mode::MainTop];
-    let span_at = |start: u32, end: u32| Span::new(file, BytePosition(start), BytePosition(end));
+    let span_at = |start: u32, end: u32| {
+        Span::new(
+            file,
+            BytePosition(start + bom_len),
+            BytePosition(end + bom_len),
+        )
+    };
 
     loop {
         let mode = *modes.last().expect("mode stack is never empty");
@@ -349,7 +393,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
             Mode::MainTop | Mode::MainInterp { .. } => {
                 let Some(result) = lexer.next() else {
                     if matches!(mode, Mode::MainInterp { .. }) {
-                        let pos = source.len() as u32;
+                        let pos = content.len() as u32;
                         let span = span_at(pos, pos);
                         errors.push(LexError {
                             message: "unterminated interpolation".to_string(),
@@ -369,7 +413,12 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         if extra > 0 {
                             lexer.bump(extra as usize);
                         }
-                        tokens.push(Token::new(kind, span_at(span.start.0, span.end.0 + extra)));
+                        // `span` is already absolute (shifted by `span_at`
+                        // above): extend its end in place rather than
+                        // reapplying `span_at`, which would shift twice.
+                        let extended =
+                            Span::new(span.file, span.start, BytePosition(span.end.0 + extra));
+                        tokens.push(Token::new(kind, extended));
                     }
                     Ok(Main::TypeIdent) => tokens.push(Token::new(TokenKind::TypeIdent, span)),
                     Ok(Main::Newline) => tokens.push(Token::new(TokenKind::Newline, span)),
@@ -399,6 +448,31 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         _ => tokens.push(Token::new(TokenKind::RBrace, span)),
                     },
                     Ok(other) => tokens.push(Token::new(simple_kind(other), span)),
+                    Err(()) if lexer.slice() == "'" => {
+                        // A lone `'` that didn't match `CHAR` at all (e.g.
+                        // `'ab'`, two scalars with no escape): treat it as
+                        // one malformed character literal spanning up to
+                        // the next `'` (or the end of the line/file if
+                        // none follows), rather than letting the generic
+                        // per-character fallback below fire twice (once
+                        // for the opening quote, once for the closing
+                        // one), which produced two identical-looking
+                        // "unexpected character" diagnostics for a single
+                        // root cause.
+                        let after_quote = raw_span.end;
+                        let (len, closed) = scan_malformed_char_literal(&content[after_quote..]);
+                        let consumed = len + usize::from(closed);
+                        if consumed > 0 {
+                            lexer.bump(consumed);
+                        }
+                        let full_span =
+                            span_at(raw_span.start as u32, (after_quote + consumed) as u32);
+                        errors.push(LexError {
+                            message: "malformed character literal".to_string(),
+                            span: full_span,
+                        });
+                        tokens.push(Token::new(TokenKind::Error, full_span));
+                    }
                     Err(()) => {
                         let text = lexer.slice();
                         errors.push(LexError {
@@ -411,7 +485,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
             }
             Mode::Str { raw } => {
                 let start = lexer.span().end;
-                let rest = &source[start..];
+                let rest = &content[start..];
                 let (len, end) = scan_string_segment(rest, raw);
 
                 if len > 0 {
@@ -451,7 +525,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
         }
     }
 
-    let eof = source.len() as u32;
+    let eof = content.len() as u32;
     tokens.push(Token::new(TokenKind::Eof, span_at(eof, eof)));
     (tokens, errors)
 }

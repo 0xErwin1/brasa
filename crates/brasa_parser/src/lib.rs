@@ -38,7 +38,7 @@ mod type_expr;
 use brasa_ast::{Ast, ItemId};
 use brasa_diagnostics::{Diagnostic, Severity};
 use brasa_lexer::LexError;
-use brasa_source::{FileId, Span};
+use brasa_source::{BytePosition, FileId, Span};
 use brasa_token::{Token, TokenKind};
 
 /// The output of parsing one file: the AST arenas, the top-level item IDs
@@ -72,6 +72,7 @@ pub fn parse(source: &str, file: FileId) -> ParseResult {
     }
 
     diagnostics.sort_by_key(|d| (d.primary_span.start.0, d.primary_span.end.0));
+    dedup_identical_diagnostics(&mut diagnostics);
 
     ParseResult {
         ast: parser.ast,
@@ -80,6 +81,36 @@ pub fn parse(source: &str, file: FileId) -> ParseResult {
         lex_errors,
     }
 }
+
+/// Final backstop against diagnostic cascades: drops any diagnostic that
+/// repeats the exact `(message, primary_span)` of one already kept.
+///
+/// The parser's own `Parser::should_report_at` guard (and the lexer's
+/// malformed-character-literal recovery) handle the common cascade shapes
+/// at their source; this is a cheap, purely structural safety net for
+/// whatever exact duplicate still slips through (e.g. two independent
+/// productions that happen to fail with the same wording at the same
+/// span), never for near-duplicates with different wording.
+fn dedup_identical_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
+    let mut seen = std::collections::HashSet::new();
+    diagnostics.retain(|d| seen.insert((d.message.clone(), d.primary_span)));
+}
+
+/// Upper bound on mutual recursion depth across expressions, statements,
+/// types, and patterns; see [`Parser::enter_recursion`].
+///
+/// 420 rather than a rounder number like 500: each nesting level costs
+/// several real Rust stack frames (`parse_pipe` -> `parse_bp` ->
+/// `parse_unary` -> `parse_postfix` -> `parse_primary` -> the construct's
+/// own parser -> back to `parse_expr`, for the expression cluster alone),
+/// and this is unoptimized debug code with no inlining. Empirically, on
+/// this workspace's default `cargo test` thread stack, unguarded parens
+/// nesting starts overflowing the native stack between roughly 470 and
+/// 480 levels — comfortably above 400 (which must still parse with zero
+/// diagnostics, see `crates/brasa_parser/tests/hardening.rs`) but well
+/// below 500. 420 keeps a solid margin under the observed crash point
+/// while staying above 400.
+const MAX_RECURSION_DEPTH: u32 = 420;
 
 /// The parser's cursor and accumulated output. Every `parse_*` method
 /// across this crate's modules is an inherent method on `Parser`.
@@ -92,6 +123,28 @@ struct Parser<'a> {
     /// Count of unmatched `(`/`[`/`{` currently open. Greater than zero
     /// makes [`Parser::normalize`] skip newlines automatically.
     depth: u32,
+    /// Current mutual-recursion depth across expr/stmt/type/pattern entry
+    /// points, guarded by [`Parser::enter_recursion`]/[`Parser::exit_recursion`].
+    recursion_depth: u32,
+    /// Set once [`MAX_RECURSION_DEPTH`] is exceeded. While set, the cursor
+    /// has already been fast-forwarded to `Eof` and every further
+    /// diagnostic is suppressed, so a single too-deep report is the only
+    /// output for the rest of this parse.
+    poisoned: bool,
+    /// The span of the last diagnostic emitted while the cursor sat at
+    /// its current position, reset to `None` every time [`Parser::bump`]
+    /// actually advances the cursor.
+    ///
+    /// Backs the diagnostic-cascade guard in [`Parser::error_expected`]/
+    /// [`Parser::error_at`]: a stuck cursor (an `expect`/`error_expected`
+    /// call that leaves `pos` untouched) commonly gets re-attempted by
+    /// several downstream productions in the same statement — e.g.
+    /// `let mut mut a = 1` fails a parameter-name check, then a `=` check,
+    /// then an expression check, all still looking at the same `mut`
+    /// token — which previously stacked one near-identical diagnostic per
+    /// attempt. Suppressing a second diagnostic at the same span keeps
+    /// exactly the first, most specific report for that root cause.
+    last_error_span: Option<Span>,
 }
 
 impl<'a> Parser<'a> {
@@ -103,7 +156,50 @@ impl<'a> Parser<'a> {
             ast: Ast::new(),
             diagnostics: Vec::new(),
             depth: 0,
+            recursion_depth: 0,
+            poisoned: false,
+            last_error_span: None,
         }
+    }
+
+    /// Marks entry into one level of expr/stmt/type/pattern mutual
+    /// recursion, returning whether it is safe to actually recurse.
+    ///
+    /// Every call must be paired with [`Parser::exit_recursion`] on every
+    /// return path, including the bail-out one: the counter always tracks
+    /// real call-stack depth so it can be trusted the next time the limit
+    /// is checked.
+    ///
+    /// On first exceeding [`MAX_RECURSION_DEPTH`], this emits exactly one
+    /// diagnostic and fast-forwards the cursor to `Eof`. Fast-forwarding
+    /// is what keeps the rest of this parse cheap and silent: every
+    /// unwinding caller's own "did I make progress"/"is this the
+    /// terminator" checks see `Eof` immediately and return without
+    /// recursing or emitting further diagnostics.
+    fn enter_recursion(&mut self) -> bool {
+        self.recursion_depth += 1;
+
+        if self.recursion_depth <= MAX_RECURSION_DEPTH {
+            return true;
+        }
+
+        if !self.poisoned {
+            self.poisoned = true;
+            let span = self.span();
+            self.diagnostics.push(Diagnostic::new(
+                Severity::Error,
+                format!("nesting too deep (limit {MAX_RECURSION_DEPTH})"),
+                "BRS-PARSE".to_string(),
+                span,
+            ));
+            self.pos = self.tokens.len() - 1;
+        }
+
+        false
+    }
+
+    fn exit_recursion(&mut self) {
+        self.recursion_depth = self.recursion_depth.saturating_sub(1);
     }
 
     fn tok(&self) -> Token {
@@ -147,6 +243,7 @@ impl<'a> Parser<'a> {
     fn bump(&mut self) -> Token {
         let tok = self.tok();
         self.pos += 1;
+        self.last_error_span = None;
 
         match tok.kind {
             TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => self.depth += 1,
@@ -182,8 +279,14 @@ impl<'a> Parser<'a> {
     }
 
     fn error_expected(&mut self, what: &str) {
-        let found = self.describe_current();
+        if self.poisoned {
+            return;
+        }
         let span = self.span();
+        if !self.should_report_at(span) {
+            return;
+        }
+        let found = self.describe_current();
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Error,
@@ -195,7 +298,57 @@ impl<'a> Parser<'a> {
         );
     }
 
+    /// The diagnostic-cascade guard shared by [`Parser::error_expected`]
+    /// and [`Parser::error_at`]: reports whether a diagnostic at `span`
+    /// should actually be pushed, given [`Parser::last_error_span`].
+    ///
+    /// A stuck cursor (see the field docs) makes several unrelated
+    /// productions re-diagnose the exact same token in a row; only the
+    /// first such diagnostic is kept; the cursor moving on via
+    /// [`Parser::bump`] resets the guard so a genuinely new problem at the
+    /// same span later in the file is still reported.
+    fn should_report_at(&mut self, span: Span) -> bool {
+        if self.last_error_span == Some(span) {
+            return false;
+        }
+        self.last_error_span = Some(span);
+        true
+    }
+
+    /// Reports one unknown escape sequence (`\<c>` outside the shared
+    /// `\n \t \" \\ \#` escape set) at its exact span, per the ruling in
+    /// `docs/spec/02-grammar.md`'s ambiguity table: this is always an
+    /// error, never a silent drop or pass-through, in both string and
+    /// char literals. Shared by
+    /// `expr.rs`'s string-literal decoding and `pattern.rs`'s char-literal
+    /// decoding, both of which reach an unknown escape through
+    /// `brasa_token`'s validating decoders.
+    fn report_unknown_escape(&mut self, span: Span, escaped: char) {
+        self.error_at(span, format!("unknown escape sequence `\\{escaped}`"));
+    }
+
+    /// Reports a `CHAR` token's unknown escape, if any, at the exact
+    /// byte range of its `\<c>` inside `char_span` (the backslash sits
+    /// right after the opening `'`, at byte offset 1).
+    fn report_char_unknown_escape(&mut self, char_span: Span, unknown_escape: Option<char>) {
+        let Some(escaped) = unknown_escape else {
+            return;
+        };
+
+        let backslash_start = char_span.start.0 + 1;
+        let end = backslash_start + 1 + escaped.len_utf8() as u32;
+        let span = Span::new(
+            char_span.file,
+            BytePosition(backslash_start),
+            BytePosition(end),
+        );
+        self.report_unknown_escape(span, escaped);
+    }
+
     fn error_at(&mut self, span: Span, message: String) {
+        if self.poisoned || !self.should_report_at(span) {
+            return;
+        }
         self.diagnostics.push(Diagnostic::new(
             Severity::Error,
             message,

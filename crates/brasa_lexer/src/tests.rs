@@ -77,11 +77,14 @@ snapshot!(float_exp, "1.0e-9");
 
 #[test]
 fn parse_int_and_float_helpers_match_lexed_values() {
-    assert_eq!(brasa_token::parse_int("1_000_000"), Some(1_000_000));
-    assert_eq!(brasa_token::parse_int("0xFF_AB"), Some(0xFF_AB));
-    assert_eq!(brasa_token::parse_int("0b10_10"), Some(0b10_10));
+    assert_eq!(brasa_token::parse_int("1_000_000"), Ok(1_000_000));
+    assert_eq!(brasa_token::parse_int("0xFF_AB"), Ok(0xFF_AB));
+    assert_eq!(brasa_token::parse_int("0b10_10"), Ok(0b10_10));
     assert_eq!(brasa_token::parse_float("1.0e-9"), Some(1.0e-9));
-    assert_eq!(brasa_token::parse_int("99999999999999999999"), None);
+    assert_eq!(
+        brasa_token::parse_int("99999999999999999999"),
+        Err(brasa_token::IntParseError::Overflow)
+    );
 }
 
 // --- newlines & comments ---
@@ -125,6 +128,26 @@ fn lexing_continues_after_an_error() {
     assert_eq!(tokens[1].kind, brasa_token::TokenKind::Error);
     assert_eq!(tokens[2].kind, brasa_token::TokenKind::Ident);
     assert_eq!(tokens[3].kind, brasa_token::TokenKind::Eof);
+}
+
+// --- fix3: a leading UTF-8 BOM is skipped, spans stay absolute ---
+
+#[test]
+fn fix3_leading_bom_is_skipped_and_spans_index_into_the_original_source() {
+    let source = "\u{FEFF}let x = 1\n";
+    let (tokens, errors) = lex(source, FileId::new(0));
+
+    assert!(errors.is_empty(), "unexpected lex errors: {errors:#?}");
+
+    // The BOM is 3 bytes; `let` must start right after it, and every span
+    // must still index correctly into the original (BOM-prefixed) source.
+    let let_token = tokens[0];
+    assert_eq!(let_token.kind, brasa_token::TokenKind::Let);
+    assert_eq!(let_token.span.start.0, 3);
+    assert_eq!(
+        &source[let_token.span.start.0 as usize..let_token.span.end.0 as usize],
+        "let"
+    );
 }
 
 // --- integration: the full example program from docs/spec/01-syntax.md ---

@@ -10,6 +10,19 @@ impl<'a> Parser<'a> {
     /// `pattern = "_" | literal | IDENT | TYPE_IDENT ("(" pattern ("," pattern)* ")")?
     ///          | "(" pattern ("," pattern)* ")"`.
     pub(crate) fn parse_pattern(&mut self) -> PatternId {
+        if !self.enter_recursion() {
+            let span = self.span();
+            let bail = self.ast.alloc_pattern(Pattern::Wildcard, span);
+            self.exit_recursion();
+            return bail;
+        }
+
+        let result = self.parse_pattern_inner();
+        self.exit_recursion();
+        result
+    }
+
+    fn parse_pattern_inner(&mut self) -> PatternId {
         let start = self.span();
 
         match self.kind() {
@@ -36,7 +49,8 @@ impl<'a> Parser<'a> {
                     .alloc_pattern(Pattern::Literal(Literal::Bool(value)), start)
             }
             TokenKind::Char => {
-                let value = parse_char_literal(self.slice());
+                let (value, unknown_escape) = parse_char_literal(self.slice());
+                self.report_char_unknown_escape(start, unknown_escape);
                 self.bump();
                 self.ast
                     .alloc_pattern(Pattern::Literal(Literal::Char(value)), start)
@@ -110,20 +124,26 @@ impl<'a> Parser<'a> {
 }
 
 /// Decodes a `CHAR` token's text (including its surrounding quotes),
-/// applying the same small escape set as strings.
-pub(crate) fn parse_char_literal(text: &str) -> char {
+/// applying the same escape set as strings (`\n \t \" \\ \#`, per
+/// `docs/spec/02-grammar.md`'s ambiguity table: "unknown escapes ... in
+/// both string and char literals"). Any other `\<c>` is an unknown
+/// escape (an ERROR, never silently passed through), reported as
+/// `Some(c)` alongside the best-effort decoded value the caller still
+/// uses to keep parsing.
+pub(crate) fn parse_char_literal(text: &str) -> (char, Option<char>) {
     let inner = &text[1..text.len() - 1];
 
     if let Some(rest) = inner.strip_prefix('\\') {
         match rest.chars().next() {
-            Some('n') => '\n',
-            Some('t') => '\t',
-            Some('\'') => '\'',
-            Some('\\') => '\\',
-            Some(other) => other,
-            None => '\\',
+            Some('n') => ('\n', None),
+            Some('t') => ('\t', None),
+            Some('"') => ('"', None),
+            Some('\\') => ('\\', None),
+            Some('#') => ('#', None),
+            Some(other) => (other, Some(other)),
+            None => ('\\', None),
         }
     } else {
-        inner.chars().next().unwrap_or('\0')
+        (inner.chars().next().unwrap_or('\0'), None)
     }
 }

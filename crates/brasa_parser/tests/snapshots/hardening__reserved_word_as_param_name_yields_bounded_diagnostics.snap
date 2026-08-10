@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/hardening.rs
+expression: messages(&result)
+---
+[
+    "expected a parameter name, found `let`",
+    "expected a variable name, found `:`",
+    "expected '=' in let binding, found `)`",
+]

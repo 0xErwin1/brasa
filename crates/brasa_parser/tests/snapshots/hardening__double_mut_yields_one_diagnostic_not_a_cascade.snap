@@ -1,0 +1,7 @@
+---
+source: crates/brasa_parser/tests/hardening.rs
+expression: messages(&result)
+---
+[
+    "expected a variable name, found `mut`",
+]

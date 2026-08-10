@@ -1,0 +1,8 @@
+---
+source: crates/brasa_parser/tests/hardening.rs
+expression: messages(&result)
+---
+[
+    "expected an expression, found `'ab'`",
+    "malformed character literal",
+]
