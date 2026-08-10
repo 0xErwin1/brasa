@@ -244,6 +244,74 @@ let early = 1
 "#
 );
 
+resolution_test!(
+    file_import_missing_target_still_binds_stem,
+    r#"
+import "./tools/missing.brs"
+
+def run(path: string): string
+  missing.transform(path)
+end
+"#
+);
+
+/// After a same-scope duplicate `let`, the newer binding must win:
+/// later references resolve to it, not to the stale one, and exactly one
+/// duplicate diagnostic is reported.
+#[test]
+fn duplicate_binding_newer_wins() {
+    let source = r#"
+def go(): int
+  let a = 1
+  let a = 2
+  a
+end
+"#;
+    let (_lowered, resolved, _map) = resolve_source("duplicate_binding_newer_wins", source);
+
+    assert_eq!(
+        resolved.diagnostics.len(),
+        1,
+        "expected exactly the duplicate diagnostic, got: {:#?}",
+        resolved.diagnostics
+    );
+    assert!(
+        resolved.diagnostics[0]
+            .message
+            .contains("duplicate definition of `a`"),
+        "unexpected message: {}",
+        resolved.diagnostics[0].message
+    );
+
+    let tables = &resolved.resolutions;
+    let a_locals: Vec<brasa_resolver::LocalId> = tables
+        .stmt_locals
+        .values()
+        .copied()
+        .filter(|&local| tables.local(local).name == "a")
+        .collect();
+    assert_eq!(a_locals.len(), 2, "both `let a` sites allocate a local");
+    let newest = *a_locals
+        .iter()
+        .max_by_key(|local| local.0)
+        .expect("two locals");
+
+    let a_refs: Vec<brasa_resolver::Res> = tables
+        .expr_res
+        .values()
+        .copied()
+        .filter(|res| matches!(res, brasa_resolver::Res::Local(local) if tables.local(*local).name == "a"))
+        .collect();
+    assert!(!a_refs.is_empty(), "the trailing `a` reference is recorded");
+    for res in a_refs {
+        assert_eq!(
+            res,
+            brasa_resolver::Res::Local(newest),
+            "references after the duplicate must resolve to the newer binding"
+        );
+    }
+}
+
 resolution_error_test!(
     ambiguous_ctor_and_bad_constraint,
     r#"
