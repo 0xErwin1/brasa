@@ -10,6 +10,8 @@ alternative. Tokens are UPPERCASE, keywords are quoted.
 IDENT      = [a-zA-Z_][a-zA-Z0-9_]* ("?" | "!")?     # convention: camelCase; pred? and mut!
 TYPE_IDENT = [A-Z][a-zA-Z0-9_]*                       # types and constructors, PascalCase
 INT        = [0-9][0-9_]* | "0x" [0-9a-fA-F_]+ | "0b" [01_]+     # no octal
+             (* underscore placement is lenient: 1_, 1__000 accepted;
+                0x_/0b_ with no digits is an error *)
 FLOAT      = [0-9][0-9_]* "." [0-9]+ ( "e" [+-]? [0-9]+ )?
 STRING     = '"' ... '"'            # interpolation #{expr} NESTABLE to any
                                     # depth; escapes \n \t \" \\ \#
@@ -202,7 +204,8 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | `puts` | not a keyword: it's a stdlib function (`io.puts`, re-exported to the prelude) |
 | inline `if` vs multi-line | the token after the condition decides: `then` → inline form (single-expression branches), `NL` → block form |
 | call vs field | parentheses are **mandatory** in calls in expression position: `v.len()` calls, `p.x` is field access. Exceptions: statement-position command calls and trailing `do`-blocks (see below) |
-| command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`) |
+| command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`). A leading `-` binds as binary subtraction, not as a negative first argument: `puts -x` is `puts - x`; write `puts(-x)` |
+| unknown escapes | `\<c>` for any `c` outside the escape set (`\n \t \" \\ \#`) is an ERROR in both string and char literals — never silently dropped or passed through. Raw strings are unaffected (no escapes at all) |
 | `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()` |
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |
 
