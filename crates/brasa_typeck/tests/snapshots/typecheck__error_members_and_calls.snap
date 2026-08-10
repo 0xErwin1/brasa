@@ -2,70 +2,70 @@
 source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
-[BRS-TYPECK] Error: struct `Point` has no field or method `z`
+[T007] Error: struct `Point` has no field or method `z`
     ╭─[ error_members_and_calls.brs:12:11 ]
     │
  12 │   let a = p.z
     │           ──┬─  
     │             ╰─── unknown member
 ────╯
-[BRS-TYPECK] Error: wrong number of arguments: expected 0, found 1
+[T005] Error: wrong number of arguments: expected 0, found 1
     ╭─[ error_members_and_calls.brs:13:11 ]
     │
  13 │   let b = p.sum(1)
     │           ────┬────  
     │               ╰────── expected 0 argument(s)
 ────╯
-[BRS-TYPECK] Error: missing field `y` in struct literal of `Point`
+[T022] Error: missing field `y` in struct literal of `Point`
     ╭─[ error_members_and_calls.brs:14:13 ]
     │
  14 │   let lit = Point { x: 1, z: 3 }
     │             ──────────┬──────────  
     │                       ╰──────────── field not provided
 ────╯
-[BRS-TYPECK] Error: unknown field `z` on struct `Point`
+[T020] Error: unknown field `z` on struct `Point`
     ╭─[ error_members_and_calls.brs:14:30 ]
     │
  14 │   let lit = Point { x: 1, z: 3 }
     │                              ┬  
     │                              ╰── not a declared field
 ────╯
-[BRS-TYPECK] Error: mismatched types: expected `int`, found `string`
+[T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_members_and_calls.brs:15:26 ]
     │
  15 │   let pushed = nums.push("no")
     │                          ──┬──  
     │                            ╰──── expected `int`
 ────╯
-[BRS-TYPECK] Error: no method `shove` on `Vector<int>`
+[T007] Error: no method `shove` on `Vector<int>`
     ╭─[ error_members_and_calls.brs:16:16 ]
     │
  16 │   let shoved = nums.shove(1)
     │                ───────┬──────  
     │                       ╰──────── unknown method
 ────╯
-[BRS-TYPECK] Error: `join` requires `Vector<string>`, found `Vector<int>`
+[T008] Error: `join` requires `Vector<string>`, found `Vector<int>`
     ╭─[ error_members_and_calls.brs:17:15 ]
     │
  17 │   let glued = nums.join(", ")
     │               ────────┬───────  
     │                       ╰───────── element type is not `string`
 ────╯
-[BRS-TYPECK] Error: wrong number of arguments: expected 2, found 1
+[T005] Error: wrong number of arguments: expected 2, found 1
     ╭─[ error_members_and_calls.brs:25:9 ]
     │
  25 │ let r = two(1)
     │         ───┬───  
     │            ╰───── expected 2 argument(s)
 ────╯
-[BRS-TYPECK] Error: mismatched types: expected `int`, found `string`
+[T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_members_and_calls.brs:26:16 ]
     │
  26 │ let q = two(1, "x")
     │                ──┬─  
     │                  ╰─── expected `int`
 ────╯
-[BRS-TYPECK] Error: cannot call a value of type `int`
+[T006] Error: cannot call a value of type `int`
     ╭─[ error_members_and_calls.brs:27:14 ]
     │
  27 │ let called = two(1, 2)(3)

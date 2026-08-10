@@ -28,7 +28,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use brasa_diagnostics::{Diagnostic, Severity};
+use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir, IfNode,
     IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId, Stmt,
@@ -86,14 +86,14 @@ pub(crate) fn import_binding_name(import: &Import) -> Option<&str> {
     }
 }
 
-fn err(span: Span, message: String) -> Diagnostic {
-    Diagnostic::new(Severity::Error, message, "BRS-RESOLVE".to_string(), span)
+fn err(code: &'static str, span: Span, message: String) -> Diagnostic {
+    Diagnostic::new(Severity::Error, message, code.to_string(), span)
 }
 
 /// Like [`err`], with a label on the primary span so the renderer always
 /// shows the offending source.
-fn err_at(span: Span, message: String, label: &str) -> Diagnostic {
-    err(span, message).with_label(span, label.to_string())
+fn err_at(code: &'static str, span: Span, message: String, label: &str) -> Diagnostic {
+    err(code, span, message).with_label(span, label.to_string())
 }
 
 struct ValueBinding {
@@ -167,9 +167,13 @@ impl<'h> Resolver<'h> {
 
     fn duplicate_error(&mut self, name: &str, span: Span, prev_span: Span) {
         self.error(
-            err(span, format!("duplicate definition of `{name}`"))
-                .with_label(span, "redefined here".to_string())
-                .with_label(prev_span, "previously defined here".to_string()),
+            err(
+                codes::R_DUPLICATE_DEFINITION,
+                span,
+                format!("duplicate definition of `{name}`"),
+            )
+            .with_label(span, "redefined here".to_string())
+            .with_label(prev_span, "previously defined here".to_string()),
         );
     }
 
@@ -269,6 +273,7 @@ impl<'h> Resolver<'h> {
         if segments.first().map(String::as_str) != Some("std") {
             self.error(
                 err_at(
+                    codes::R_UNKNOWN_IMPORT_ROOT,
                     span,
                     format!("unknown import root `{}`", segments.join("::")),
                     "expected `std::` or a file path",
@@ -282,6 +287,7 @@ impl<'h> Resolver<'h> {
         if segments.len() != 2 || !STD_MODULES.contains(&module.as_str()) {
             self.error(
                 err_at(
+                    codes::R_UNKNOWN_STD_MODULE,
                     span,
                     format!("unknown std module `{module}`"),
                     "no such std module",
@@ -443,6 +449,7 @@ impl<'h> Resolver<'h> {
                     }
                     Some(_) => {
                         self.error(err_at(
+                            codes::R_NOT_AN_INTERFACE,
                             span,
                             format!("`{name}` is not an interface"),
                             "constraints must name an interface",
@@ -450,6 +457,7 @@ impl<'h> Resolver<'h> {
                     }
                     None => {
                         self.error(err_at(
+                            codes::R_UNKNOWN_TYPE,
                             span,
                             format!("unknown type `{name}`"),
                             "not found in this scope",
@@ -699,6 +707,7 @@ impl<'h> Resolver<'h> {
                     let span = hir.span_of_expr(id);
                     self.error(
                         err_at(
+                            codes::R_USE_BEFORE_DEF,
                             span,
                             format!("`{name}` is used before its definition"),
                             "used here",
@@ -709,6 +718,7 @@ impl<'h> Resolver<'h> {
                 ValueLookup::Missing => {
                     let span = hir.span_of_expr(id);
                     self.error(err_at(
+                        codes::R_UNKNOWN_NAME,
                         span,
                         format!("unknown name `{name}`"),
                         "not found in this scope",
@@ -722,6 +732,7 @@ impl<'h> Resolver<'h> {
                     let span = hir.span_of_expr(id);
                     self.error(
                         err_at(
+                            codes::R_SELF_OUTSIDE_METHOD,
                             span,
                             "`self` outside a method".to_string(),
                             "not inside a method",
@@ -810,6 +821,7 @@ impl<'h> Resolver<'h> {
                     None => {
                         let span = hir.span_of_expr(id);
                         self.error(err_at(
+                            codes::R_UNKNOWN_TYPE,
                             span,
                             format!("unknown type `{type_name}`"),
                             "not found in this scope",
@@ -938,6 +950,7 @@ impl<'h> Resolver<'h> {
             1 => Some(candidates[0].0),
             0 => {
                 self.error(err_at(
+                    codes::R_UNKNOWN_CONSTRUCTOR,
                     span,
                     format!("unknown constructor `{name}`"),
                     "not found in this scope",
@@ -948,6 +961,7 @@ impl<'h> Resolver<'h> {
                 let owners: Vec<&str> = candidates.iter().map(|(_, owner)| *owner).collect();
                 self.error(
                     err_at(
+                        codes::R_AMBIGUOUS_CONSTRUCTOR,
                         span,
                         format!("ambiguous constructor `{name}`"),
                         "matches more than one enum",
@@ -973,6 +987,7 @@ impl<'h> Resolver<'h> {
                     None => {
                         let span = hir.span_of_type_expr(id);
                         self.error(err_at(
+                            codes::R_UNKNOWN_TYPE,
                             span,
                             format!("unknown type `{name}`"),
                             "not found in this scope",

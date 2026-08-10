@@ -22,7 +22,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use brasa_diagnostics::{Diagnostic, Severity};
+use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, BinaryOp, CatchArm, Constraint, EnumDef, Expr, ExprId, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal, MatchArm, Param, Pattern,
@@ -36,12 +36,12 @@ use crate::builtins::{self, MethodSig, RetRule};
 use crate::exhaust;
 use crate::types::{Type, WrapDecision, item_name, substitute, unify};
 
-fn err(span: Span, message: String) -> Diagnostic {
-    Diagnostic::new(Severity::Error, message, "BRS-TYPECK".to_string(), span)
+fn err(code: &'static str, span: Span, message: String) -> Diagnostic {
+    Diagnostic::new(Severity::Error, message, code.to_string(), span)
 }
 
-fn err_at(span: Span, message: String, label: &str) -> Diagnostic {
-    err(span, message).with_label(span, label.to_string())
+fn err_at(code: &'static str, span: Span, message: String, label: &str) -> Diagnostic {
+    err(code, span, message).with_label(span, label.to_string())
 }
 
 /// What a member lookup produced.
@@ -113,6 +113,7 @@ impl<'a> Checker<'a> {
         let expected = expected.display(self.hir);
         let found = found.display(self.hir);
         self.error(err_at(
+            codes::T_MISMATCHED_TYPES,
             span,
             format!("mismatched types: expected `{expected}`, found `{found}`"),
             &format!("expected `{expected}`"),
@@ -358,6 +359,7 @@ impl<'a> Checker<'a> {
             // Decision: top-level code has no function to return from.
             let span = self.hir.span_of_stmt(id);
             self.error(err_at(
+                codes::T_RETURN_OUTSIDE_FUNCTION,
                 span,
                 "`return` outside a function".to_string(),
                 "top-level code cannot return",
@@ -401,6 +403,7 @@ impl<'a> Checker<'a> {
             }
             _ => {
                 self.error(err_at(
+                    codes::T_INVALID_ASSIGNMENT_TARGET,
                     span,
                     "invalid assignment target".to_string(),
                     "not assignable",
@@ -427,6 +430,7 @@ impl<'a> Checker<'a> {
                 if !mutable {
                     self.error(
                         err_at(
+                            codes::T_CANNOT_ASSIGN,
                             span,
                             format!("cannot assign to immutable binding `{name}`"),
                             "reassigned here",
@@ -440,6 +444,7 @@ impl<'a> Checker<'a> {
             Some(Res::Item(item)) => self.check_item_assign(span, target, name, item, value),
             Some(Res::SelfParam) => {
                 self.error(err_at(
+                    codes::T_CANNOT_ASSIGN,
                     span,
                     "cannot assign to `self`".to_string(),
                     "not assignable",
@@ -448,6 +453,7 @@ impl<'a> Checker<'a> {
             }
             Some(Res::Builtin(_) | Res::Module(_)) => {
                 self.error(err_at(
+                    codes::T_CANNOT_ASSIGN,
                     span,
                     format!("cannot assign to `{name}`"),
                     "not assignable",
@@ -484,6 +490,7 @@ impl<'a> Checker<'a> {
                 if !mutable {
                     self.error(
                         err_at(
+                            codes::T_CANNOT_ASSIGN,
                             span,
                             format!("cannot assign to immutable binding `{name}`"),
                             "reassigned here",
@@ -496,6 +503,7 @@ impl<'a> Checker<'a> {
             }
             _ => {
                 self.error(err_at(
+                    codes::T_CANNOT_ASSIGN,
                     span,
                     format!("cannot assign to `{name}`"),
                     "not assignable",
@@ -520,6 +528,7 @@ impl<'a> Checker<'a> {
                 let span = self.hir.span_of_expr(iterable);
                 self.error(
                     err_at(
+                        codes::T_CANNOT_ITERATE,
                         span,
                         format!("cannot iterate over `{}`", other.display(self.hir)),
                         "not iterable",
@@ -669,6 +678,7 @@ impl<'a> Checker<'a> {
 
             if args.len() != 1 {
                 self.error(err_at(
+                    codes::T_WRONG_ARG_COUNT,
                     span,
                     format!(
                         "wrong number of arguments to `{name}`: expected 1, found {}",
@@ -713,6 +723,7 @@ impl<'a> Checker<'a> {
             }
             other => {
                 self.error(err_at(
+                    codes::T_NOT_CALLABLE,
                     span,
                     format!("cannot call a value of type `{}`", other.display(self.hir)),
                     "not callable",
@@ -728,6 +739,7 @@ impl<'a> Checker<'a> {
     fn check_args(&mut self, span: Span, args: &[ExprId], params: &[Type]) {
         if args.len() != params.len() {
             self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
                 span,
                 format!(
                     "wrong number of arguments: expected {}, found {}",
@@ -784,6 +796,7 @@ impl<'a> Checker<'a> {
 
         if args.len() != params.len() {
             self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
                 span,
                 format!(
                     "wrong number of arguments: expected {}, found {}",
@@ -846,6 +859,7 @@ impl<'a> Checker<'a> {
             if !poisoned.contains(&(owner, index)) {
                 let name = &generic.name;
                 self.error(err_at(
+                    codes::T_CANNOT_INFER_TYPE_PARAM,
                     span,
                     format!("cannot infer type parameter `{name}` of `{owner_name}`"),
                     "no argument determines it",
@@ -913,6 +927,7 @@ impl<'a> Checker<'a> {
                 self.tables.expr_types.insert(callee, other.clone());
                 if !other.is_flexible() {
                     self.error(err_at(
+                        codes::T_NOT_CALLABLE,
                         span,
                         format!("cannot call a value of type `{}`", other.display(self.hir)),
                         "not callable",
@@ -1075,7 +1090,8 @@ impl<'a> Checker<'a> {
                 ),
                 None => format!("`{shown}` has no constraint; no method `{name}`"),
             };
-            self.error(err_at(span, message, "unknown method").with_note(
+            self.error(
+                err_at(codes::T_UNKNOWN_MEMBER, span, message, "unknown method").with_note(
                 "only the constraint's members and the universal `toString` are available on a generic value"
                     .to_string(),
             ));
@@ -1084,6 +1100,7 @@ impl<'a> Checker<'a> {
 
         if let Type::Struct(..) = recv {
             self.error(err_at(
+                codes::T_UNKNOWN_MEMBER,
                 span,
                 format!("struct `{shown}` has no field or method `{name}`"),
                 "unknown member",
@@ -1095,6 +1112,7 @@ impl<'a> Checker<'a> {
             && name == "join"
         {
             self.error(err_at(
+                codes::T_JOIN_REQUIRES_STRING_VECTOR,
                 span,
                 format!("`join` requires `Vector<string>`, found `{shown}`"),
                 "element type is not `string`",
@@ -1103,6 +1121,7 @@ impl<'a> Checker<'a> {
         }
 
         self.error(err_at(
+            codes::T_UNKNOWN_MEMBER,
             span,
             format!("no method `{name}` on `{shown}`"),
             "unknown method",
@@ -1368,7 +1387,12 @@ impl<'a> Checker<'a> {
             ),
         };
 
-        let mut diag = err_at(span, message, "constraint not satisfied");
+        let mut diag = err_at(
+            codes::T_CONSTRAINT_NOT_SATISFIED,
+            span,
+            message,
+            "constraint not satisfied",
+        );
         if let Some(member) = missing {
             diag = diag.with_note(format!(
                 "`{shown}` has no member `{member}` with a compatible signature"
@@ -1400,6 +1424,7 @@ impl<'a> Checker<'a> {
                 let span = self.hir.span_of_expr(recv);
                 self.error(
                     err_at(
+                        codes::T_STRINGS_NOT_INDEXABLE,
                         span,
                         "strings are not indexable".to_string(),
                         "cannot index a string",
@@ -1416,6 +1441,7 @@ impl<'a> Checker<'a> {
                 self.check_expr(index, None);
                 let span = self.hir.span_of_expr(recv);
                 self.error(err_at(
+                    codes::T_CANNOT_INDEX,
                     span,
                     format!("cannot index `{}`", other.display(self.hir)),
                     "not indexable",
@@ -1439,6 +1465,7 @@ impl<'a> Checker<'a> {
                     other => {
                         let span = self.hir.span_of_expr(operand);
                         self.error(err_at(
+                            codes::T_INVALID_OPERANDS,
                             span,
                             format!(
                                 "operator `-` expects `int` or `float`, found `{}`",
@@ -1498,6 +1525,7 @@ impl<'a> Checker<'a> {
 
         let span = self.hir.span_of_expr(id);
         let mut diag = err_at(
+            codes::T_INVALID_OPERANDS,
             span,
             format!(
                 "invalid operands for `{}`: `{}` and `{}`",
@@ -1529,6 +1557,7 @@ impl<'a> Checker<'a> {
         if unify(&lt, &rt).is_none() {
             let span = self.hir.span_of_expr(id);
             self.error(err_at(
+                codes::T_CANNOT_COMPARE_EQUALITY,
                 span,
                 format!(
                     "cannot compare `{}` and `{}` for equality",
@@ -1562,6 +1591,7 @@ impl<'a> Checker<'a> {
         let span = self.hir.span_of_expr(id);
         if lt != rt {
             self.error(err_at(
+                codes::T_UNSUPPORTED_ORDERING,
                 span,
                 format!(
                     "cannot compare `{}` and `{}` with `{}`",
@@ -1575,6 +1605,7 @@ impl<'a> Checker<'a> {
             && !comparable_generic
         {
             self.error(err_at(
+                codes::T_UNSUPPORTED_ORDERING,
                 span,
                 format!(
                     "`{}` does not support ordering with `{}`",
@@ -1637,6 +1668,7 @@ impl<'a> Checker<'a> {
                     None => {
                         let span = self.hir.span_of_expr(id);
                         self.error(err_at(
+                            codes::T_LAMBDA_PARAM_NEEDS_ANNOTATION,
                             span,
                             format!("lambda parameter `{}` needs a type annotation", param.name),
                             "no type to infer from in this context",
@@ -1725,6 +1757,7 @@ impl<'a> Checker<'a> {
                 Some(joined) => acc = joined,
                 None => {
                     self.error(err_at(
+                        codes::T_BRANCH_TYPE_MISMATCH,
                         span,
                         format!(
                             "`if` branches have mismatched types: `{}` vs `{}`",
@@ -1772,6 +1805,7 @@ impl<'a> Checker<'a> {
                 None => {
                     let span = self.arm_span(arm.pattern, &arm.body);
                     self.error(err_at(
+                        codes::T_BRANCH_TYPE_MISMATCH,
                         span,
                         format!(
                             "`match` arms have mismatched types: `{}` vs `{}`",
@@ -1819,6 +1853,7 @@ impl<'a> Checker<'a> {
 
         let span = self.hir.span_of_expr(id);
         self.error(err_at(
+            codes::T_NON_EXHAUSTIVE_MATCH,
             span,
             format!("non-exhaustive match: {listed} not covered"),
             "add arms for the missing cases or a `_` arm",
@@ -1902,6 +1937,7 @@ impl<'a> Checker<'a> {
             let span = self.hir.span_of_expr(id);
             self.error(
                 err_at(
+                    codes::T_EMPTY_LITERAL_NO_TYPE,
                     span,
                     "cannot infer the element type of an empty vector literal".to_string(),
                     "no element to infer from",
@@ -1948,6 +1984,7 @@ impl<'a> Checker<'a> {
             let span = self.hir.span_of_expr(id);
             self.error(
                 err_at(
+                    codes::T_EMPTY_LITERAL_NO_TYPE,
                     span,
                     "cannot infer the key and value types of an empty map literal".to_string(),
                     "no entry to infer from",
@@ -2015,6 +2052,7 @@ impl<'a> Checker<'a> {
             None => None,
             Some(_) => {
                 self.error(err_at(
+                    codes::T_NOT_A_STRUCT,
                     span,
                     format!("`{type_name}` is not a struct"),
                     "only structs have literals",
@@ -2061,6 +2099,7 @@ impl<'a> Checker<'a> {
                 Some(&(_, field_ty)) => {
                     if seen.insert(name.as_str(), ()).is_some() {
                         self.error(err_at(
+                            codes::T_STRUCT_LIT_DUPLICATE_FIELD,
                             value_span,
                             format!("duplicate field `{name}` in struct literal"),
                             "already provided",
@@ -2079,6 +2118,7 @@ impl<'a> Checker<'a> {
                 }
                 None => {
                     self.error(err_at(
+                        codes::T_STRUCT_LIT_UNKNOWN_FIELD,
                         value_span,
                         format!("unknown field `{name}` on struct `{struct_display}`"),
                         "not a declared field",
@@ -2091,6 +2131,7 @@ impl<'a> Checker<'a> {
         for (name, _) in &declared {
             if !seen.contains_key(name.as_str()) {
                 self.error(err_at(
+                    codes::T_STRUCT_LIT_MISSING_FIELD,
                     span,
                     format!("missing field `{name}` in struct literal of `{struct_display}`"),
                     "field not provided",
@@ -2131,6 +2172,7 @@ impl<'a> Checker<'a> {
             Some(CtorRes::OptionSome) => {
                 if args.len() != 1 {
                     self.error(err_at(
+                        codes::T_WRONG_ARG_COUNT,
                         span,
                         format!("`Some` takes exactly 1 argument, found {}", args.len()),
                         "expected 1 argument",
@@ -2154,6 +2196,7 @@ impl<'a> Checker<'a> {
             Some(CtorRes::OptionNone) => {
                 if !args.is_empty() {
                     self.error(err_at(
+                        codes::T_WRONG_ARG_COUNT,
                         span,
                         "`None` takes no arguments".to_string(),
                         "unexpected arguments",
@@ -2222,6 +2265,7 @@ impl<'a> Checker<'a> {
         if let Some((variant_name, field_tys)) = self.variant(enum_item, variant_index) {
             if args.len() != field_tys.len() {
                 self.error(err_at(
+                    codes::T_WRONG_ARG_COUNT,
                     span,
                     format!(
                         "`{variant_name}` takes {} argument(s), found {}",
@@ -2280,6 +2324,7 @@ impl<'a> Checker<'a> {
 
         if args.len() != field_tys.len() {
             self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
                 span,
                 format!(
                     "`{variant_name}` takes {} argument(s), found {}",
@@ -2362,6 +2407,7 @@ impl<'a> Checker<'a> {
                     flexible if flexible.is_flexible() => Type::Unknown,
                     other => {
                         self.error(err_at(
+                            codes::T_PATTERN_TYPE_MISMATCH,
                             span,
                             format!(
                                 "`Some` pattern does not match type `{}`",
@@ -2375,6 +2421,7 @@ impl<'a> Checker<'a> {
 
                 if args.len() != 1 {
                     self.error(err_at(
+                        codes::T_WRONG_ARG_COUNT,
                         span,
                         format!(
                             "`Some` pattern takes exactly 1 argument, found {}",
@@ -2390,6 +2437,7 @@ impl<'a> Checker<'a> {
             Some(CtorRes::OptionNone) => {
                 if !matches!(expected, Type::Option(_)) && !expected.is_flexible() {
                     self.error(err_at(
+                        codes::T_PATTERN_TYPE_MISMATCH,
                         span,
                         format!(
                             "`None` pattern does not match type `{}`",
@@ -2400,6 +2448,7 @@ impl<'a> Checker<'a> {
                 }
                 if !args.is_empty() {
                     self.error(err_at(
+                        codes::T_WRONG_ARG_COUNT,
                         span,
                         "`None` pattern takes no arguments".to_string(),
                         "unexpected arguments",
@@ -2417,6 +2466,7 @@ impl<'a> Checker<'a> {
                 };
                 if !matches_scrutinee {
                     self.error(err_at(
+                        codes::T_PATTERN_TYPE_MISMATCH,
                         span,
                         format!(
                             "pattern for enum `{}` does not match type `{}`",
@@ -2449,6 +2499,7 @@ impl<'a> Checker<'a> {
 
                 if args.len() != field_tys.len() {
                     self.error(err_at(
+                        codes::T_WRONG_ARG_COUNT,
                         span,
                         format!(
                             "`{variant_name}` pattern takes {} argument(s), found {}",
@@ -2476,6 +2527,7 @@ impl<'a> Checker<'a> {
             }
             Type::Tuple(tys) => {
                 self.error(err_at(
+                    codes::T_PATTERN_TYPE_MISMATCH,
                     span,
                     format!(
                         "tuple pattern has {} element(s), but the scrutinee has {}",
@@ -2489,6 +2541,7 @@ impl<'a> Checker<'a> {
             flexible if flexible.is_flexible() => self.bind_patterns_unknown(elements),
             other => {
                 self.error(err_at(
+                    codes::T_PATTERN_TYPE_MISMATCH,
                     span,
                     format!(
                         "tuple pattern does not match type `{}`",
@@ -2555,6 +2608,7 @@ impl<'a> Checker<'a> {
             let span = self.hir.span_of_type_expr(id);
             let name = item_name(self.hir, item);
             self.error(err_at(
+                codes::T_WRONG_TYPE_ARG_COUNT,
                 span,
                 format!(
                     "wrong number of type arguments for `{name}`: expected {expected}, found {}",
@@ -2602,6 +2656,7 @@ impl<'a> Checker<'a> {
     fn report_interface_as_type(&mut self, id: TypeExprId) {
         let span = self.hir.span_of_type_expr(id);
         self.error(err_at(
+            codes::T_INTERFACE_AS_TYPE,
             span,
             "interfaces cannot be used as types in v1; use a generic constraint".to_string(),
             "interfaces only constrain generics",

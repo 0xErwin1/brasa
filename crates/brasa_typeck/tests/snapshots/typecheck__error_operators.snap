@@ -2,7 +2,7 @@
 source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
-[BRS-TYPECK] Error: invalid operands for `+`: `int` and `float`
+[T002] Error: invalid operands for `+`: `int` and `float`
    ╭─[ error_operators.brs:3:15 ]
    │
  3 │   let mixed = a + b
@@ -11,35 +11,35 @@ expression: rendered
    │ 
    │ Note: there are no implicit numeric conversions: convert explicitly with `toFloat()` or `toInt()`
 ───╯
-[BRS-TYPECK] Error: invalid operands for `-`: `string` and `string`
+[T002] Error: invalid operands for `-`: `string` and `string`
    ╭─[ error_operators.brs:4:17 ]
    │
  4 │   let bad_sub = s - s
    │                 ───┬──  
    │                    ╰──── operands must be two `int`s or two `float`s
 ───╯
-[BRS-TYPECK] Error: cannot compare `int` and `string` with `<`
+[T004] Error: cannot compare `int` and `string` with `<`
    ╭─[ error_operators.brs:5:15 ]
    │
  5 │   let cross = a < s
    │               ───┬──  
    │                  ╰──── both sides must have the same type
 ───╯
-[BRS-TYPECK] Error: mismatched types: expected `bool`, found `int`
+[T001] Error: mismatched types: expected `bool`, found `int`
    ╭─[ error_operators.brs:6:25 ]
    │
  6 │   let and_int = flag && a
    │                         ┬  
    │                         ╰── expected `bool`
 ───╯
-[BRS-TYPECK] Error: operator `-` expects `int` or `float`, found `string`
+[T002] Error: operator `-` expects `int` or `float`, found `string`
    ╭─[ error_operators.brs:7:14 ]
    │
  7 │   let neg = -s
    │              ┬  
    │              ╰── not negatable
 ───╯
-[BRS-TYPECK] Error: strings are not indexable
+[T011] Error: strings are not indexable
    ╭─[ error_operators.brs:8:17 ]
    │
  8 │   let indexed = "abc"[0]
@@ -48,7 +48,7 @@ expression: rendered
    │ 
    │ Note: use `chars()` or `slice(from, to)` instead
 ───╯
-[BRS-TYPECK] Error: mismatched types: expected `bool`, found `int`
+[T001] Error: mismatched types: expected `bool`, found `int`
    ╭─[ error_operators.brs:9:6 ]
    │
  9 │   if a

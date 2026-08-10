@@ -2,7 +2,7 @@
 source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
-[BRS-RESOLVE] Error: `Coin` is not an interface
+[R010] Error: `Coin` is not an interface
     ╭─[ ambiguous_ctor_and_bad_constraint.brs:12:1 ]
     │
  12 │ ╭─▶ def flip<T: Coin>(value: T): T
@@ -11,7 +11,7 @@ expression: rendered
     │ │         
     │ ╰───────── constraints must name an interface
 ────╯
-[BRS-RESOLVE] Error: ambiguous constructor `Heads`
+[R005] Error: ambiguous constructor `Heads`
     ╭─[ ambiguous_ctor_and_bad_constraint.brs:16:9 ]
     │
  16 │ let c = Heads

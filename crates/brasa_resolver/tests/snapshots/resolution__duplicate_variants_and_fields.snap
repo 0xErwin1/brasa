@@ -2,7 +2,7 @@
 source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
-[BRS-RESOLVE] Error: duplicate definition of `Circle`
+[R006] Error: duplicate definition of `Circle`
    ╭─[ duplicate_variants_and_fields.brs:2:1 ]
    │
  2 │ ╭───▶ enum Shape
@@ -15,7 +15,7 @@ expression: rendered
    │   │     │   
    │   ╰─────┴─── previously defined here
 ───╯
-[BRS-RESOLVE] Error: duplicate definition of `w`
+[R006] Error: duplicate definition of `w`
    ╭─[ duplicate_variants_and_fields.brs:5:21 ]
    │
  5 │   Rect(w: float, w: float)
@@ -24,7 +24,7 @@ expression: rendered
    │                       │    
    │                       ╰──── redefined here
 ───╯
-[BRS-RESOLVE] Error: duplicate definition of `x`
+[R006] Error: duplicate definition of `x`
     ╭─[ duplicate_variants_and_fields.brs:11:6 ]
     │
  10 │   x: int

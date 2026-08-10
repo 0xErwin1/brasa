@@ -36,7 +36,7 @@ mod stmt;
 mod type_expr;
 
 use brasa_ast::{Ast, ItemId};
-use brasa_diagnostics::{Diagnostic, Severity};
+use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_lexer::LexError;
 use brasa_source::{BytePosition, FileId, Span};
 use brasa_token::{Token, TokenKind};
@@ -66,7 +66,7 @@ pub fn parse(source: &str, file: FileId) -> ParseResult {
         diagnostics.push(Diagnostic::new(
             Severity::Error,
             err.message.clone(),
-            "BRS-LEX".to_string(),
+            err.code.to_string(),
             err.span,
         ));
     }
@@ -189,7 +189,7 @@ impl<'a> Parser<'a> {
             self.diagnostics.push(Diagnostic::new(
                 Severity::Error,
                 format!("nesting too deep (limit {MAX_RECURSION_DEPTH})"),
-                "BRS-PARSE".to_string(),
+                codes::P_NESTING_TOO_DEEP.to_string(),
                 span,
             ));
             self.pos = self.tokens.len() - 1;
@@ -291,7 +291,7 @@ impl<'a> Parser<'a> {
             Diagnostic::new(
                 Severity::Error,
                 format!("expected {what}, found {found}"),
-                "BRS-PARSE".to_string(),
+                codes::P_EXPECTED.to_string(),
                 span,
             )
             .with_label(span, format!("expected {what} here")),
@@ -324,7 +324,11 @@ impl<'a> Parser<'a> {
     /// `pattern.rs`'s char-literal decoding, which calls the same escape
     /// table directly via `brasa_token::decode_escape`.
     fn report_unknown_escape(&mut self, span: Span, escaped: char) {
-        self.error_at(span, format!("unknown escape sequence `\\{escaped}`"));
+        self.error_at(
+            codes::P_UNKNOWN_ESCAPE,
+            span,
+            format!("unknown escape sequence `\\{escaped}`"),
+        );
     }
 
     /// Reports a `CHAR` token's unknown escape, if any, at the exact
@@ -342,14 +346,14 @@ impl<'a> Parser<'a> {
         );
     }
 
-    fn error_at(&mut self, span: Span, message: String) {
+    fn error_at(&mut self, code: &'static str, span: Span, message: String) {
         if self.poisoned || !self.should_report_at(span) {
             return;
         }
         self.diagnostics.push(Diagnostic::new(
             Severity::Error,
             message,
-            "BRS-PARSE".to_string(),
+            code.to_string(),
             span,
         ));
     }

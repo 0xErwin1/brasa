@@ -11,6 +11,7 @@ syntax, bytecode VM with GC, implemented in Rust.
 | [03-types.md](03-types.md) | Type system and semantics | draft for review |
 | [04-errors.md](04-errors.md) | BAML-style error system | closed (validated against BAML canary) |
 | [05-stdlib.md](05-stdlib.md) | Stdlib v1 modules | sketch |
+| [06-diagnostics.md](06-diagnostics.md) | Diagnostic model, code registry, wording | draft for review |
 
 Predecessor: OTL (`~/dev/personal/OCaml/OTL`), the OCaml prototype that
 validated the lexer → parser → checker → interpreter pipeline.

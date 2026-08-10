@@ -6,6 +6,7 @@ use brasa_ast::{
     ArmBody, BinaryOp, CatchArm, CatchType, Expr, ExprId, LambdaBody, LambdaParam, MatchArm,
     StringPart, UnaryOp,
 };
+use brasa_diagnostics::codes;
 use brasa_source::Span;
 use brasa_token::TokenKind;
 
@@ -172,6 +173,7 @@ impl<'a> Parser<'a> {
             let is_range = matches!(kind, TokenKind::DotDot | TokenKind::DotDotEq);
             if is_range && just_built_range {
                 self.error_at(
+                    codes::P_NON_ASSOCIATIVE_RANGE,
                     self.span(),
                     "ranges are non-associative: use parentheses to chain them".to_string(),
                 );
@@ -448,7 +450,7 @@ impl<'a> Parser<'a> {
                         }
                         brasa_token::IntParseError::Overflow => "integer literal out of range",
                     };
-                    self.error_at(start, message.to_string());
+                    self.error_at(codes::P_INVALID_INT_LITERAL, start, message.to_string());
                     0
                 });
                 self.bump();
@@ -539,6 +541,7 @@ impl<'a> Parser<'a> {
                 // problem, not the parser's, to decide which value wins).
                 if !seen_fields.insert(field_name.clone()) {
                     self.error_at(
+                        codes::P_DUPLICATE_FIELD,
                         field_start,
                         format!("duplicate field `{field_name}` in struct literal"),
                     );
@@ -862,7 +865,11 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::InterpStart => {
                     let span = self.span();
-                    self.error_at(span, "interpolation is not allowed here".to_string());
+                    self.error_at(
+                        codes::P_INTERPOLATION_NOT_ALLOWED,
+                        span,
+                        "interpolation is not allowed here".to_string(),
+                    );
                     self.bump();
                     let _ = self.parse_expr();
                     self.expect(TokenKind::InterpEnd, "'}' to close the interpolation");

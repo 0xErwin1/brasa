@@ -2,7 +2,7 @@
 source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
-[BRS-TYPECK] Error: cannot infer the element type of an empty vector literal
+[T014] Error: cannot infer the element type of an empty vector literal
    ╭─[ error_inference.brs:3:15 ]
    │
  3 │   let empty = []
@@ -11,7 +11,7 @@ expression: rendered
    │ 
    │ Note: annotate the binding, e.g. `let xs: Vector<int> = []`
 ───╯
-[BRS-TYPECK] Error: cannot infer the key and value types of an empty map literal
+[T014] Error: cannot infer the key and value types of an empty map literal
    ╭─[ error_inference.brs:4:15 ]
    │
  4 │   let table = {}
@@ -20,28 +20,28 @@ expression: rendered
    │ 
    │ Note: annotate the binding, e.g. `let m: Map<string, int> = {}`
 ───╯
-[BRS-TYPECK] Error: lambda parameter `x` needs a type annotation
+[T015] Error: lambda parameter `x` needs a type annotation
    ╭─[ error_inference.brs:5:11 ]
    │
  5 │   let f = |x| x + 1
    │           ─────┬────  
    │                ╰────── no type to infer from in this context
 ───╯
-[BRS-TYPECK] Error: mismatched types: expected `int`, found `string`
+[T001] Error: mismatched types: expected `int`, found `string`
    ╭─[ error_inference.brs:6:19 ]
    │
  6 │   let mixed = [1, "two", 3]
    │                   ───┬──  
    │                      ╰──── expected `int`
 ───╯
-[BRS-TYPECK] Error: mismatched types: expected `int`, found `bool`
+[T001] Error: mismatched types: expected `int`, found `bool`
    ╭─[ error_inference.brs:7:32 ]
    │
  7 │   let entries = { "a": 1, "b": false }
    │                                ──┬──  
    │                                  ╰──── expected `int`
 ───╯
-[BRS-TYPECK] Error: `if` branches have mismatched types: `int` vs `string`
+[T016] Error: `if` branches have mismatched types: `int` vs `string`
     ╭─[ error_inference.brs:8:11 ]
     │
   8 │ ╭─▶   let v = if true
@@ -50,7 +50,7 @@ expression: rendered
     │ │           
     │ ╰─────────── all branches must produce the same type
 ────╯
-[BRS-TYPECK] Error: mismatched types: expected `bool`, found `int`
+[T001] Error: mismatched types: expected `bool`, found `int`
     ╭─[ error_inference.brs:14:10 ]
     │
  14 │     n if n + 1 => 0

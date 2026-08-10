@@ -2,28 +2,28 @@
 source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
-[BRS-RESOLVE] Error: unknown type `Bogus`
+[R003] Error: unknown type `Bogus`
    ╭─[ unknown_names_types_and_ctors.brs:2:11 ]
    │
  2 │ def go(p: Bogus): unit
    │           ──┬──  
    │             ╰──── not found in this scope
 ───╯
-[BRS-RESOLVE] Error: unknown name `missing`
+[R001] Error: unknown name `missing`
    ╭─[ unknown_names_types_and_ctors.brs:3:8 ]
    │
  3 │   puts missing
    │        ───┬───  
    │           ╰───── not found in this scope
 ───╯
-[BRS-RESOLVE] Error: unknown type `Nope`
+[R003] Error: unknown type `Nope`
    ╭─[ unknown_names_types_and_ctors.brs:4:11 ]
    │
  4 │   let s = Nope { x: 1 }
    │           ───────┬──────  
    │                  ╰──────── not found in this scope
 ───╯
-[BRS-RESOLVE] Error: unknown constructor `Whatever`
+[R004] Error: unknown constructor `Whatever`
    ╭─[ unknown_names_types_and_ctors.brs:6:5 ]
    │
  6 │     Whatever(x) => puts x

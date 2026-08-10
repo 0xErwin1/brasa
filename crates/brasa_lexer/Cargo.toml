@@ -7,6 +7,7 @@ edition.workspace = true
 
 [dependencies]
 logos = { workspace = true }
+brasa_diagnostics = { workspace = true }
 brasa_token = { workspace = true }
 brasa_source = { workspace = true }
 

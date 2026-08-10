@@ -5,6 +5,7 @@ use brasa_ast::{
     Constraint, EnumDef, Field, FuncDef, GenericParam, IfaceMember, Import, ImportPath,
     InterfaceDef, Item, ItemId, Param, StructDef, Throws, TopLet, Variant,
 };
+use brasa_diagnostics::codes;
 use brasa_source::Span;
 use brasa_token::TokenKind;
 
@@ -324,6 +325,7 @@ impl<'a> Parser<'a> {
         // variant is required.
         if variants.is_empty() {
             self.error_at(
+                codes::P_EMPTY_ENUM,
                 Span::merge(&start, &end),
                 format!("enum `{name}` must have at least one variant"),
             );
@@ -378,6 +380,7 @@ impl<'a> Parser<'a> {
         // one member is required.
         if methods.is_empty() {
             self.error_at(
+                codes::P_EMPTY_INTERFACE,
                 Span::merge(&start, &end),
                 format!("interface `{name}` must have at least one member"),
             );

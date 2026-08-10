@@ -20,6 +20,7 @@
 //! nested interpolation (`"#{ "inner #{y}" }"`) and interpolation
 //! containing braces (`"#{ {"a": 1} }"`) work.
 
+use brasa_diagnostics::codes;
 use brasa_source::{BytePosition, FileId, Span};
 use brasa_token::{Token, TokenKind, keyword};
 use logos::Logos;
@@ -27,10 +28,12 @@ use logos::Logos;
 /// A lexical error: an unexpected character, or an unterminated string or
 /// interpolation. The lexer never panics or stops on these; it records
 /// them here and emits a [`TokenKind::Error`] token so the parser can
-/// keep going.
+/// keep going. `code` is the stable diagnostic code for the error's kind,
+/// from [`brasa_diagnostics::codes`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexError {
     pub message: String,
+    pub code: &'static str,
     pub span: Span,
 }
 
@@ -397,6 +400,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         let span = span_at(pos, pos);
                         errors.push(LexError {
                             message: "unterminated interpolation".to_string(),
+                            code: codes::L_UNTERMINATED_INTERPOLATION,
                             span,
                         });
                         tokens.push(Token::new(TokenKind::Error, span));
@@ -469,6 +473,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                             span_at(raw_span.start as u32, (after_quote + consumed) as u32);
                         errors.push(LexError {
                             message: "malformed character literal".to_string(),
+                            code: codes::L_MALFORMED_CHAR_LITERAL,
                             span: full_span,
                         });
                         tokens.push(Token::new(TokenKind::Error, full_span));
@@ -477,6 +482,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         let text = lexer.slice();
                         errors.push(LexError {
                             message: format!("unexpected character `{text}`"),
+                            code: codes::L_UNEXPECTED_CHARACTER,
                             span,
                         });
                         tokens.push(Token::new(TokenKind::Error, span));
@@ -515,6 +521,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         let span = span_at(pos, pos);
                         errors.push(LexError {
                             message: "unterminated string literal".to_string(),
+                            code: codes::L_UNTERMINATED_STRING,
                             span,
                         });
                         tokens.push(Token::new(TokenKind::Error, span));

@@ -1,0 +1,192 @@
+# Brasa — diagnostics
+
+> Status: normative for the compiler's error reporting. The code tables
+> below ARE the public registry; `brasa_diagnostics::codes` must stay in
+> sync with them (enforced by unit test).
+
+Model: every phase returns structured diagnostics as plain data; only the
+CLI renders them. Codes are stable, per-phase, and append-only. Wording
+is terse and lowercase; spans point at the most precise node available.
+
+## Principles
+
+1. **Phases return, the CLI renders.** No phase writes to a terminal;
+   each returns `Vec<Diagnostic>` and the CLI decides presentation
+   (currently pretty terminal output via `ariadne`).
+2. **One primary span** per diagnostic, plus optional labeled secondary
+   spans and notes.
+3. **Poisoning, not cascades.** An error yields a silently-unifying
+   `Unknown`; downstream checks involving it stay quiet. One root cause,
+   one diagnostic.
+4. **Clean-phase gating.** Each phase runs only if the previous one
+   produced no errors. A parse error means no resolution; a resolution
+   error means no type checking.
+5. **Deterministic output.** Diagnostics are sorted by span; exact
+   `(message, span)` duplicates are dropped.
+
+## Data model
+
+| Field | Contents |
+|-------|----------|
+| severity | `error`, `warning`, `info`, or `hint` |
+| message | terse, lowercase description of the problem |
+| code | stable per-kind code (see the scheme below) |
+| primary span | the most precise node responsible |
+| labels | secondary spans, each with its own message |
+| notes | free-standing hints, only when there is a concrete action |
+
+Warnings never affect the exit code. Real lint controls (allow/deny,
+lint groups) are M5+.
+
+## Code scheme
+
+Format: `<PhaseLetter><3 digits>` — e.g. `P001`, `R004`, `T012`.
+
+| Letter | Phase |
+|--------|-------|
+| `L` | lexer |
+| `P` | parser |
+| `R` | resolver |
+| `T` | type checker |
+| `E` | error-sets (reserved, M2) |
+| `X` | execution/VM (reserved, M3+) |
+
+Rules:
+
+- Codes are **append-only**: never renumbered, never reused after
+  removal.
+- Every emission site uses a **named constant** from the phase's code
+  registry (`brasa_diagnostics::codes`); no inline code strings.
+- Uniqueness and format are enforced by unit test.
+- A code identifies an error **kind**: one code may back many wordings
+  and spans (`P001` covers every "expected X, found Y").
+
+## Wording style
+
+- Messages are lowercase and terse: ``expected `int`, found `string` ``,
+  not "Error: the types are incompatible".
+- Names, types, and operators go in backticks: `` `int` ``, `` `..` ``,
+  `` `fetchPage` ``.
+- A label states what is wrong at its span, or the action: "expected
+  `int`", "used here".
+- Notes appear only when there is a concrete action to suggest.
+- The rendered header shows the code:
+  ``[P001] Error: expected an expression, found `end` ``.
+
+## Span rules
+
+- Every diagnostic points at the most precise node available: the
+  offending token, not its statement; the field, not its struct.
+- Named declarations carry their own name spans, and diagnostics about a
+  name (duplicate, unknown, unused) point at the name, not the whole
+  declaration. (Parameters, fields, and variants gain dedicated name
+  spans in a follow-up unit; the rule is normative, the implementation
+  may lag.)
+
+## Code registry
+
+### Lexer (`L`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `L001` | unexpected character | ``unexpected character `@` `` |
+| `L002` | unterminated string literal | `unterminated string literal` |
+| `L003` | unterminated interpolation | `unterminated interpolation` |
+| `L004` | malformed character literal | `malformed character literal` |
+
+### Parser (`P`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `P001` | expected token/production | ``expected an expression, found `end` `` |
+| `P002` | nesting too deep | `nesting too deep (limit 420)` |
+| `P003` | unknown escape sequence | ``unknown escape sequence `\q` `` |
+| `P004` | enum without variants | ``enum `Color` must have at least one variant`` |
+| `P005` | interface without members | ``interface `Shape` must have at least one member`` |
+| `P006` | non-associative range chain | `ranges are non-associative: use parentheses to chain them` |
+| `P007` | invalid integer literal | `integer literal out of range` |
+| `P008` | duplicate struct-literal field | ``duplicate field `x` in struct literal`` |
+| `P009` | interpolation not allowed | `interpolation is not allowed here` |
+
+### Resolver (`R`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `R001` | unknown name | ``unknown name `missing` `` |
+| `R002` | use before definition | ``` `x` is used before its definition ``` |
+| `R003` | unknown type | ``unknown type `Bogus` `` |
+| `R004` | unknown constructor | ``unknown constructor `Whatever` `` |
+| `R005` | ambiguous constructor | ``ambiguous constructor `Red` `` |
+| `R006` | duplicate definition | ``duplicate definition of `x` `` |
+| `R007` | `self` outside a method | `` `self` outside a method`` |
+| `R008` | unknown import root | ``unknown import root `sys::io` `` |
+| `R009` | unknown std module | ``unknown std module `netz` `` |
+| `R010` | constraint is not an interface | `` `Point` is not an interface`` |
+
+Notes on kind boundaries:
+
+- `R003` covers every type-name lookup failure: annotations, struct
+  literals, and named constraints.
+- `R006` covers every same-scope name clash: items, locals, generic
+  parameters, struct/variant fields, and enum variants.
+- `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
+  path naming no known module) are distinct lookups and keep distinct
+  codes.
+
+### Type checker (`T`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `T001` | mismatched types | ``mismatched types: expected `int`, found `string` `` |
+| `T002` | invalid arithmetic operands | ``invalid operands for `+`: `int` and `float` `` |
+| `T003` | cannot compare for equality | ``cannot compare `int` and `string` for equality`` |
+| `T004` | unsupported ordering | `` `bool` does not support ordering with `<` `` |
+| `T005` | wrong number of arguments | `wrong number of arguments: expected 2, found 1` |
+| `T006` | not callable | ``cannot call a value of type `int` `` |
+| `T007` | unknown member | ``no method `bogus` on `int` `` |
+| `T008` | `join` requires `Vector<string>` | `` `join` requires `Vector<string>`, found `Vector<int>` `` |
+| `T009` | cannot assign | ``cannot assign to immutable binding `x` `` |
+| `T010` | invalid assignment target | `invalid assignment target` |
+| `T011` | strings are not indexable | `strings are not indexable` |
+| `T012` | cannot index | ``cannot index `int` `` |
+| `T013` | cannot iterate | ``cannot iterate over `int` `` |
+| `T014` | empty literal cannot infer | `cannot infer the element type of an empty vector literal` |
+| `T015` | lambda parameter needs annotation | ``lambda parameter `x` needs a type annotation`` |
+| `T016` | branch/arm type mismatch | `` `if` branches have mismatched types: `int` vs `string` `` |
+| `T017` | non-exhaustive match | ``non-exhaustive match: `false` is not covered`` |
+| `T018` | pattern/scrutinee mismatch | `` `Some` pattern does not match type `int` `` |
+| `T019` | `return` outside a function | `` `return` outside a function`` |
+| `T020` | unknown struct-literal field | ``unknown field `z` on struct `Point` `` |
+| `T021` | duplicate struct-literal field | ``duplicate field `x` in struct literal`` |
+| `T022` | missing struct-literal field | ``missing field `y` in struct literal of `Point` `` |
+| `T023` | not a struct | `` `Color` is not a struct`` |
+| `T024` | wrong number of type arguments | ``wrong number of type arguments for `Point`: expected 1, found 2`` |
+| `T025` | interface used as a type | `interfaces cannot be used as types in v1; use a generic constraint` |
+| `T026` | cannot infer type parameter | ``cannot infer type parameter `T` of `identity` `` |
+| `T027` | constraint not satisfied | `` `bool` does not satisfy `Comparable` `` |
+
+Notes on kind boundaries:
+
+- `T002` covers binary arithmetic (`+ - * / % **`) and unary `-`.
+- `T004` covers both ordering failures: differently-typed sides and
+  same-typed but unordered operands.
+- `T005` covers every callee-arity failure: function and builtin calls,
+  and `Some`/`None`/enum-variant constructors in both expression and
+  pattern position — a constructor pattern mirrors the constructor
+  call's arity.
+- `T007` covers every receiver kind (struct, builtin, generic); the
+  message names the receiver. `T008` stays separate: the member exists,
+  only the element type is wrong.
+- `T014` covers empty vector and empty map literals.
+- `T016` covers `if` branches and `match` arms; `catch` arms report
+  against the subject's type as plain `T001` mismatches.
+- `T018` covers pattern-shape failures against the scrutinee's type,
+  including a tuple pattern of the wrong length — tuple arity comes
+  from the scrutinee, not from a constructor.
+
+## Deferred (M5)
+
+- Machine-readable output (JSON diagnostics for tooling).
+- `--explain <code>` with extended per-code documentation.
+
+> Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

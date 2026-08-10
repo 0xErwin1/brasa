@@ -4,6 +4,7 @@
 //! [`brasa_source::Span`]; only the CLI decides how to render them.
 //! Pretty rendering (via `ariadne`) lives in [`render`].
 
+pub mod codes;
 pub mod render;
 
 use brasa_source::Span;

@@ -124,6 +124,7 @@ dependencies = [
 name = "brasa_lexer"
 version = "0.1.0"
 dependencies = [
+ "brasa_diagnostics",
  "brasa_source",
  "brasa_token",
  "insta",
