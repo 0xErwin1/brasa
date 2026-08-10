@@ -20,6 +20,7 @@ pub mod builtins;
 pub mod dump;
 
 mod check;
+mod exhaust;
 mod types;
 
 pub use types::{Type, WrapDecision, unify};

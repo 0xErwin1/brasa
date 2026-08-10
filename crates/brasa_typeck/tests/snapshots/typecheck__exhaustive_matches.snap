@@ -1,0 +1,61 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 area -> (Shape) -> float
+  i2 describe -> (Option<int>) -> string
+  i3 flag -> (bool) -> int
+  i4 nested -> ((bool, Option<int>)) -> int
+  i5 digits -> (int) -> string
+  i6 measure -> (string) -> int
+local types
+  l0 shape -> Shape
+  l1 r -> float
+  l2 w -> float
+  l3 h -> float
+  l4 o -> Option<int>
+  l5 n -> int
+  l6 b -> bool
+  l7 pair -> (bool, Option<int>)
+  l8 n -> int
+  l9 n -> int
+  l10 s -> string
+  l11 text -> string
+expr types
+  e0 -> Shape
+  e1 -> float
+  e2 -> float
+  e3 -> float
+  e4 -> float
+  e5 -> float
+  e6 -> float
+  e7 -> float
+  e8 -> float
+  e9 -> Option<int>
+  e10 -> int
+  e11 -> int
+  e12 -> bool
+  e13 -> string
+  e14 -> string
+  e15 -> string
+  e16 -> string
+  e17 -> bool
+  e18 -> int
+  e19 -> int
+  e20 -> int
+  e21 -> (bool, Option<int>)
+  e22 -> int
+  e23 -> int
+  e24 -> int
+  e25 -> int
+  e26 -> int
+  e27 -> int
+  e28 -> string
+  e29 -> string
+  e30 -> string
+  e31 -> string
+  e32 -> string
+  e33 -> () -> int
+  e34 -> int
+  e35 -> int

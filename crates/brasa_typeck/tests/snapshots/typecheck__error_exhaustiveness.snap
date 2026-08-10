@@ -1,0 +1,76 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[BRS-TYPECK] Error: non-exhaustive match: `Rect(_, _)` and `Dot` are not covered
+    ╭─[ error_exhaustiveness.brs:17:3 ]
+    │
+ 17 │ ╭─▶   match shape
+    ┆ ┆   
+ 19 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `None` is not covered
+    ╭─[ error_exhaustiveness.brs:23:3 ]
+    │
+ 23 │ ╭─▶   match o
+    ┆ ┆   
+ 25 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `false` is not covered
+    ╭─[ error_exhaustiveness.brs:29:3 ]
+    │
+ 29 │ ╭─▶   match b
+    ┆ ┆   
+ 31 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `(true, None)` is not covered
+    ╭─[ error_exhaustiveness.brs:35:3 ]
+    │
+ 35 │ ╭─▶   match pair
+    ┆ ┆   
+ 38 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `_` is not covered
+    ╭─[ error_exhaustiveness.brs:42:3 ]
+    │
+ 42 │ ╭─▶   match n
+    ┆ ┆   
+ 45 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `Circle(_)` is not covered
+    ╭─[ error_exhaustiveness.brs:49:3 ]
+    │
+ 49 │ ╭─▶   match shape
+    ┆ ┆   
+ 53 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `E`, `S`, `W`, and 1 more are not covered
+    ╭─[ error_exhaustiveness.brs:57:3 ]
+    │
+ 57 │ ╭─▶   match c
+    ┆ ┆   
+ 59 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯
+[BRS-TYPECK] Error: non-exhaustive match: `_` is not covered
+    ╭─[ error_exhaustiveness.brs:63:3 ]
+    │
+ 63 │ ╭─▶   match value
+    ┆ ┆   
+ 65 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms for the missing cases or a `_` arm
+────╯

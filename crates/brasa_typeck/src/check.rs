@@ -33,6 +33,7 @@ use brasa_source::Span;
 
 use crate::TypeTables;
 use crate::builtins::{self, MethodSig, RetRule};
+use crate::exhaust;
 use crate::types::{Type, WrapDecision, item_name, substitute, unify};
 
 fn err(span: Span, message: String) -> Diagnostic {
@@ -595,7 +596,7 @@ impl<'a> Checker<'a> {
             }
             Expr::Match { scrutinee, arms } => {
                 let (scrutinee, arms) = (*scrutinee, arms.clone());
-                self.check_match(scrutinee, &arms, expected, used)
+                self.check_match(id, scrutinee, &arms, expected, used)
             }
             Expr::VectorLit(elements) => {
                 let elements = elements.clone();
@@ -1741,9 +1742,12 @@ impl<'a> Checker<'a> {
 
     /// `match` is an expression whose arms must all produce the same
     /// type, or it is used as a statement and types `unit`
-    /// (`docs/spec/03-types.md`). Exhaustiveness is BRS-18.
+    /// (`docs/spec/03-types.md`). Either way it must be exhaustive
+    /// (BRS-18): the check runs after the arms are typed, in
+    /// [`Self::check_exhaustiveness`].
     fn check_match(
         &mut self,
+        id: ExprId,
         scrutinee: ExprId,
         arms: &[MatchArm],
         expected: Option<&Type>,
@@ -1780,7 +1784,45 @@ impl<'a> Checker<'a> {
             }
         }
 
+        self.check_exhaustiveness(id, &scrutinee_ty, arms);
+
         if used { acc } else { Type::Unit }
+    }
+
+    /// Reports the missing cases of a non-exhaustive `match`
+    /// (`docs/spec/01-syntax.md`: cover every case or use `_`;
+    /// `docs/spec/03-types.md`: the checker understands enums, bools,
+    /// tuples, and nested patterns, and requires `_` for `int`/
+    /// `string`). The algorithm and the decisions it fixes live in
+    /// [`crate::exhaust`]; a flexible scrutinee skips the check.
+    fn check_exhaustiveness(&mut self, id: ExprId, scrutinee_ty: &Type, arms: &[MatchArm]) {
+        let Some(missing) = exhaust::missing_cases(self.hir, self.res, scrutinee_ty, arms) else {
+            return;
+        };
+
+        let shown: Vec<String> = missing
+            .witnesses
+            .iter()
+            .map(|witness| format!("`{witness}`"))
+            .collect();
+        let extra = missing.total.saturating_sub(shown.len() as u64);
+
+        let listed = match (shown.as_slice(), extra) {
+            ([one], 0) => format!("{one} is"),
+            ([first, second], 0) => format!("{first} and {second} are"),
+            (all, 0) => {
+                let (last, init) = all.split_last().expect("witness list is non-empty");
+                format!("{}, and {last} are", init.join(", "))
+            }
+            (all, extra) => format!("{}, and {extra} more are", all.join(", ")),
+        };
+
+        let span = self.hir.span_of_expr(id);
+        self.error(err_at(
+            span,
+            format!("non-exhaustive match: {listed} not covered"),
+            "add arms for the missing cases or a `_` arm",
+        ));
     }
 
     /// `catch` produces the subject's type, so every arm must unify with

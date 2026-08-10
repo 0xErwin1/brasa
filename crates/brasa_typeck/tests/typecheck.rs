@@ -333,6 +333,133 @@ let shown = pick(Person { name: "Cy" })
 "##
 );
 
+typecheck_test!(
+    exhaustive_matches,
+    r#"
+enum Shape
+  Circle(radius: float)
+  Rect(w: float, h: float)
+  Dot
+end
+
+def area(shape: Shape): float
+  match shape
+    Circle(r) => 2.0 * r
+    Rect(w, h) => w * h
+    Dot => 0.0
+  end
+end
+
+def describe(o: Option<int>): string
+  match o
+    Some(n) if n > 10 => "big"
+    Some(_) => "some"
+    None => "none"
+  end
+end
+
+def flag(b: bool): int
+  match b
+    true => 1
+    false => 0
+  end
+end
+
+def nested(pair: (bool, Option<int>)): int
+  match pair
+    (true, Some(n)) => n
+    (true, None) => 0
+    (false, Some(_)) => 1
+    (false, None) => 2
+  end
+end
+
+def digits(n: int): string
+  match n
+    0 => "zero"
+    _ => "many"
+  end
+end
+
+def measure(s: string): int
+  match s
+    text => text.len()
+  end
+end
+"#
+);
+
+typecheck_error_test!(
+    error_exhaustiveness,
+    r#"
+enum Shape
+  Circle(radius: float)
+  Rect(w: float, h: float)
+  Dot
+end
+
+enum Compass
+  N
+  E
+  S
+  W
+  Center
+end
+
+def partial(shape: Shape): int
+  match shape
+    Circle(_) => 1
+  end
+end
+
+def noneless(o: Option<int>): int
+  match o
+    Some(n) => n
+  end
+end
+
+def halfBool(b: bool): int
+  match b
+    true => 1
+  end
+end
+
+def nested(pair: (bool, Option<int>)): int
+  match pair
+    (true, Some(_)) => 1
+    (false, _) => 2
+  end
+end
+
+def literalsOnly(n: int): string
+  match n
+    0 => "zero"
+    1 => "one"
+  end
+end
+
+def guardedOnly(shape: Shape): int
+  match shape
+    Circle(r) if r > 1.0 => 1
+    Rect(_, _) => 2
+    Dot => 3
+  end
+end
+
+def wayward(c: Compass): int
+  match c
+    N => 0
+  end
+end
+
+def opaque<T>(value: T, pick: bool): int
+  match value
+    x if pick => 1
+  end
+end
+"#
+);
+
 typecheck_error_test!(
     error_generics,
     r#"

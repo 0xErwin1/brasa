@@ -30,9 +30,9 @@ use std::path::Path;
 
 use brasa_diagnostics::{Diagnostic, Severity};
 use brasa_hir::{
-    ArmBody, Constraint, Expr, ExprId, FuncDef, GenericParam, Hir, IfNode, IfaceMember, Import,
-    ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId, Stmt, StmtId, TypeExpr,
-    TypeExprId,
+    ArmBody, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir, IfNode,
+    IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId, Stmt,
+    StmtId, TypeExpr, TypeExprId,
 };
 use brasa_source::Span;
 
@@ -205,9 +205,13 @@ impl<'h> Resolver<'h> {
                     );
                     top_let_count += 1;
                 }
-                Item::StructDef(def) => self.declare_module_type(&def.name, root, span),
+                Item::StructDef(def) => {
+                    self.declare_module_type(&def.name, root, span);
+                    self.check_duplicate_fields(&def.fields);
+                }
                 Item::EnumDef(def) => {
                     self.declare_module_type(&def.name, root, span);
+                    self.check_enum_hygiene(def, span);
                     self.enums.push(root);
                 }
                 Item::InterfaceDef(def) => self.declare_module_type(&def.name, root, span),
@@ -216,6 +220,45 @@ impl<'h> Resolver<'h> {
         }
 
         top_lets_before
+    }
+
+    /// Enum definition hygiene (BRS-18): a repeated variant name within
+    /// one enum is a duplicate-definition error, reported here at the
+    /// declaration site — without this it would only surface as a
+    /// self-ambiguity at every constructor use. Variants carry no span
+    /// of their own, so both labels point at the enum item (mirroring
+    /// [`Self::push_generic_frame`]). Fields within each variant are
+    /// checked too.
+    fn check_enum_hygiene(&mut self, def: &'h EnumDef, span: Span) {
+        let mut seen: HashMap<&'h str, Span> = HashMap::new();
+
+        for variant in &def.variants {
+            if let Some(&prev_span) = seen.get(variant.name.as_str()) {
+                self.duplicate_error(&variant.name, span, prev_span);
+            } else {
+                seen.insert(&variant.name, span);
+            }
+
+            self.check_duplicate_fields(&variant.fields);
+        }
+    }
+
+    /// A repeated field name within one struct or enum variant is a
+    /// duplicate-definition error. Fields carry no span of their own, so
+    /// the labels use the field's type annotation span (the closest node
+    /// that has one).
+    fn check_duplicate_fields(&mut self, fields: &'h [Field]) {
+        let mut seen: HashMap<&'h str, Span> = HashMap::new();
+
+        for field in fields {
+            let span = self.hir.span_of_type_expr(field.ty);
+
+            if let Some(&prev_span) = seen.get(field.name.as_str()) {
+                self.duplicate_error(&field.name, span, prev_span);
+            } else {
+                seen.insert(&field.name, span);
+            }
+        }
     }
 
     fn check_import(&mut self, import: &Import, span: Span) {

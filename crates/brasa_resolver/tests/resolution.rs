@@ -231,6 +231,24 @@ end
 );
 
 resolution_error_test!(
+    duplicate_variants_and_fields,
+    r#"
+enum Shape
+  Circle(radius: float)
+  Circle(r: float)
+  Rect(w: float, w: float)
+  Dot
+end
+
+struct Point
+  x: int
+  x: int
+  y: int
+end
+"#
+);
+
+resolution_error_test!(
     self_imports_and_order,
     r#"
 import std::teleport
