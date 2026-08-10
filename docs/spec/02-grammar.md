@@ -21,9 +21,9 @@ COMMENT    = "#" to end of line (outside a string)
 Reserved keywords:
 
 ```
-def end if then elsif else while for in match enum struct interface import
-pub let mut return break continue throw throws catch catch_all never
-true false self unit and or not
+def end if then elsif else while for in do match enum struct interface
+import pub let mut return break continue throw throws catch catch_all
+never true false self unit and or not
 spawn                                  # reserved, no semantics in v1
 ```
 
@@ -152,7 +152,11 @@ lparams     = lparam ( "," lparam )*
 lparam      = IDENT ( ":" type )?
 
 match_expr  = "match" expr NL match_arm+ "end"
-match_arm   = pattern ( "if" expr )? "=>" ( expr | NL block ) NL
+match_arm   = pattern ( "if" expr )? "=>" arm_body NL
+arm_body    = expr | throw_stmt | return_stmt | "break" | "continue"
+            | NL block
+            (* a bare statement-keyword body normalizes to a one-statement
+               block, mirroring inline-if normalization *)
 
 pattern     = "_" | literal | IDENT
             | TYPE_IDENT ( "(" pattern ( "," pattern )* ")" )?
@@ -165,8 +169,9 @@ literal     = INT | FLOAT | STRING | CHAR | "true" | "false"
 
 ```
 catch_clause = ( "catch" | "catch_all" ) "(" IDENT ")" NL catch_arm+ "end"
-catch_arm    = catch_types ( "if" expr )? "=>" ( expr | NL block ) NL
-catch_types  = ( TYPE_IDENT | "_" ) ( "|" TYPE_IDENT )*
+catch_arm    = catch_types ( "if" expr )? "=>" arm_body NL
+catch_types  = ( error_type | "_" ) ( "|" error_type )*
+error_type   = ( IDENT "." )? TYPE_IDENT     # possibly qualified: fs.NotFound, panics.DivisionByZero
 ```
 
 Full semantics in [04-errors.md](04-errors.md). `catch` is a postfix
@@ -177,7 +182,8 @@ it is parenthesized.
 ## Types
 
 ```
-type        = TYPE_IDENT ( "<" type ( "," type )* ">" )?    # Vector<int>, Map<string, T>
+type        = type_name ( "<" type ( "," type )* ">" )?     # Vector<int>, Map<string, T>
+type_name   = TYPE_IDENT | IDENT                            # IDENT covers primitives: int, float, ...
             | "(" type ( "," type )* ")"                    # tuple
             | fn_type
 fn_type     = "(" ( type ( "," type )* )? ")" "->" type     # (int, int) -> int
@@ -195,7 +201,8 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | `if` expression vs statement | same node; the checker types it when all branches match |
 | `puts` | not a keyword: it's a stdlib function (`io.puts`, re-exported to the prelude) |
 | inline `if` vs multi-line | the token after the condition decides: `then` → inline form (single-expression branches), `NL` → block form |
-| call vs field | parentheses are **mandatory** in calls: `v.len()` calls, `p.x` is field access; there is no call without parentheses |
+| call vs field | parentheses are **mandatory** in calls in expression position: `v.len()` calls, `p.x` is field access. Exceptions: statement-position command calls and trailing `do`-blocks (see below) |
+| command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`) |
 | `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()` |
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |
 

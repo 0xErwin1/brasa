@@ -181,7 +181,7 @@ end
 ```
 
 A struct satisfies an interface if it has methods with those signatures —
-there is no `impl Printable for X`. The inline form `<T: { toString(): string }>`
+there is no `impl Printable for X`. The inline form `<T: { def toString(self): string }>`
 is an anonymous interface; same semantics.
 
 ## Generics
