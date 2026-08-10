@@ -1,0 +1,9 @@
+[package]
+name = "brasa_ast"
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+brasa_diagnostics = { workspace = true }

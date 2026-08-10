@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.dependencies]
+logos = "0.15"
+ariadne = "0.5"
+clap = { version = "4.5", features = ["derive"] }
+insta = { version = "1.43", features = ["yaml"] }
+
+brasa_diagnostics = { path = "crates/brasa_diagnostics" }
+brasa_token = { path = "crates/brasa_token" }
+brasa_lexer = { path = "crates/brasa_lexer" }
+brasa_ast = { path = "crates/brasa_ast" }
+brasa_parser = { path = "crates/brasa_parser" }
+
+[workspace.package]
+authors = ["Ignacio Perez <ignacio@feuer.me>"]
+description = "The Brasa programming language"
+keywords = ["programming", "language", "interpreter", "scripting"]
+license = "GPL-3.0"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

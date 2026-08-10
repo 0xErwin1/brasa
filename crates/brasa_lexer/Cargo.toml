@@ -1,0 +1,11 @@
+[package]
+name = "brasa_lexer"
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+logos = { workspace = true }
+brasa_token = { workspace = true }
+brasa_diagnostics = { workspace = true }
