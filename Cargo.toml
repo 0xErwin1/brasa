@@ -4,10 +4,11 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 logos = "0.15"
-ariadne = "0.5"
 clap = { version = "4.5", features = ["derive"] }
 insta = { version = "1.43", features = ["yaml"] }
 
+brasa_arena = { path = "crates/brasa_arena" }
+brasa_source = { path = "crates/brasa_source" }
 brasa_diagnostics = { path = "crates/brasa_diagnostics" }
 brasa_token = { path = "crates/brasa_token" }
 brasa_lexer = { path = "crates/brasa_lexer" }

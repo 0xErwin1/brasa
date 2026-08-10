@@ -4,7 +4,7 @@
 //! Kept separate from the lexer so the parser depends on token *types*
 //! without depending on how they are produced (BRS-8 fills this in).
 
-use brasa_diagnostics::Span;
+use brasa_source::Span;
 
 /// The kind of a lexical token.
 ///

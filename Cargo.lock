@@ -53,16 +53,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ariadne"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f5e3dca4e09a6f340a61a0e9c7b61e030c69fc27bf29d73218f7e5e3b7638f"
-dependencies = [
- "unicode-width",
- "yansi",
-]
-
-[[package]]
 name = "beef"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -84,24 +74,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "brasa_arena"
+version = "0.1.0"
+
+[[package]]
 name = "brasa_ast"
 version = "0.1.0"
 dependencies = [
- "brasa_diagnostics",
+ "brasa_arena",
+ "brasa_source",
 ]
 
 [[package]]
 name = "brasa_diagnostics"
 version = "0.1.0"
 dependencies = [
- "ariadne",
+ "brasa_source",
 ]
 
 [[package]]
 name = "brasa_lexer"
 version = "0.1.0"
 dependencies = [
- "brasa_diagnostics",
+ "brasa_source",
  "brasa_token",
  "insta",
  "logos",
@@ -119,10 +114,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "brasa_source"
+version = "0.1.0"
+dependencies = [
+ "brasa_arena",
+]
+
+[[package]]
 name = "brasa_token"
 version = "0.1.0"
 dependencies = [
- "brasa_diagnostics",
+ "brasa_source",
 ]
 
 [[package]]
@@ -457,12 +459,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
-name = "unicode-width"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
-
-[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -482,9 +478,3 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"

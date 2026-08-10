@@ -6,4 +6,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-brasa_diagnostics = { workspace = true }
+brasa_arena = { workspace = true }
+brasa_source = { workspace = true }

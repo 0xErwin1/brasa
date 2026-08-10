@@ -92,7 +92,7 @@ end
 | `&& \|\| !` | solo `bool`; cortocircuito |
 | `??` | `Option<T> ?? T -> T` (también encadenable con otro `Option<T>`) |
 | `?.` | `Option<T>?.metodo(...)` -> `Option<R>`; se aplana (no anida Options) |
-| `\|>` | `a \|> f(b)` ≡ `f(a, b)`; puro azúcar sintáctico, se resuelve en el parser |
+| `\|>` | `a \|> f(b)` ≡ `f(a, b)`; puro azúcar sintáctico, desazucarado en el lowering AST→HIR (el AST conserva el nodo para el formatter) |
 | `[i]` en Vector | `int -> T`; fuera de rango es **panic** (no Option: el caso común es un bug) |
 | `[k]` en Map | `K -> Option<V>`; la clave ausente es un caso normal, no un bug |
 

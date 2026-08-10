@@ -20,7 +20,7 @@
 //! nested interpolation (`"#{ "inner #{y}" }"`) and interpolation
 //! containing braces (`"#{ {"a": 1} }"`) work.
 
-use brasa_diagnostics::Span;
+use brasa_source::{BytePosition, FileId, Span};
 use brasa_token::{Token, TokenKind, keyword};
 use logos::Logos;
 
@@ -233,13 +233,13 @@ fn simple_kind(main: Main) -> TokenKind {
 /// Returns the resolved kind and how many extra bytes (0 or 1) beyond the
 /// base regex match belong to the token.
 fn classify_ident(source: &str, span: Span) -> (TokenKind, u32) {
-    let text = &source[span.start as usize..span.end as usize];
+    let text = &source[span.start.0 as usize..span.end.0 as usize];
 
     if text == "_" {
         return (TokenKind::Underscore, 0);
     }
 
-    let after = &source[span.end as usize..];
+    let after = &source[span.end.0 as usize..];
     let absorbs_suffix = (after.starts_with('?') && !after[1..].starts_with('.'))
         || (after.starts_with('!') && !after[1..].starts_with('='));
 
@@ -328,15 +328,19 @@ enum Mode {
 
 /// Lexes `source` into a token stream, always terminated by `Eof`.
 ///
+/// `file` identifies `source` in the enclosing [`brasa_source::SourceMap`]
+/// and is stamped onto every emitted span.
+///
 /// Never fails: lexical errors are collected in the returned `Vec<LexError>`
 /// and represented in the token stream as `TokenKind::Error`, so the parser
 /// can keep consuming tokens after a bad character or an unterminated
 /// string/interpolation.
-pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
+pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
     let mut tokens = Vec::new();
     let mut errors = Vec::new();
     let mut lexer = Main::lexer(source);
     let mut modes = vec![Mode::MainTop];
+    let span_at = |start: u32, end: u32| Span::new(file, BytePosition(start), BytePosition(end));
 
     loop {
         let mode = *modes.last().expect("mode stack is never empty");
@@ -346,7 +350,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
                 let Some(result) = lexer.next() else {
                     if matches!(mode, Mode::MainInterp { .. }) {
                         let pos = source.len() as u32;
-                        let span = Span::new(pos, pos);
+                        let span = span_at(pos, pos);
                         errors.push(LexError {
                             message: "unterminated interpolation".to_string(),
                             span,
@@ -357,7 +361,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
                 };
 
                 let raw_span = lexer.span();
-                let span = Span::new(raw_span.start as u32, raw_span.end as u32);
+                let span = span_at(raw_span.start as u32, raw_span.end as u32);
 
                 match result {
                     Ok(Main::Ident) => {
@@ -365,7 +369,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
                         if extra > 0 {
                             lexer.bump(extra as usize);
                         }
-                        tokens.push(Token::new(kind, Span::new(span.start, span.end + extra)));
+                        tokens.push(Token::new(kind, span_at(span.start.0, span.end.0 + extra)));
                     }
                     Ok(Main::TypeIdent) => tokens.push(Token::new(TokenKind::TypeIdent, span)),
                     Ok(Main::Newline) => tokens.push(Token::new(TokenKind::Newline, span)),
@@ -411,7 +415,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
                 let (len, end) = scan_string_segment(rest, raw);
 
                 if len > 0 {
-                    let text_span = Span::new(start as u32, (start + len) as u32);
+                    let text_span = span_at(start as u32, (start + len) as u32);
                     tokens.push(Token::new(TokenKind::StringText, text_span));
                     lexer.bump(len);
                 }
@@ -422,19 +426,19 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
                     StringSegmentEnd::Quote => {
                         let qlen = if raw { 3 } else { 1 };
                         lexer.bump(qlen);
-                        let qspan = Span::new(after_text as u32, (after_text + qlen) as u32);
+                        let qspan = span_at(after_text as u32, (after_text + qlen) as u32);
                         tokens.push(Token::new(TokenKind::StringEnd, qspan));
                         modes.pop();
                     }
                     StringSegmentEnd::Interp => {
                         lexer.bump(2);
-                        let ispan = Span::new(after_text as u32, (after_text + 2) as u32);
+                        let ispan = span_at(after_text as u32, (after_text + 2) as u32);
                         tokens.push(Token::new(TokenKind::InterpStart, ispan));
                         modes.push(Mode::MainInterp { depth: 0 });
                     }
                     StringSegmentEnd::UnterminatedNewline | StringSegmentEnd::UnterminatedEof => {
                         let pos = after_text as u32;
-                        let span = Span::new(pos, pos);
+                        let span = span_at(pos, pos);
                         errors.push(LexError {
                             message: "unterminated string literal".to_string(),
                             span,
@@ -448,7 +452,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
     }
 
     let eof = source.len() as u32;
-    tokens.push(Token::new(TokenKind::Eof, Span::new(eof, eof)));
+    tokens.push(Token::new(TokenKind::Eof, span_at(eof, eof)));
     (tokens, errors)
 }
 

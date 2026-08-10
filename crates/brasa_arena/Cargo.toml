@@ -1,9 +1,8 @@
 [package]
-name = "brasa_token"
+name = "brasa_arena"
 authors.workspace = true
 license.workspace = true
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-brasa_source = { workspace = true }

@@ -1,27 +1,84 @@
-//! Source management and diagnostics for the Brasa compiler.
+//! Diagnostic types for the Brasa compiler.
 //!
-//! Owns [`Span`], the source-file table, and rendering of compiler
-//! diagnostics through `ariadne`. Every other crate reports errors through
-//! the types defined here; no phase prints to stderr on its own.
+//! Every phase reports errors as a [`Diagnostic`] built against a
+//! [`brasa_source::Span`]; only the CLI decides how to render them.
+//! Rendering (via `ariadne` or otherwise) is out of scope here — see
+//! BRS-12.
 
-/// A byte range inside one source file.
-///
-/// Spans are stored in side tables indexed by node ID rather than inside
-/// AST nodes, so they are plain `Copy` data with no source-file back
-/// reference; the file is implied by the compilation unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Span {
-    pub start: u32,
-    pub end: u32,
+use brasa_source::Span;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Severity {
+    Info,
+    Warning,
+    Error,
+    Hint,
 }
 
-impl Span {
-    pub fn new(start: u32, end: u32) -> Self {
-        Self { start, end }
+#[derive(Debug, Clone)]
+pub struct Label {
+    pub span: Span,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub severity: Severity,
+    pub message: String,
+    pub error_code: String,
+    pub primary_span: Span,
+    pub labels: Vec<Label>,
+    pub notes: Vec<String>,
+}
+
+impl Diagnostic {
+    pub fn new(
+        severity: Severity,
+        message: String,
+        error_code: String,
+        primary_span: Span,
+    ) -> Self {
+        Self {
+            severity,
+            message,
+            error_code,
+            primary_span,
+            labels: Vec::new(),
+            notes: Vec::new(),
+        }
     }
 
-    /// Smallest span covering both `self` and `other`.
-    pub fn to(self, other: Span) -> Span {
-        Span::new(self.start.min(other.start), self.end.max(other.end))
+    pub fn with_label(mut self, span: Span, message: String) -> Self {
+        self.labels.push(Label { span, message });
+        self
+    }
+
+    pub fn with_note(mut self, note: String) -> Self {
+        self.notes.push(note);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Diagnostic, Severity};
+    use brasa_source::{BytePosition, FileId, Span};
+
+    #[test]
+    fn builder_accumulates_labels_and_notes() {
+        let file = FileId::new(0);
+        let span = Span::new(file, BytePosition(0), BytePosition(3));
+
+        let diagnostic = Diagnostic::new(
+            Severity::Error,
+            "unexpected token".to_string(),
+            "E0001".to_string(),
+            span,
+        )
+        .with_label(span, "here".to_string())
+        .with_note("check the grammar".to_string());
+
+        assert_eq!(diagnostic.labels.len(), 1);
+        assert_eq!(diagnostic.notes, vec!["check the grammar".to_string()]);
     }
 }

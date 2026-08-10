@@ -6,4 +6,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-ariadne = { workspace = true }
+brasa_source = { workspace = true }

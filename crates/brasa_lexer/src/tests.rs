@@ -1,13 +1,15 @@
+use brasa_source::FileId;
+
 use crate::lex;
 
 /// Renders the token stream as `Kind "slice"` lines, one per token, for
 /// readable insta snapshots. `Eof`'s slice is always empty.
 fn render(source: &str) -> String {
-    let (tokens, errors) = lex(source);
+    let (tokens, errors) = lex(source, FileId::new(0));
     let mut out = String::new();
 
     for token in &tokens {
-        let slice = &source[token.span.start as usize..token.span.end as usize];
+        let slice = &source[token.span.start.0 as usize..token.span.end.0 as usize];
         out.push_str(&format!("{:?} {:?}\n", token.kind, slice));
     }
 
@@ -16,7 +18,7 @@ fn render(source: &str) -> String {
         for error in &errors {
             out.push_str(&format!(
                 "{}..{}: {}\n",
-                error.span.start, error.span.end, error.message
+                error.span.start.0, error.span.end.0, error.message
             ));
         }
     }
@@ -114,7 +116,7 @@ snapshot!(unknown_char, "a @ b");
 
 #[test]
 fn lexing_continues_after_an_error() {
-    let (tokens, errors) = lex("a @ b");
+    let (tokens, errors) = lex("a @ b", FileId::new(0));
     assert_eq!(errors.len(), 1);
     // Ident("a"), Error("@"), Ident("b"), Eof
     assert_eq!(tokens.len(), 4);

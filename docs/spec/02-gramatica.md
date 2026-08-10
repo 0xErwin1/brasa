@@ -73,7 +73,7 @@ enum_def    = "pub"? "enum" TYPE_IDENT generics? NL variant+ "end"
 variant     = TYPE_IDENT ( "(" field ( "," field )* ")" )? NL
 
 interface_def = "pub"? "interface" TYPE_IDENT generics? NL iface_member+ "end"
-iface_member  = "def" IDENT "(" params? ")" ret? NL
+iface_member  = "def" IDENT "(" params? ")" ret? throws? NL
 ```
 
 ## Sentencias
@@ -157,6 +157,10 @@ match_arm   = pattern ( "if" expr )? "=>" ( expr | NL block ) NL
 pattern     = "_" | literal | IDENT
             | TYPE_IDENT ( "(" pattern ( "," pattern )* ")" )?
             | "(" pattern ( "," pattern )* ")"        # tupla
+
+(* literales admitidos en patrones; los STRING de patrón NO admiten
+   interpolación — un patrón compara, no construye *)
+literal     = INT | FLOAT | STRING | CHAR | "true" | "false"
 ```
 
 ```
