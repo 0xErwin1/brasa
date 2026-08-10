@@ -8,12 +8,13 @@
 //!
 //! The M1 (CORE) scope covers local inference, `let`/`let mut` with
 //! mutability enforcement, functions, structs, operators, control flow,
-//! collection literals, and a minimal builtin method table
+//! collection literals, a minimal builtin method table, and generics
+//! with structural interface constraints (BRS-17: inference at every
+//! use site, constraint satisfaction, no interface-typed values)
 //! (`docs/spec/03-types.md`, `docs/spec/05-stdlib.md`). Deferred and
-//! traversed with a silently-unifying `Unknown` type: generics and
-//! interface constraints (BRS-17), `match` exhaustiveness (BRS-18),
-//! `Option` operator refinement (BRS-19), error sets (M2), and stdlib
-//! module signatures (M4).
+//! traversed with a silently-unifying `Unknown` type: `match`
+//! exhaustiveness (BRS-18), `Option` operator refinement (BRS-19),
+//! error sets (M2), and stdlib module signatures (M4).
 
 pub mod builtins;
 pub mod dump;

@@ -1,0 +1,46 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 maxOf -> (T, T) -> T
+  i1 first -> (Vector<T>) -> Option<T>
+  i2 log -> (T) -> unit
+  i3 m -> int
+  i4 s -> string
+  i5 f -> Option<int>
+local types
+  l0 a -> T
+  l1 b -> T
+  l2 v -> Vector<T>
+  l3 value -> T
+expr types
+  e0 -> T
+  e1 -> T
+  e2 -> bool
+  e3 -> T
+  e4 -> T
+  e5 -> Vector<T>
+  e6 -> () -> Option<T>
+  e7 -> Option<T>
+  e8 -> (unknown) -> unit
+  e9 -> T
+  e10 -> () -> string
+  e11 -> string
+  e12 -> unit
+  e13 -> (int, int) -> int
+  e14 -> int
+  e15 -> int
+  e16 -> int
+  e17 -> (string, string) -> string
+  e18 -> string
+  e19 -> string
+  e20 -> string
+  e21 -> (Vector<int>) -> Option<int>
+  e22 -> int
+  e23 -> int
+  e24 -> Vector<int>
+  e25 -> Option<int>
+  e26 -> (float) -> unit
+  e27 -> float
+  e28 -> unit

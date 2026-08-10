@@ -20,20 +20,20 @@
 //! be `unit` (the value is discarded); `return` in top-level code is an
 //! error; `Vector<T>.join` requires `Vector<string>`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use brasa_diagnostics::{Diagnostic, Severity};
 use brasa_hir::{
-    ArmBody, BinaryOp, CatchArm, Expr, ExprId, FuncDef, Hir, IfNode, Item, ItemId, LambdaBody,
-    LambdaParam, Literal, MatchArm, Pattern, PatternId, Stmt, StmtId, TypeExpr, TypeExprId,
-    UnaryOp, Variant,
+    ArmBody, BinaryOp, CatchArm, Constraint, EnumDef, Expr, ExprId, FuncDef, GenericParam, Hir,
+    IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal, MatchArm, Param, Pattern,
+    PatternId, Stmt, StmtId, TypeExpr, TypeExprId, UnaryOp, Variant,
 };
-use brasa_resolver::{CtorRes, DefRef, Res, Resolutions, TypeRes};
+use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
 
 use crate::TypeTables;
 use crate::builtins::{self, MethodSig, RetRule};
-use crate::types::{Type, WrapDecision, item_name, unify};
+use crate::types::{Type, WrapDecision, item_name, substitute, unify};
 
 fn err(span: Span, message: String) -> Diagnostic {
     Diagnostic::new(Severity::Error, message, "BRS-TYPECK".to_string(), span)
@@ -56,6 +56,16 @@ enum Member {
     Missing,
 }
 
+/// What a generic constraint means once resolved: a builtin interface
+/// (closed satisfaction lists), a user interface (structural member
+/// check), or an inline anonymous interface (same semantics,
+/// `docs/spec/01-syntax.md`).
+enum ConstraintKind<'h> {
+    Builtin(BuiltinType),
+    Iface(ItemId, &'h [IfaceMember]),
+    Inline(&'h [IfaceMember]),
+}
+
 struct Checker<'a> {
     hir: &'a Hir,
     res: &'a Resolutions,
@@ -66,6 +76,11 @@ struct Checker<'a> {
     ret_ty: Option<Type>,
     /// The enclosing method's receiver type.
     self_ty: Option<Type>,
+    /// When non-zero, `error` drops diagnostics. Used while converting
+    /// interface member signatures for satisfaction checks and member
+    /// lookups: those conversions run once per use site, and any type
+    /// error inside an interface body is not this site's fault.
+    suppressed: u32,
 }
 
 pub(crate) fn run(hir: &Hir, roots: &[ItemId], res: &Resolutions) -> (TypeTables, Vec<Diagnostic>) {
@@ -76,6 +91,7 @@ pub(crate) fn run(hir: &Hir, roots: &[ItemId], res: &Resolutions) -> (TypeTables
         diagnostics: Vec::new(),
         ret_ty: None,
         self_ty: None,
+        suppressed: 0,
     };
 
     checker.collect_signatures(roots);
@@ -87,7 +103,9 @@ pub(crate) fn run(hir: &Hir, roots: &[ItemId], res: &Resolutions) -> (TypeTables
 
 impl<'a> Checker<'a> {
     fn error(&mut self, diag: Diagnostic) {
-        self.diagnostics.push(diag);
+        if self.suppressed == 0 {
+            self.diagnostics.push(diag);
+        }
     }
 
     fn mismatch(&mut self, span: Span, expected: &Type, found: &Type) {
@@ -104,8 +122,10 @@ impl<'a> Checker<'a> {
 
     /// Function signatures come straight from annotations, so they exist
     /// before any body is checked (the local-inference boundary,
-    /// `docs/spec/03-types.md`). Generic parameters become `Unknown`
-    /// (BRS-17), so generic calls still check arity but not constraints.
+    /// `docs/spec/03-types.md`). Generic parameters stay rigid
+    /// [`Type::Generic`]s in the stored signature; call sites substitute
+    /// them once the arguments are known (`docs/spec/02-grammar.md`, no
+    /// turbofish — instantiation is always inferred).
     fn collect_signatures(&mut self, roots: &[ItemId]) {
         for &root in roots {
             if let Item::FuncDef(func) = self.hir.item(root) {
@@ -144,11 +164,22 @@ impl<'a> Checker<'a> {
                     self.check_func(DefRef::Item(root), func, None);
                 }
                 Item::StructDef(def) => {
+                    // Methods of a generic struct see `self` as the
+                    // struct applied to its own parameters, so
+                    // `Point { x: self.y, y: self.x }` checks against a
+                    // `Point<T>` return type.
+                    let self_args: Vec<Type> = (0..def.generics.len())
+                        .map(|index| Type::Generic {
+                            owner: DefRef::Item(root),
+                            index,
+                        })
+                        .collect();
+
                     for (index, method) in def.methods.iter().enumerate() {
                         self.check_func(
                             DefRef::Method { owner: root, index },
                             method,
-                            Some(Type::Struct(root)),
+                            Some(Type::Struct(root, self_args.clone())),
                         );
                     }
                 }
@@ -203,13 +234,13 @@ impl<'a> Checker<'a> {
 
     /// Builds a function's value type from its annotations: `self` slots
     /// are dropped, missing return means `unit`.
-    fn func_sig(&self, func: &FuncDef) -> Type {
+    fn func_sig(&mut self, func: &FuncDef) -> Type {
         let params = func
             .params
             .iter()
             .filter_map(|param| match param {
-                brasa_hir::Param::SelfParam => None,
-                brasa_hir::Param::Named { ty, .. } => Some(self.conv(*ty)),
+                Param::SelfParam => None,
+                Param::Named { ty, .. } => Some(self.conv(*ty)),
             })
             .collect();
         let ret = func.ret.map(|ty| self.conv(ty)).unwrap_or(Type::Unit);
@@ -576,7 +607,7 @@ impl<'a> Checker<'a> {
             }
             Expr::StructLit { type_name, fields } => {
                 let (type_name, fields) = (type_name.clone(), fields.clone());
-                self.check_struct_lit(id, &type_name, &fields)
+                self.check_struct_lit(id, &type_name, &fields, expected)
             }
             Expr::Range { lo, hi, .. } => {
                 // Ranges are their own lazy type over ints, never
@@ -656,6 +687,17 @@ impl<'a> Checker<'a> {
             return self.check_method_call(span, callee, recv, &name, &args);
         }
 
+        // Direct calls to generic functions solve the type parameters
+        // from the arguments — there is no turbofish, instantiation is
+        // always inferred at the call site (`docs/spec/02-grammar.md`).
+        if let Expr::Ident(_) = hir.expr(callee)
+            && let Some(&Res::Item(item)) = self.res.expr_res.get(&callee)
+            && let Item::FuncDef(func) = hir.item(item)
+            && !func.generics.is_empty()
+        {
+            return self.check_generic_call(span, callee, item, func, &args);
+        }
+
         let callee_ty = self.check_expr(callee, None);
         match callee_ty {
             Type::Fn { params, ret } => {
@@ -704,6 +746,111 @@ impl<'a> Checker<'a> {
                     self.check_expr(arg, None);
                 }
             }
+        }
+    }
+
+    /// Checks a direct call to a generic function. Instantiation is
+    /// always inferred from the arguments — there is no turbofish
+    /// (`docs/spec/02-grammar.md`) — and everything happens in the
+    /// checker: the VM runs one uniform function per generic definition
+    /// (`docs/spec/03-types.md`, generics execution model).
+    ///
+    /// Each argument checks against the signature with everything solved
+    /// so far substituted in, solving remaining type parameters
+    /// left-to-right (first solution wins; a later conflicting argument
+    /// reports a plain mismatch against the substituted type). The
+    /// expectation propagates into the argument only once its parameter
+    /// type is fully solved, so literals never unify against a rigid
+    /// `T`. Constraints are then checked against the solved types —
+    /// satisfaction happens at the call site, where the concrete types
+    /// are known (`docs/spec/03-types.md`) — and the result is the
+    /// substituted return type.
+    fn check_generic_call(
+        &mut self,
+        span: Span,
+        callee: ExprId,
+        item: ItemId,
+        func: &'a FuncDef,
+        args: &[ExprId],
+    ) -> Type {
+        let sig = self.tables.item_types.get(&item).cloned();
+        let Some(Type::Fn { params, ret }) = sig else {
+            for &arg in args {
+                self.check_expr(arg, None);
+            }
+            return Type::Unknown;
+        };
+
+        if args.len() != params.len() {
+            self.error(err_at(
+                span,
+                format!(
+                    "wrong number of arguments: expected {}, found {}",
+                    params.len(),
+                    args.len()
+                ),
+                &format!("expected {} argument(s)", params.len()),
+            ));
+        }
+
+        let owner = DefRef::Item(item);
+        let mut map: HashMap<(DefRef, usize), Type> = HashMap::new();
+        let mut poisoned: HashSet<(DefRef, usize)> = HashSet::new();
+
+        for (i, &arg) in args.iter().enumerate() {
+            let Some(param) = params.get(i) else {
+                self.check_expr(arg, None);
+                continue;
+            };
+
+            let expected = substitute(param, &map);
+            let hint = (!contains_generic_of(&expected, owner)).then_some(&expected);
+            let found = self.check_expr(arg, hint);
+
+            if !solve(&expected, &found, owner, &mut map, &mut poisoned) {
+                let arg_span = self.hir.span_of_expr(arg);
+                self.mismatch(arg_span, &expected, &found);
+            }
+        }
+
+        self.finish_generic_solution(span, owner, &func.generics, &func.name, &mut map, &poisoned);
+        self.check_constraints(span, owner, &func.generics, &map);
+
+        let params: Vec<Type> = params.iter().map(|p| substitute(p, &map)).collect();
+        let ret = substitute(&ret, &map);
+        self.tables
+            .expr_types
+            .insert(callee, Type::func(params, ret.clone()));
+        ret
+    }
+
+    /// Reports `cannot infer type parameter` for every generic that
+    /// stayed unsolved and fills it with `Unknown`. Parameters whose
+    /// only evidence was a flexible (poisoned or `never`) type are
+    /// filled silently: the cause was already reported.
+    fn finish_generic_solution(
+        &mut self,
+        span: Span,
+        owner: DefRef,
+        generics: &[GenericParam],
+        owner_name: &str,
+        map: &mut HashMap<(DefRef, usize), Type>,
+        poisoned: &HashSet<(DefRef, usize)>,
+    ) {
+        for (index, generic) in generics.iter().enumerate() {
+            if map.contains_key(&(owner, index)) {
+                continue;
+            }
+
+            if !poisoned.contains(&(owner, index)) {
+                let name = &generic.name;
+                self.error(err_at(
+                    span,
+                    format!("cannot infer type parameter `{name}` of `{owner_name}`"),
+                    "no argument determines it",
+                ));
+            }
+            map.insert((owner, index), Type::Unknown);
         }
     }
 
@@ -823,13 +970,17 @@ impl<'a> Checker<'a> {
             && matches!(self.res.expr_res.get(&expr), Some(Res::Module(_)))
     }
 
-    fn lookup_member(&self, recv: &Type, name: &str) -> Member {
+    fn lookup_member(&mut self, recv: &Type, name: &str) -> Member {
         if recv.is_flexible() {
             return Member::Deferred;
         }
 
-        if let Type::Struct(item) = recv {
-            return self.lookup_struct_member(*item, name);
+        if let Type::Struct(item, args) = recv {
+            let args = args.clone();
+            return self.lookup_struct_member(*item, &args, name);
+        }
+        if let Type::Generic { owner, index } = recv {
+            return self.lookup_generic_member(*owner, *index, recv, name);
         }
 
         if let Some(sig) = builtins::method(recv, name) {
@@ -845,16 +996,29 @@ impl<'a> Checker<'a> {
         Member::Missing
     }
 
-    fn lookup_struct_member(&self, item: ItemId, name: &str) -> Member {
+    /// Looks up a field or method on a struct receiver. When the struct
+    /// is generic, the receiver's arguments substitute the struct's own
+    /// parameters in the member's declared type, so `Point<int>.x` is
+    /// `int` and `Point<int>.swap` returns `Point<int>`.
+    fn lookup_struct_member(&mut self, item: ItemId, args: &[Type], name: &str) -> Member {
         let Item::StructDef(def) = self.hir.item(item) else {
             return Member::Deferred;
         };
 
+        let owner = DefRef::Item(item);
+        let map: HashMap<(DefRef, usize), Type> = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| ((owner, index), arg.clone()))
+            .collect();
+
         if let Some(field) = def.fields.iter().find(|f| f.name == name) {
-            return Member::Value(self.conv(field.ty));
+            let ty = self.conv(field.ty);
+            return Member::Value(substitute(&ty, &map));
         }
         if let Some(method) = def.methods.iter().find(|m| m.name == name) {
-            return Member::Value(self.func_sig(method));
+            let sig = self.func_sig(method);
+            return Member::Value(substitute(&sig, &map));
         }
         if name == "toString" {
             // The universal derived `toString`; a declared method of the
@@ -867,10 +1031,57 @@ impl<'a> Checker<'a> {
         Member::Missing
     }
 
+    /// Looks up a member on a value of generic type: only the members of
+    /// the parameter's constraint (with `Self` mapped to the receiver)
+    /// and the universal `toString` are visible. Builtin interfaces
+    /// contribute operators, not members, so `Comparable`/`Hashable`
+    /// expose nothing here.
+    fn lookup_generic_member(
+        &mut self,
+        owner: DefRef,
+        index: usize,
+        recv: &Type,
+        name: &str,
+    ) -> Member {
+        if let Some(members) = self.generic_constraint_members(owner, index)
+            && let Some(member) = members.iter().find(|m| m.name == name)
+        {
+            return Member::Value(self.iface_member_fn(member, recv));
+        }
+
+        if name == "toString" {
+            return Member::Sig(MethodSig {
+                params: vec![],
+                ret: RetRule::Fixed(Type::String),
+            });
+        }
+        Member::Missing
+    }
+
     fn report_missing_member(&mut self, span: Span, recv: &Type, name: &str) {
         let shown = recv.display(self.hir);
 
-        if let Type::Struct(_) = recv {
+        if let Type::Generic { owner, index } = recv {
+            let message = match self
+                .generic_decl(*owner, *index)
+                .and_then(|g| g.constraint.as_ref())
+            {
+                Some(Constraint::Named(iface)) => {
+                    format!("`{shown}` is only known to satisfy `{iface}`; no method `{name}`")
+                }
+                Some(Constraint::Inline(_)) => format!(
+                    "`{shown}` is only known to satisfy its inline constraint; no method `{name}`"
+                ),
+                None => format!("`{shown}` has no constraint; no method `{name}`"),
+            };
+            self.error(err_at(span, message, "unknown method").with_note(
+                "only the constraint's members and the universal `toString` are available on a generic value"
+                    .to_string(),
+            ));
+            return;
+        }
+
+        if let Type::Struct(..) = recv {
             self.error(err_at(
                 span,
                 format!("struct `{shown}` has no field or method `{name}`"),
@@ -895,6 +1106,274 @@ impl<'a> Checker<'a> {
             format!("no method `{name}` on `{shown}`"),
             "unknown method",
         ));
+    }
+
+    // --- generics and constraints --------------------------------------
+
+    /// The declaration of one generic parameter, resolved through its
+    /// owner (a struct method resolves via the owning struct's method
+    /// list).
+    fn generic_decl(&self, owner: DefRef, index: usize) -> Option<&'a GenericParam> {
+        match owner {
+            DefRef::Item(item) => match self.hir.item(item) {
+                Item::FuncDef(func) => func.generics.get(index),
+                Item::StructDef(def) => def.generics.get(index),
+                Item::EnumDef(def) => def.generics.get(index),
+                Item::InterfaceDef(def) => def.generics.get(index),
+                _ => None,
+            },
+            DefRef::Method {
+                owner: struct_item,
+                index: method_index,
+            } => match self.hir.item(struct_item) {
+                Item::StructDef(def) => def
+                    .methods
+                    .get(method_index)
+                    .and_then(|m| m.generics.get(index)),
+                _ => None,
+            },
+        }
+    }
+
+    /// The member list a generic parameter's constraint provides: a user
+    /// interface's methods or an inline constraint's members. Builtin
+    /// interfaces and unconstrained parameters provide none.
+    fn generic_constraint_members(&self, owner: DefRef, index: usize) -> Option<&'a [IfaceMember]> {
+        let generic = self.generic_decl(owner, index)?;
+
+        match generic.constraint.as_ref()? {
+            Constraint::Named(_) => match self.res.constraint_res.get(&(owner, index)).copied() {
+                Some(TypeRes::Item(item)) => match self.hir.item(item) {
+                    Item::InterfaceDef(def) => Some(&def.methods),
+                    _ => None,
+                },
+                _ => None,
+            },
+            Constraint::Inline(members) => Some(members),
+        }
+    }
+
+    /// Whether a generic parameter's constraint is exactly the given
+    /// builtin interface. This is the only way a generic entails
+    /// `Comparable` or `Hashable`: an inline constraint never grants a
+    /// builtin (`docs/spec/03-types.md`, closed satisfaction lists).
+    fn generic_has_builtin(&self, owner: DefRef, index: usize, builtin: BuiltinType) -> bool {
+        matches!(
+            self.res.constraint_res.get(&(owner, index)),
+            Some(TypeRes::Builtin(b)) if *b == builtin
+        )
+    }
+
+    /// Converts an interface member signature into a function type with
+    /// `Self` mapped to `self_ty` — the type satisfying the interface
+    /// (`docs/spec/03-types.md`, structural interfaces). Conversion runs
+    /// suppressed: type errors inside an interface body are not this use
+    /// site's fault.
+    fn iface_member_fn(&mut self, member: &IfaceMember, self_ty: &Type) -> Type {
+        let saved = self.self_ty.replace(self_ty.clone());
+        self.suppressed += 1;
+
+        let params: Vec<Type> = member
+            .params
+            .iter()
+            .filter_map(|param| match param {
+                Param::SelfParam => None,
+                Param::Named { ty, .. } => Some(self.conv(*ty)),
+            })
+            .collect();
+        let ret = member.ret.map(|ty| self.conv(ty)).unwrap_or(Type::Unit);
+
+        self.suppressed -= 1;
+        self.self_ty = saved;
+        Type::func(params, ret)
+    }
+
+    /// What a generic parameter's constraint means, resolved through
+    /// `constraint_res` for the named form.
+    fn constraint_kind(
+        &self,
+        owner: DefRef,
+        index: usize,
+        constraint: &'a Constraint,
+    ) -> Option<ConstraintKind<'a>> {
+        match constraint {
+            Constraint::Named(_) => match self.res.constraint_res.get(&(owner, index)).copied() {
+                Some(TypeRes::Builtin(builtin)) => Some(ConstraintKind::Builtin(builtin)),
+                Some(TypeRes::Item(item)) => match self.hir.item(item) {
+                    Item::InterfaceDef(def) => Some(ConstraintKind::Iface(item, &def.methods)),
+                    _ => None,
+                },
+                _ => None,
+            },
+            Constraint::Inline(members) => Some(ConstraintKind::Inline(members)),
+        }
+    }
+
+    /// Checks every solved type parameter against its declared
+    /// constraint. Satisfaction is checked here, at the use site, where
+    /// the concrete types are known (`docs/spec/03-types.md`). Flexible
+    /// solutions skip silently (their cause was already reported), and
+    /// constraints the resolver failed to resolve were reported there.
+    fn check_constraints(
+        &mut self,
+        span: Span,
+        owner: DefRef,
+        generics: &'a [GenericParam],
+        map: &HashMap<(DefRef, usize), Type>,
+    ) {
+        for (index, generic) in generics.iter().enumerate() {
+            let Some(constraint) = &generic.constraint else {
+                continue;
+            };
+            let Some(solved) = map.get(&(owner, index)) else {
+                continue;
+            };
+            if solved.is_flexible() {
+                continue;
+            }
+            let Some(kind) = self.constraint_kind(owner, index, constraint) else {
+                continue;
+            };
+
+            let solved = solved.clone();
+            if let Err(missing) = self.satisfies(&solved, &kind) {
+                self.report_constraint_violation(span, &solved, &kind, generic, missing);
+            }
+        }
+    }
+
+    /// Whether `candidate` satisfies the constraint: it has all the
+    /// interface's members with compatible signatures, `Self` replaced
+    /// by the candidate — no conformance declarations
+    /// (`docs/spec/03-types.md`). Builtin interfaces use their closed
+    /// lists: `Comparable` is `int`/`float`/`string`/`char`, `Printable`
+    /// is every type, `Hashable` is `int`/`string`/`char`/`bool` and
+    /// tuples of those. A generic candidate satisfies a constraint only
+    /// when its own constraint entails it: the same interface, the same
+    /// builtin, `Printable` always, or its member set structurally
+    /// covers the required members. `Err` carries the first missing or
+    /// mismatched member name when there is one to point at.
+    fn satisfies(
+        &mut self,
+        candidate: &Type,
+        kind: &ConstraintKind<'a>,
+    ) -> Result<(), Option<String>> {
+        match kind {
+            ConstraintKind::Builtin(BuiltinType::Printable) => Ok(()),
+            ConstraintKind::Builtin(BuiltinType::Comparable) => match candidate {
+                Type::Int | Type::Float | Type::String | Type::Char => Ok(()),
+                Type::Generic { owner, index }
+                    if self.generic_has_builtin(*owner, *index, BuiltinType::Comparable) =>
+                {
+                    Ok(())
+                }
+                _ => Err(None),
+            },
+            ConstraintKind::Builtin(BuiltinType::Hashable) => {
+                if self.hashable(candidate) {
+                    Ok(())
+                } else {
+                    Err(None)
+                }
+            }
+            // The resolver only records interface builtins as
+            // constraints, so nothing else reaches here.
+            ConstraintKind::Builtin(_) => Ok(()),
+            ConstraintKind::Iface(item, members) => {
+                if let Type::Generic { owner, index } = candidate
+                    && matches!(
+                        self.res.constraint_res.get(&(*owner, *index)),
+                        Some(TypeRes::Item(own)) if own == item
+                    )
+                {
+                    return Ok(());
+                }
+                self.satisfies_members(candidate, members)
+            }
+            ConstraintKind::Inline(members) => self.satisfies_members(candidate, members),
+        }
+    }
+
+    fn satisfies_members(
+        &mut self,
+        candidate: &Type,
+        members: &'a [IfaceMember],
+    ) -> Result<(), Option<String>> {
+        for member in members {
+            if !self.member_satisfied(candidate, member) {
+                return Err(Some(member.name.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `candidate` provides one interface member with a
+    /// compatible signature. Lookup goes through [`Self::lookup_member`],
+    /// so struct candidates match their declared methods (and the
+    /// universal derived `toString`), non-struct candidates their
+    /// builtin methods, and generic candidates the members of their own
+    /// constraint — which is exactly member-set entailment.
+    fn member_satisfied(&mut self, candidate: &Type, member: &'a IfaceMember) -> bool {
+        let required = self.iface_member_fn(member, candidate);
+
+        self.suppressed += 1;
+        let found = self.lookup_member(candidate, &member.name);
+        self.suppressed -= 1;
+
+        match found {
+            Member::Sig(sig) => unify(&required, &fn_of_sig(sig)).is_some(),
+            Member::Value(found_ty @ Type::Fn { .. }) => unify(&required, &found_ty).is_some(),
+            Member::Deferred => true,
+            Member::Value(_) | Member::Missing => false,
+        }
+    }
+
+    /// The closed `Hashable` list: `int`, `string`, `char`, `bool`, and
+    /// tuples of those recursively — never `float`, structs, or
+    /// collections (`docs/spec/03-types.md`).
+    fn hashable(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Int | Type::String | Type::Char | Type::Bool => true,
+            Type::Tuple(elems) => elems.iter().all(|e| self.hashable(e)),
+            Type::Generic { owner, index } => {
+                self.generic_has_builtin(*owner, *index, BuiltinType::Hashable)
+            }
+            _ => false,
+        }
+    }
+
+    fn report_constraint_violation(
+        &mut self,
+        span: Span,
+        solved: &Type,
+        kind: &ConstraintKind<'a>,
+        generic: &GenericParam,
+        missing: Option<String>,
+    ) {
+        let shown = solved.display(self.hir);
+        let message = match kind {
+            ConstraintKind::Builtin(builtin) => {
+                format!("`{shown}` does not satisfy `{}`", builtin.name())
+            }
+            ConstraintKind::Iface(item, _) => {
+                format!(
+                    "`{shown}` does not satisfy `{}`",
+                    item_name(self.hir, *item)
+                )
+            }
+            ConstraintKind::Inline(_) => format!(
+                "`{shown}` does not satisfy the inline constraint on `{}`",
+                generic.name
+            ),
+        };
+
+        let mut diag = err_at(span, message, "constraint not satisfied");
+        if let Some(member) = missing {
+            diag = diag.with_note(format!(
+                "`{shown}` has no member `{member}` with a compatible signature"
+            ));
+        }
+        self.error(diag);
     }
 
     // --- operators -----------------------------------------------------
@@ -1061,9 +1540,10 @@ impl<'a> Checker<'a> {
         Type::Bool
     }
 
-    /// `< <= > >=` order `int`, `float`, `string`, and `char`
-    /// (`docs/spec/03-types.md`, operator table). `T: Comparable`
-    /// generics are BRS-17; their `Unknown` operands pass silently.
+    /// `< <= > >=` order `int`, `float`, `string`, `char`, and generics
+    /// constrained by `Comparable` (`docs/spec/03-types.md`, operator
+    /// table). Only the named `Comparable` constraint grants ordering:
+    /// an inline constraint never entails a builtin interface.
     fn check_ordering(&mut self, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId) -> Type {
         let lt = self.check_expr(lhs, None);
         let rt = self.check_expr(rhs, None);
@@ -1071,6 +1551,12 @@ impl<'a> Checker<'a> {
         if lt.is_flexible() || rt.is_flexible() {
             return Type::Bool;
         }
+
+        let comparable_generic = matches!(
+            &lt,
+            Type::Generic { owner, index }
+                if self.generic_has_builtin(*owner, *index, BuiltinType::Comparable)
+        );
 
         let span = self.hir.span_of_expr(id);
         if lt != rt {
@@ -1084,7 +1570,9 @@ impl<'a> Checker<'a> {
                 ),
                 "both sides must have the same type",
             ));
-        } else if !matches!(lt, Type::Int | Type::Float | Type::String | Type::Char) {
+        } else if !matches!(lt, Type::Int | Type::Float | Type::String | Type::Char)
+            && !comparable_generic
+        {
             self.error(err_at(
                 span,
                 format!(
@@ -1092,7 +1580,7 @@ impl<'a> Checker<'a> {
                     lt.display(self.hir),
                     op_str(op)
                 ),
-                "only `int`, `float`, `string`, and `char` are ordered",
+                "only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered",
             ));
         }
         Type::Bool
@@ -1462,11 +1950,19 @@ impl<'a> Checker<'a> {
     /// declared field exactly once (decision); unknown, duplicate, and
     /// missing fields are each errors, and field values check against
     /// the declared field types.
+    ///
+    /// For a generic struct there is no explicit instantiation syntax,
+    /// so the arguments are inferred: first from the expected type, then
+    /// by unifying the field values against the declared field types
+    /// (`docs/spec/02-grammar.md`, no turbofish). Constraints are
+    /// checked against the solved arguments right here, where the
+    /// concrete types are known (`docs/spec/03-types.md`).
     fn check_struct_lit(
         &mut self,
         id: ExprId,
         type_name: &str,
         fields: &[(String, ExprId)],
+        expected: Option<&Type>,
     ) -> Type {
         let span = self.hir.span_of_expr(id);
 
@@ -1498,6 +1994,22 @@ impl<'a> Checker<'a> {
         let declared: Vec<(String, TypeExprId)> =
             def.fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
         let struct_display = def.name.clone();
+        let generics_count = def.generics.len();
+
+        let owner = DefRef::Item(item);
+        let mut map: HashMap<(DefRef, usize), Type> = HashMap::new();
+        let mut poisoned: HashSet<(DefRef, usize)> = HashSet::new();
+
+        if let Some(Type::Struct(expected_item, expected_args)) = expected
+            && *expected_item == item
+            && expected_args.len() == generics_count
+        {
+            for (index, arg) in expected_args.iter().enumerate() {
+                if !arg.is_flexible() {
+                    map.insert((owner, index), arg.clone());
+                }
+            }
+        }
 
         let mut seen: HashMap<&str, ()> = HashMap::new();
         for (name, value) in fields {
@@ -1512,8 +2024,16 @@ impl<'a> Checker<'a> {
                             "already provided",
                         ));
                     }
+
                     let field_ty = self.conv(field_ty);
-                    self.check_expect(*value, &field_ty);
+                    let field_expected = substitute(&field_ty, &map);
+                    let hint =
+                        (!contains_generic_of(&field_expected, owner)).then_some(&field_expected);
+                    let found = self.check_expr(*value, hint);
+
+                    if !solve(&field_expected, &found, owner, &mut map, &mut poisoned) {
+                        self.mismatch(value_span, &field_expected, &found);
+                    }
                 }
                 None => {
                     self.error(err_at(
@@ -1536,7 +2056,20 @@ impl<'a> Checker<'a> {
             }
         }
 
-        Type::Struct(item)
+        self.finish_generic_solution(
+            span,
+            owner,
+            &def.generics,
+            &struct_display,
+            &mut map,
+            &poisoned,
+        );
+        self.check_constraints(span, owner, &def.generics, &map);
+
+        let args = (0..generics_count)
+            .map(|index| map.remove(&(owner, index)).unwrap_or(Type::Unknown))
+            .collect();
+        Type::Struct(item, args)
     }
 
     /// `Some(x)` is `Option<typeof x>`; a bare `None` takes the expected
@@ -1597,10 +2130,95 @@ impl<'a> Checker<'a> {
                 enum_item,
                 variant_index,
             }) => {
+                if let Item::EnumDef(def) = self.hir.item(enum_item)
+                    && !def.generics.is_empty()
+                {
+                    return self.check_generic_variant(
+                        span,
+                        enum_item,
+                        def,
+                        variant_index,
+                        args,
+                        expected,
+                    );
+                }
+
                 self.check_variant_args(span, enum_item, variant_index, args);
-                Type::Enum(enum_item)
+                Type::Enum(enum_item, vec![])
             }
         }
+    }
+
+    /// A variant constructor of a generic enum infers the enum's type
+    /// arguments like a generic call: from the expected type first, then
+    /// from the payload values (`docs/spec/02-grammar.md`, no
+    /// turbofish). Constraints are checked against the solved arguments.
+    fn check_generic_variant(
+        &mut self,
+        span: Span,
+        enum_item: ItemId,
+        def: &'a EnumDef,
+        variant_index: usize,
+        args: &[ExprId],
+        expected: Option<&Type>,
+    ) -> Type {
+        let owner = DefRef::Item(enum_item);
+        let mut map: HashMap<(DefRef, usize), Type> = HashMap::new();
+        let mut poisoned: HashSet<(DefRef, usize)> = HashSet::new();
+
+        if let Some(Type::Enum(expected_item, expected_args)) = expected
+            && *expected_item == enum_item
+            && expected_args.len() == def.generics.len()
+        {
+            for (index, arg) in expected_args.iter().enumerate() {
+                if !arg.is_flexible() {
+                    map.insert((owner, index), arg.clone());
+                }
+            }
+        }
+
+        if let Some((variant_name, field_tys)) = self.variant(enum_item, variant_index) {
+            if args.len() != field_tys.len() {
+                self.error(err_at(
+                    span,
+                    format!(
+                        "`{variant_name}` takes {} argument(s), found {}",
+                        field_tys.len(),
+                        args.len()
+                    ),
+                    &format!("expected {} argument(s)", field_tys.len()),
+                ));
+            }
+
+            for (i, &arg) in args.iter().enumerate() {
+                let Some(field_ty) = field_tys.get(i) else {
+                    self.check_expr(arg, None);
+                    continue;
+                };
+
+                let field_expected = substitute(field_ty, &map);
+                let hint =
+                    (!contains_generic_of(&field_expected, owner)).then_some(&field_expected);
+                let found = self.check_expr(arg, hint);
+
+                if !solve(&field_expected, &found, owner, &mut map, &mut poisoned) {
+                    let arg_span = self.hir.span_of_expr(arg);
+                    self.mismatch(arg_span, &field_expected, &found);
+                }
+            }
+        } else {
+            for &arg in args {
+                self.check_expr(arg, None);
+            }
+        }
+
+        self.finish_generic_solution(span, owner, &def.generics, &def.name, &mut map, &poisoned);
+        self.check_constraints(span, owner, &def.generics, &map);
+
+        let solved = (0..def.generics.len())
+            .map(|index| map.remove(&(owner, index)).unwrap_or(Type::Unknown))
+            .collect();
+        Type::Enum(enum_item, solved)
     }
 
     fn check_variant_args(
@@ -1643,7 +2261,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn variant(&self, enum_item: ItemId, variant_index: usize) -> Option<(String, Vec<Type>)> {
+    fn variant(&mut self, enum_item: ItemId, variant_index: usize) -> Option<(String, Vec<Type>)> {
         let Item::EnumDef(def) = self.hir.item(enum_item) else {
             return None;
         };
@@ -1752,7 +2370,7 @@ impl<'a> Checker<'a> {
                 variant_index,
             }) => {
                 let matches_scrutinee = match expected {
-                    Type::Enum(item) => *item == enum_item,
+                    Type::Enum(item, _) => *item == enum_item,
                     flexible => flexible.is_flexible(),
                 };
                 if !matches_scrutinee {
@@ -1770,6 +2388,21 @@ impl<'a> Checker<'a> {
                 let Some((variant_name, field_tys)) = self.variant(enum_item, variant_index) else {
                     self.bind_patterns_unknown(args);
                     return;
+                };
+
+                // A generic scrutinee carries the enum's arguments, so
+                // payload bindings type with them substituted in.
+                let field_tys: Vec<Type> = match expected {
+                    Type::Enum(item, scrutinee_args) if *item == enum_item => {
+                        let owner = DefRef::Item(enum_item);
+                        let map: HashMap<(DefRef, usize), Type> = scrutinee_args
+                            .iter()
+                            .enumerate()
+                            .map(|(index, arg)| ((owner, index), arg.clone()))
+                            .collect();
+                        field_tys.iter().map(|ty| substitute(ty, &map)).collect()
+                    }
+                    _ => field_tys,
                 };
 
                 if args.len() != field_tys.len() {
@@ -1835,21 +2468,19 @@ impl<'a> Checker<'a> {
     // --- type expressions ----------------------------------------------
 
     /// Converts an annotation into a checker type using the resolver's
-    /// `type_res` table. Generic parameters and interfaces become
-    /// `Unknown` (BRS-17: no constraint checking, no interface-typed
-    /// values in v1); the resolver already reported unknown names.
-    fn conv(&self, id: TypeExprId) -> Type {
+    /// `type_res` table; the resolver already reported unknown names.
+    /// Generic parameters become rigid [`Type::Generic`]s. Interfaces in
+    /// type position are an error: generic constraints are the only
+    /// place interfaces are usable in v1 — there are no interface-typed
+    /// values (`docs/spec/03-types.md`, structural interfaces).
+    fn conv(&mut self, id: TypeExprId) -> Type {
         let hir = self.hir;
 
         match hir.type_expr(id) {
             TypeExpr::Named { args, .. } => match self.res.type_res.get(&id).copied() {
-                Some(TypeRes::Builtin(builtin)) => self.conv_builtin(builtin, args),
-                Some(TypeRes::Item(item)) => match hir.item(item) {
-                    Item::StructDef(_) => Type::Struct(item),
-                    Item::EnumDef(_) => Type::Enum(item),
-                    _ => Type::Unknown,
-                },
-                Some(TypeRes::GenericParam { .. }) => Type::Unknown,
+                Some(TypeRes::Builtin(builtin)) => self.conv_builtin(id, builtin, args),
+                Some(TypeRes::Item(item)) => self.conv_item(id, item, args),
+                Some(TypeRes::GenericParam { owner, index }) => Type::Generic { owner, index },
                 Some(TypeRes::SelfType) => self.self_ty.clone().unwrap_or(Type::Unknown),
                 None => Type::Unknown,
             },
@@ -1863,10 +2494,45 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn conv_builtin(&self, builtin: brasa_resolver::BuiltinType, args: &[TypeExprId]) -> Type {
-        use brasa_resolver::BuiltinType;
+    /// Converts a user-defined nominal type reference, checking generic
+    /// arity. Interfaces are rejected here: they are only usable as
+    /// generic constraints in v1 (`docs/spec/03-types.md`).
+    fn conv_item(&mut self, id: TypeExprId, item: ItemId, args: &[TypeExprId]) -> Type {
+        let expected = match self.hir.item(item) {
+            Item::StructDef(def) => def.generics.len(),
+            Item::EnumDef(def) => def.generics.len(),
+            Item::InterfaceDef(_) => {
+                self.report_interface_as_type(id);
+                return Type::Unknown;
+            }
+            _ => return Type::Unknown,
+        };
 
-        let arg = |i: usize| args.get(i).map(|&a| self.conv(a)).unwrap_or(Type::Unknown);
+        let conv_args: Vec<Type> = args.iter().map(|&a| self.conv(a)).collect();
+        if conv_args.len() != expected {
+            let span = self.hir.span_of_type_expr(id);
+            let name = item_name(self.hir, item);
+            self.error(err_at(
+                span,
+                format!(
+                    "wrong number of type arguments for `{name}`: expected {expected}, found {}",
+                    conv_args.len()
+                ),
+                &format!("expected {expected} type argument(s)"),
+            ));
+            return Type::Unknown;
+        }
+
+        match self.hir.item(item) {
+            Item::StructDef(_) => Type::Struct(item, conv_args),
+            Item::EnumDef(_) => Type::Enum(item, conv_args),
+            _ => unreachable!("only struct and enum items reach here"),
+        }
+    }
+
+    fn conv_builtin(&mut self, id: TypeExprId, builtin: BuiltinType, args: &[TypeExprId]) -> Type {
+        let arg =
+            |this: &mut Self, i: usize| args.get(i).map(|&a| this.conv(a)).unwrap_or(Type::Unknown);
 
         match builtin {
             BuiltinType::Int => Type::Int,
@@ -1876,15 +2542,134 @@ impl<'a> Checker<'a> {
             BuiltinType::Char => Type::Char,
             BuiltinType::Unit => Type::Unit,
             BuiltinType::Range => Type::Range,
-            BuiltinType::Option => Type::option(arg(0)),
-            BuiltinType::Vector => Type::vector(arg(0)),
-            BuiltinType::Set => Type::Set(Box::new(arg(0))),
-            BuiltinType::Map => Type::Map(Box::new(arg(0)), Box::new(arg(1))),
+            BuiltinType::Option => Type::option(arg(self, 0)),
+            BuiltinType::Vector => Type::vector(arg(self, 0)),
+            BuiltinType::Set => Type::Set(Box::new(arg(self, 0))),
+            BuiltinType::Map => {
+                let key = arg(self, 0);
+                let value = arg(self, 1);
+                Type::Map(Box::new(key), Box::new(value))
+            }
             BuiltinType::Comparable | BuiltinType::Printable | BuiltinType::Hashable => {
+                self.report_interface_as_type(id);
                 Type::Unknown
             }
         }
     }
+
+    fn report_interface_as_type(&mut self, id: TypeExprId) {
+        let span = self.hir.span_of_type_expr(id);
+        self.error(err_at(
+            span,
+            "interfaces cannot be used as types in v1; use a generic constraint".to_string(),
+            "interfaces only constrain generics",
+        ));
+    }
+}
+
+/// Structural unification that additionally binds unsolved generic
+/// parameters of `owner` appearing on the expected side ("first solution
+/// wins"). A flexible found type never binds; it marks the parameter
+/// poisoned so [`Checker::finish_generic_solution`] skips the
+/// cannot-infer report — the cause was already reported. Callers
+/// substitute already-solved parameters before calling, so a bound
+/// generic is only re-encountered when one parameter mentions it twice.
+fn solve(
+    expected: &Type,
+    found: &Type,
+    owner: DefRef,
+    map: &mut HashMap<(DefRef, usize), Type>,
+    poisoned: &mut HashSet<(DefRef, usize)>,
+) -> bool {
+    match (expected, found) {
+        (Type::Generic { owner: o, index }, _) if *o == owner => {
+            if let Some(bound) = map.get(&(owner, *index)) {
+                return unify(bound, found).is_some();
+            }
+            if found.is_flexible() {
+                poisoned.insert((owner, *index));
+                return true;
+            }
+
+            map.insert((owner, *index), found.clone());
+            true
+        }
+        (Type::Unknown | Type::Never, _) | (_, Type::Unknown | Type::Never) => true,
+        (Type::Vector(x), Type::Vector(y))
+        | (Type::Set(x), Type::Set(y))
+        | (Type::Option(x), Type::Option(y)) => solve(x, y, owner, map, poisoned),
+        (Type::Map(ka, va), Type::Map(kb, vb)) => {
+            solve(ka, kb, owner, map, poisoned) && solve(va, vb, owner, map, poisoned)
+        }
+        (Type::Tuple(xs), Type::Tuple(ys)) => {
+            xs.len() == ys.len()
+                && xs
+                    .iter()
+                    .zip(ys)
+                    .all(|(x, y)| solve(x, y, owner, map, poisoned))
+        }
+        (
+            Type::Fn {
+                params: pa,
+                ret: ra,
+            },
+            Type::Fn {
+                params: pb,
+                ret: rb,
+            },
+        ) => {
+            pa.len() == pb.len()
+                && pa
+                    .iter()
+                    .zip(pb)
+                    .all(|(x, y)| solve(x, y, owner, map, poisoned))
+                && solve(ra, rb, owner, map, poisoned)
+        }
+        (Type::Struct(x, xa), Type::Struct(y, ya)) | (Type::Enum(x, xa), Type::Enum(y, ya)) => {
+            x == y
+                && xa.len() == ya.len()
+                && xa
+                    .iter()
+                    .zip(ya)
+                    .all(|(a, b)| solve(a, b, owner, map, poisoned))
+        }
+        _ => unify(expected, found).is_some(),
+    }
+}
+
+/// Whether `ty` still mentions a generic parameter of `owner`. Used to
+/// decide whether an expectation is safe to propagate into an argument:
+/// a rigid unsolved `T` would spuriously fail to unify with literal
+/// contents.
+fn contains_generic_of(ty: &Type, owner: DefRef) -> bool {
+    match ty {
+        Type::Generic { owner: o, .. } => *o == owner,
+        Type::Vector(elem) | Type::Set(elem) | Type::Option(elem) => {
+            contains_generic_of(elem, owner)
+        }
+        Type::Map(key, value) => {
+            contains_generic_of(key, owner) || contains_generic_of(value, owner)
+        }
+        Type::Tuple(elems) => elems.iter().any(|e| contains_generic_of(e, owner)),
+        Type::Fn { params, ret } => {
+            params.iter().any(|p| contains_generic_of(p, owner)) || contains_generic_of(ret, owner)
+        }
+        Type::Struct(_, args) | Type::Enum(_, args) => {
+            args.iter().any(|a| contains_generic_of(a, owner))
+        }
+        _ => false,
+    }
+}
+
+/// A builtin method signature as a plain function type, for signature
+/// compatibility checks. `VectorOfFnRet` results depend on the argument,
+/// so they compare as `Vector<unknown>` (which unifies with anything).
+fn fn_of_sig(sig: MethodSig) -> Type {
+    let ret = match sig.ret {
+        RetRule::Fixed(ty) => ty,
+        RetRule::VectorOfFnRet => Type::vector(Type::Unknown),
+    };
+    Type::func(sig.params, ret)
 }
 
 fn literal_type(literal: &Literal) -> Type {

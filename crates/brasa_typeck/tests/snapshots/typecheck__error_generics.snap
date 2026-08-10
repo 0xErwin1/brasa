@@ -1,0 +1,55 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[BRS-TYPECK] Error: `T` does not support ordering with `>`
+    ╭─[ error_generics.brs:15:3 ]
+    │
+ 15 │   a > b
+    │   ───┬──  
+    │      ╰──── only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered
+────╯
+[BRS-TYPECK] Error: interfaces cannot be used as types in v1; use a generic constraint
+    ╭─[ error_generics.brs:18:17 ]
+    │
+ 18 │ def describe(x: Printable): string
+    │                 ────┬────  
+    │                     ╰────── interfaces only constrain generics
+────╯
+[BRS-TYPECK] Error: wrong number of type arguments for `Box`: expected 0, found 1
+    ╭─[ error_generics.brs:22:15 ]
+    │
+ 22 │ def unwrap(b: Box<int>): int
+    │               ────┬───  
+    │                   ╰───── expected 0 type argument(s)
+────╯
+[BRS-TYPECK] Error: `T` is only known to satisfy `Comparable`; no method `shout`
+    ╭─[ error_generics.brs:27:3 ]
+    │
+ 27 │   value.shout()
+    │   ───────┬──────  
+    │          ╰──────── unknown method
+    │ 
+    │ Note: only the constraint's members and the universal `toString` are available on a generic value
+────╯
+[BRS-TYPECK] Error: `Box` does not satisfy `Comparable`
+    ╭─[ error_generics.brs:30:13 ]
+    │
+ 30 │ let clash = maxOf(Box { value: 1 }, Box { value: 2 })
+    │             ─────────────────────┬────────────────────  
+    │                                  ╰────────────────────── constraint not satisfied
+────╯
+[BRS-TYPECK] Error: cannot infer type parameter `T` of `emptyOf`
+    ╭─[ error_generics.brs:31:15 ]
+    │
+ 31 │ let nothing = emptyOf()
+    │               ─────┬────  
+    │                    ╰────── no argument determines it
+────╯
+[BRS-TYPECK] Error: mismatched types: expected `int`, found `string`
+    ╭─[ error_generics.brs:32:25 ]
+    │
+ 32 │ let conflict = maxOf(1, "x")
+    │                         ──┬─  
+    │                           ╰─── expected `int`
+────╯

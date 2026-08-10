@@ -272,6 +272,104 @@ let fallback = none ?? 1
 "#
 );
 
+typecheck_test!(
+    generics_and_functions,
+    r#"
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def first<T>(v: Vector<T>): Option<T>
+  v.first()
+end
+
+def log<T: Printable>(value: T)
+  puts value.toString()
+end
+
+let m = maxOf(1, 2)
+let s = maxOf("a", "b")
+let f = first([1, 2])
+log(3.5)
+"#
+);
+
+typecheck_test!(
+    generics_structs_and_interfaces,
+    r##"
+interface Greeter
+  def greet(self, other: Self): string
+end
+
+struct Person
+  name: string
+
+  def greet(self, other: Person): string
+    "#{self.name} greets #{other.name}"
+  end
+end
+
+struct Point<T: Comparable>
+  x: T
+  y: T
+
+  def swap(self): Point<T>
+    Point { x: self.y, y: self.x }
+  end
+end
+
+def meet<G: Greeter>(a: G, b: G): string
+  a.greet(b)
+end
+
+def pick<T: { def toString(): string }>(value: T): string
+  value.toString()
+end
+
+let p: Point<int> = Point { x: 1, y: 2 }
+let sx = p.swap().x
+let greeting = meet(Person { name: "Ana" }, Person { name: "Bo" })
+let shown = pick(Person { name: "Cy" })
+"##
+);
+
+typecheck_error_test!(
+    error_generics,
+    r#"
+struct Box
+  value: int
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def emptyOf<T>(): Vector<T>
+  []
+end
+
+def shout<T: Printable>(a: T, b: T): bool
+  a > b
+end
+
+def describe(x: Printable): string
+  x.toString()
+end
+
+def unwrap(b: Box<int>): int
+  b.value
+end
+
+def whisper<T: Comparable>(value: T): string
+  value.shout()
+end
+
+let clash = maxOf(Box { value: 1 }, Box { value: 2 })
+let nothing = emptyOf()
+let conflict = maxOf(1, "x")
+"#
+);
+
 typecheck_error_test!(
     error_let_and_assign,
     r#"

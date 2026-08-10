@@ -1,0 +1,55 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i3 meet -> (G, G) -> string
+  i4 pick -> (T) -> string
+  i5 p -> Point<int>
+  i6 sx -> int
+  i7 greeting -> string
+  i8 shown -> string
+local types
+  l0 other -> Person
+  l1 a -> G
+  l2 b -> G
+  l3 value -> T
+expr types
+  e0 -> Person
+  e1 -> string
+  e2 -> string
+  e3 -> string
+  e4 -> string
+  e5 -> Person
+  e6 -> string
+  e7 -> string
+  e8 -> string
+  e9 -> Point<T>
+  e10 -> T
+  e11 -> Point<T>
+  e12 -> T
+  e13 -> Point<T>
+  e14 -> G
+  e15 -> (G) -> string
+  e16 -> G
+  e17 -> string
+  e18 -> T
+  e19 -> () -> string
+  e20 -> string
+  e21 -> int
+  e22 -> int
+  e23 -> Point<int>
+  e24 -> Point<int>
+  e25 -> () -> Point<int>
+  e26 -> Point<int>
+  e27 -> int
+  e28 -> (Person, Person) -> string
+  e29 -> string
+  e30 -> Person
+  e31 -> string
+  e32 -> Person
+  e33 -> string
+  e34 -> (Person) -> string
+  e35 -> string
+  e36 -> Person
+  e37 -> string
