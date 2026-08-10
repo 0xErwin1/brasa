@@ -10,8 +10,7 @@ use std::fmt::Write as _;
 use brasa_ast::{
     ArmBody, AssignOp, Ast, BinaryOp, Block, CatchType, Constraint, EnumDef, Expr, ExprId, FuncDef,
     IfNode, IfaceMember, ImportPath, InterfaceDef, Item, ItemId, Literal, Param, Pattern,
-    PatternId, PipeTarget, Stmt, StmtId, StringPart, StructDef, Throws, TopLet, TypeExpr,
-    TypeExprId, UnaryOp,
+    PatternId, Stmt, StmtId, StringPart, StructDef, Throws, TopLet, TypeExpr, TypeExprId, UnaryOp,
 };
 
 /// Renders every root item in `roots`, in order, as an indented tree.
@@ -353,15 +352,7 @@ fn dump_expr(ast: &Ast, id: ExprId, depth: usize, out: &mut String) {
         Expr::Pipe { lhs, target } => {
             line(out, depth, "Pipe");
             dump_expr(ast, *lhs, depth + 1, out);
-            match target {
-                PipeTarget::Call(call) => dump_expr(ast, *call, depth + 1, out),
-                PipeTarget::Method { name, args } => {
-                    line(out, depth + 1, &format!("Method({name})"));
-                    for arg in args {
-                        dump_expr(ast, *arg, depth + 2, out);
-                    }
-                }
-            }
+            dump_expr(ast, *target, depth + 1, out);
         }
         Expr::Lambda { params, body } => {
             let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();

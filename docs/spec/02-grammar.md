@@ -128,7 +128,7 @@ except `**` (right) and ranges (non-associative):
 ```
 expr        = pipe_expr
 pipe_expr   = coalesce ( "|>" pipe_target )*
-pipe_target = call | "." IDENT "(" args? ")"          # a |> f(b) ; a |> .m(b)
+pipe_target = postfix                                 # a |> f(b) ; any callable expression
 
 primary     = INT | FLOAT | STRING | CHAR | "true" | "false" | "unit"
             | IDENT | "self"
@@ -209,7 +209,7 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()` |
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |
 
-| line continuation | a newline run whose next token is `\|>`, `.`, or `?.` continues the current expression instead of terminating the statement (Ruby-style leading-dot chains): `repos NL \|> filter(...)` is one expression |
+| line continuation | a newline run whose next token is `\|>`, `.`, or `?.` continues the current expression instead of terminating the statement (Ruby-style leading-dot chains): `repos NL .filter(...)` is one expression |
 | trailing `do`-block | the ONE exception to mandatory call parentheses: a `do \|params\| ... end` block directly after a call or method name appends the lambda as the last argument. `f(a) do \|x\| ... end` ≡ `f(a, lambda)`; `recv.each do \|x\| ... end` ≡ `recv.each(lambda)` |
 
 Cross-cutting notes:

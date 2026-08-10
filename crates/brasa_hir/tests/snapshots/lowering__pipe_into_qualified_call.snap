@@ -1,0 +1,10 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let b
+  Call
+    Field(helper)
+      Ident(foo)
+    Ident(x)
+    Ident(y)

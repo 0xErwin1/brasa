@@ -93,7 +93,7 @@ end
 | `&& \|\| !` | `bool` only; short-circuit |
 | `??` | `Option<T> ?? T -> T` (also chainable with another `Option<T>`) |
 | `?.` | `Option<T>?.method(...)` -> `Option<R>`; flattens (does not nest Options) |
-| `\|>` | `a \|> f(b)` ≡ `f(a, b)`; pure syntactic sugar, desugared in AST→HIR lowering (the AST keeps the node for the formatter) |
+| `\|>` | `a \|> f(b)` ≡ `f(a, b)`; the target is any callable expression; pure syntactic sugar, desugared in AST→HIR lowering (the AST keeps the node for the formatter) |
 | `[i]` on Vector | `int -> T`; out of range is a **panic** (not Option: the common case is a bug) |
 | `[k]` on Map | `K -> Option<V>`; a missing key is a normal case, not a bug |
 

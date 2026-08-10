@@ -4,7 +4,7 @@
 
 use brasa_ast::{
     ArmBody, BinaryOp, CatchArm, CatchType, Expr, ExprId, LambdaBody, LambdaParam, MatchArm,
-    PipeTarget, StringPart, UnaryOp,
+    StringPart, UnaryOp,
 };
 use brasa_source::Span;
 use brasa_token::TokenKind;
@@ -116,7 +116,8 @@ impl<'a> Parser<'a> {
         self.parse_pipe()
     }
 
-    /// `pipe_expr = coalesce ( "|>" pipe_target )*`.
+    /// `pipe_expr = coalesce ( "|>" pipe_target )*`. The target is a
+    /// whole postfix expression — any callable, usually a call.
     fn parse_pipe(&mut self) -> ExprId {
         let start = self.ast_start_span();
         let mut lhs = self.parse_bp(0);
@@ -127,7 +128,7 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.bump();
-            let target = self.parse_pipe_target();
+            let target = self.parse_postfix();
             let end = self.span_before_cursor(self.pos);
             lhs = self
                 .ast
@@ -135,21 +136,6 @@ impl<'a> Parser<'a> {
         }
 
         lhs
-    }
-
-    fn parse_pipe_target(&mut self) -> PipeTarget {
-        if self.eat(TokenKind::Dot).is_some() {
-            let name = self.expect_ident_text("a method name");
-            let args = if self.at(TokenKind::LParen) {
-                self.parse_call_args()
-            } else {
-                self.error_expected("'(' after a pipe method target");
-                Vec::new()
-            };
-            PipeTarget::Method { name, args }
-        } else {
-            PipeTarget::Call(self.parse_postfix())
-        }
     }
 
     /// The Pratt loop for binary operators at precedence levels 2-10.

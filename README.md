@@ -21,8 +21,8 @@ end
 def topRepos(path: string, min: int): Vector<Repo>
   let data = json.parse(fs.read(path))
   data.repos
-    |> filter(|r| r.stars >= min)
-    |> sortBy(|r| -r.stars)
+    .filter(|r| r.stars >= min)
+    .sortBy(|r| -r.stars)
 end
 
 let repos = topRepos("repos.json", 100) catch (e)

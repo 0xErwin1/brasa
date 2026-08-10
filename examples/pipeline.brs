@@ -1,4 +1,4 @@
-# Collections, lambdas, and the pipe operator.
+# Collections, lambdas, method chaining, and the pipe operator.
 
 struct Repo
   name: string
@@ -7,9 +7,9 @@ end
 
 def topNames(repos: Vector<Repo>, min: int): Vector<string>
   repos
-    |> filter(|r| r.stars >= min)
-    |> sortBy(|r| -r.stars)
-    |> map(|r| r.name)
+    .filter(|r| r.stars >= min)
+    .sortBy(|r| -r.stars)
+    .map(|r| r.name)
 end
 
 let repos = [
@@ -18,7 +18,9 @@ let repos = [
   Repo { name: "dbflux", stars: 48 },
 ]
 
-for name in topNames(repos, 10)
+# `|>` inserts the left-hand side as the first argument of the target
+# call: `repos |> topNames(10)` is `topNames(repos, 10)`.
+for name in repos |> topNames(10)
   puts name
 end
 
@@ -26,11 +28,6 @@ end
 let stars: Map<string, int> = { "brasa": 1, "ignis": 120 }
 puts "brasa: #{stars["brasa"] ?? 0}"
 puts "unknown: #{stars["nope"] ?? 0}"
-
-# Method chains work without pipes too; pipes shine mixing free
-# functions and methods.
-let total = repos.map(|r| r.stars).reduce(0, |acc, s| acc + s)
-puts "total stars: #{total}"
 
 # do-blocks for multiline lambdas.
 repos.each do |r|

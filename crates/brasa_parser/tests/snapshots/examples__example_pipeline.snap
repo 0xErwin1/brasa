@@ -6,28 +6,25 @@ StructDef Repo
   field name
   field stars
 FuncDef topNames(repos, min)
-  Pipe
-    Pipe
-      Pipe
-        Ident(repos)
-        Call
-          Ident(filter)
-          Lambda(r)
-            Binary(>=)
-              Field(stars)
-                Ident(r)
-              Ident(min)
+  Call
+    Field(map)
       Call
-        Ident(sortBy)
+        Field(sortBy)
+          Call
+            Field(filter)
+              Ident(repos)
+            Lambda(r)
+              Binary(>=)
+                Field(stars)
+                  Ident(r)
+                Ident(min)
         Lambda(r)
           Unary(-)
             Field(stars)
               Ident(r)
-    Call
-      Ident(map)
-      Lambda(r)
-        Field(name)
-          Ident(r)
+    Lambda(r)
+      Field(name)
+        Ident(r)
 Let repos
   VectorLit
     StructLit(Repo)
@@ -50,10 +47,11 @@ Let repos
         Int(48)
 For
   Binding(name)
-  Call
-    Ident(topNames)
+  Pipe
     Ident(repos)
-    Int(10)
+    Call
+      Ident(topNames)
+      Int(10)
   Call
     Ident(puts)
     Ident(name)
@@ -89,26 +87,6 @@ Call
           StringLit
             Text(raw=false) "nope"
         Int(0)
-Let total
-  Call
-    Field(reduce)
-      Call
-        Field(map)
-          Ident(repos)
-        Lambda(r)
-          Field(stars)
-            Ident(r)
-    Int(0)
-    Lambda(acc, s)
-      Binary(+)
-        Ident(acc)
-        Ident(s)
-Call
-  Ident(puts)
-  StringLit
-    Text(raw=false) "total stars: "
-    Interp
-      Ident(total)
 Call
   Field(each)
     Ident(repos)

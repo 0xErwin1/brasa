@@ -1,0 +1,9 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let d
+  Call
+    Field(filter)
+      Ident(foo)
+    Ident(x)

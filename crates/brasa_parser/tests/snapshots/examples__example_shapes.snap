@@ -2,27 +2,29 @@
 source: crates/brasa_parser/tests/examples.rs
 expression: dump
 ---
+Import::Std(std::math)
 StructDef Point
   field x
   field y
   FuncDef dist(self, other)
     Call
       Field(sqrt)
-        Binary(+)
-          Binary(**)
-            Binary(-)
-              Field(x)
-                SelfExpr
-              Field(x)
-                Ident(other)
-            Float(2)
-          Binary(**)
-            Binary(-)
-              Field(y)
-                SelfExpr
-              Field(y)
-                Ident(other)
-            Float(2)
+        Ident(math)
+      Binary(+)
+        Binary(**)
+          Binary(-)
+            Field(x)
+              SelfExpr
+            Field(x)
+              Ident(other)
+          Float(2)
+        Binary(**)
+          Binary(-)
+            Field(y)
+              SelfExpr
+            Field(y)
+              Ident(other)
+          Float(2)
 EnumDef Shape
   variant Circle(radius)
   variant Rect(w, h)

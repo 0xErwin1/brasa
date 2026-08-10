@@ -3,7 +3,7 @@
 //! Per `docs/spec/00-vision.md`'s HIR row every desugaring happens here,
 //! exactly once:
 //!
-//! - `a |> f(b)` becomes `f(a, b)`; `a |> .m(b)` becomes `a.m(b)`.
+//! - `a |> f(b)` becomes `f(a, b)`; a non-call target calls it with `a`.
 //! - `a ?? b` becomes `match a { Some(t) => t, None => b }`, so `b` is
 //!   evaluated only when `a` is `None`.
 //! - `a?.b` / `a?.m(args)` become `match a { Some(t) =>
@@ -414,7 +414,7 @@ impl LowerCtx<'_> {
                 lhs: self.lower_expr(*lhs),
                 rhs: self.lower_expr(*rhs),
             },
-            ast::Expr::Pipe { lhs, target } => return self.lower_pipe(*lhs, target, span),
+            ast::Expr::Pipe { lhs, target } => return self.lower_pipe(*lhs, *target, span),
             ast::Expr::Coalesce { lhs, rhs } => return self.lower_coalesce(*lhs, *rhs, span),
             ast::Expr::Lambda { params, body } => Expr::Lambda {
                 params: params
@@ -496,49 +496,33 @@ impl LowerCtx<'_> {
         }
     }
 
-    /// `a |> f(b, c)` → `f(a, b, c)`; `a |> .m(b)` → `a.m(b)`. Pure
-    /// syntactic rewriting (`docs/spec/03-types.md`'s operator table).
+    /// `a |> f(b, c)` → `f(a, b, c)`. Pure syntactic rewriting
+    /// (`docs/spec/03-types.md`'s operator table).
     ///
-    /// The parser's `PipeTarget::Call` holds a whole postfix expression,
-    /// so a target that is not itself a call (`a |> f`) lowers to
+    /// The parser's pipe target is a whole postfix expression, so a
+    /// target that is not itself a call (`a |> foo.filter`) lowers to
     /// calling it with the piped value as the only argument — the same
-    /// `f(a)` the parenthesized form would produce.
-    fn lower_pipe(&mut self, lhs: ast::ExprId, target: &ast::PipeTarget, span: Span) -> ExprId {
+    /// `foo.filter(a)` the parenthesized form would produce.
+    fn lower_pipe(&mut self, lhs: ast::ExprId, target: ast::ExprId, span: Span) -> ExprId {
         let lhs = self.lower_expr(lhs);
 
-        let expr = match target {
-            ast::PipeTarget::Call(call) => match self.ast.expr(*call) {
-                ast::Expr::Call { callee, args } => {
-                    let callee = self.lower_expr(*callee);
+        let expr = match self.ast.expr(target) {
+            ast::Expr::Call { callee, args } => {
+                let callee = self.lower_expr(*callee);
 
-                    let mut new_args = Vec::with_capacity(args.len() + 1);
-                    new_args.push(lhs);
-                    new_args.extend(args.iter().map(|a| self.lower_expr(*a)));
-
-                    Expr::Call {
-                        callee,
-                        args: new_args,
-                    }
-                }
-                _ => Expr::Call {
-                    callee: self.lower_expr(*call),
-                    args: vec![lhs],
-                },
-            },
-            ast::PipeTarget::Method { name, args } => {
-                let callee = self.hir.alloc_expr(
-                    Expr::Field {
-                        recv: lhs,
-                        name: name.clone(),
-                    },
-                    span,
-                );
+                let mut new_args = Vec::with_capacity(args.len() + 1);
+                new_args.push(lhs);
+                new_args.extend(args.iter().map(|a| self.lower_expr(*a)));
 
                 Expr::Call {
                     callee,
-                    args: args.iter().map(|a| self.lower_expr(*a)).collect(),
+                    args: new_args,
                 }
             }
+            _ => Expr::Call {
+                callee: self.lower_expr(target),
+                args: vec![lhs],
+            },
         };
 
         self.hir.alloc_expr(expr, span)

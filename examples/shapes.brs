@@ -1,11 +1,13 @@
 # Structs, methods, enums, exhaustive match, and Option.
 
+import std::math
+
 struct Point
   x: float
   y: float
 
   def dist(self, other: Point): float
-    ((self.x - other.x) ** 2.0 + (self.y - other.y) ** 2.0).sqrt()
+    math.sqrt((self.x - other.x) ** 2.0 + (self.y - other.y) ** 2.0)
   end
 end
 

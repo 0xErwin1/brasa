@@ -17,8 +17,8 @@ end
 def topRepos(path: string, min: int): Vector<Repo>
   let data = json.parse(fs.read(path))
   data.repos
-    |> filter(|r| r.stars >= min)
-    |> sortBy(|r| -r.stars)
+    .filter(|r| r.stars >= min)
+    .sortBy(|r| -r.stars)
 end
 
 let repos = topRepos("repos.json", 100) catch (e)
@@ -107,12 +107,14 @@ let sign = if n < 0 then -1 elsif n > 0 then 1 else 0 end
 ## Structs and methods
 
 ```ruby
+import std::math
+
 struct Point
   x: float
   y: float
 
   def dist(self, other: Point): float
-    ((self.x - other.x) ** 2 + (self.y - other.y) ** 2).sqrt()
+    math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
   end
 end
 
@@ -207,14 +209,20 @@ unions (`<T: int | string>` does not exist; use an enum).
 
 ```ruby
 lines
-  |> filter(|l| !l.startsWith("#"))
-  |> map(|l| l.trim())
-  |> join("\n")
+  .filter(|l| !l.startsWith("#"))
+  .map(|l| l.trim())
+  .join("\n")
+
+readAll() |> parseConfig(defaults)
 ```
 
 `a |> f(b, c)` is equivalent to `f(a, b, c)`: the pipe inserts the left-hand
-side as the first argument. On methods: `a |> .method(b)` is equivalent to
-`a.method(b)` (useful for mixing free functions and methods in one chain).
+side as the first argument of the target call. The target may be any callable
+expression: `x |> foo.transform(y)` is equivalent to `foo.transform(x, y)`,
+and a bare callable calls it with the piped value alone (`x |> foo.filter` is
+`foo.filter(x)`). There is no method form — a method only ever exists off an
+explicit receiver, so collection pipelines are written as method chains with
+leading dots (first snippet above).
 
 ## Collections and literals
 

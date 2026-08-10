@@ -1,0 +1,18 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let c
+  Call
+    Field(helper)
+      Ident(foo)
+    Call
+      Ident(filter)
+      VectorLit
+        Int(1)
+        Int(2)
+      Lambda(x)
+        Binary(>)
+          Ident(x)
+          Int(0)
+    Str(", ")

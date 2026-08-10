@@ -48,18 +48,25 @@ let a = 1 |> add(2, 3)
 );
 
 lowering_test!(
-    pipe_into_method,
+    pipe_into_qualified_call,
     r#"
-let b = [1, 2] |> .map(|x| x + 1)
+let b = x |> foo.helper(y)
 "#
 );
 
 lowering_test!(
-    pipe_chain_mixing_forms,
+    pipe_chain_plain_calls,
     r#"
 let c = [1, 2]
   |> filter(|x| x > 0)
-  |> .join(", ")
+  |> foo.helper(", ")
+"#
+);
+
+lowering_test!(
+    pipe_into_bare_callable,
+    r#"
+let d = x |> foo.filter
 "#
 );
 

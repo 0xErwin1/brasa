@@ -61,7 +61,7 @@ let out = proc.run("git status --short")          # sugar: whitespace split only
 let r = proc.tryRun(["grep", "-q", pattern, file]) # -> Output, never throws
 if r.code == 0 ...
 
-proc.run(["wc", "-l"]) |> .stdin(text)            # piping stdin
+proc.run(["wc", "-l"]).stdin(text)                # piping stdin
 proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
 ```
 

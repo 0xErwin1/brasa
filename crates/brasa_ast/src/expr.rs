@@ -42,16 +42,6 @@ pub enum StringPart {
     Interp(ExprId),
 }
 
-/// The right-hand side of `|>`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PipeTarget {
-    /// `a |> f(b, c)`: `target` is the already-parsed call `f(b, c)`;
-    /// AST->HIR lowering inserts `a` as its first argument.
-    Call(ExprId),
-    /// `a |> .m(b)`, equivalent to `a.m(b)`.
-    Method { name: String, args: Vec<ExprId> },
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaParam {
     pub name: String,
@@ -139,12 +129,14 @@ pub enum Expr {
         lhs: ExprId,
         rhs: ExprId,
     },
-    /// `a |> f(b)` / `a |> .m(b)`. Kept as its own node; desugaring into a
-    /// plain call happens once, in AST->HIR lowering
-    /// (`docs/spec/00-vision.md`), not in the parser.
+    /// `a |> f(b)`: `target` is the already-parsed callable expression
+    /// (usually a call; a bare callable like `a |> foo.filter` also
+    /// parses). Kept as its own node; desugaring into a plain call
+    /// happens once, in AST->HIR lowering (`docs/spec/00-vision.md`),
+    /// not in the parser.
     Pipe {
         lhs: ExprId,
-        target: PipeTarget,
+        target: ExprId,
     },
     /// `a ?? b`: the null-coalescing operator. Kept raw, the same way
     /// `Pipe` and `SafeNav` are: `docs/spec/00-vision.md`'s HIR row lists

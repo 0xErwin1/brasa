@@ -66,9 +66,16 @@ fn float_method(name: &str) -> Option<MethodSig> {
 fn string_method(name: &str) -> Option<MethodSig> {
     match name {
         "len" => Some(sig(vec![], Type::Int)),
+        "count" => Some(sig(vec![Type::String], Type::Int)),
         "trim" | "toUpper" | "toLower" => Some(sig(vec![], Type::String)),
         "contains?" | "startsWith?" | "endsWith?" => Some(sig(vec![Type::String], Type::Bool)),
         "split" => Some(sig(vec![Type::String], Type::vector(Type::String))),
+        "lines" => Some(sig(vec![], Type::vector(Type::String))),
+        "chars" => Some(sig(vec![], Type::vector(Type::Char))),
+        "slice" => Some(sig(vec![Type::Int, Type::Int], Type::String)),
+        "repeat" => Some(sig(vec![Type::Int], Type::String)),
+        "replace" => Some(sig(vec![Type::String, Type::String], Type::String)),
+        "find" => Some(sig(vec![Type::String], Type::option(Type::Int))),
         "toInt" => Some(sig(vec![], Type::option(Type::Int))),
         "toFloat" => Some(sig(vec![], Type::option(Type::Float))),
         _ => None,
@@ -140,6 +147,19 @@ mod tests {
         assert!(method(&Type::vector(Type::String), "join").is_some());
         assert!(method(&Type::vector(Type::Int), "join").is_none());
         assert!(method(&Type::vector(Type::Unknown), "join").is_some());
+    }
+
+    #[test]
+    fn string_methods_from_the_stdlib_slice() {
+        let chars = method(&Type::String, "chars").expect("chars exists");
+        assert!(matches!(&chars.ret, RetRule::Fixed(t) if *t == Type::vector(Type::Char)));
+
+        let find = method(&Type::String, "find").expect("find exists");
+        assert_eq!(find.params, vec![Type::String]);
+        assert!(matches!(&find.ret, RetRule::Fixed(t) if *t == Type::option(Type::Int)));
+
+        let slice = method(&Type::String, "slice").expect("slice exists");
+        assert_eq!(slice.params, vec![Type::Int, Type::Int]);
     }
 
     #[test]
