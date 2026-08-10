@@ -1,0 +1,11 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"== != < <= > >=\")"
+---
+EqEq "=="
+NotEq "!="
+Lt "<"
+LtEq "<="
+Gt ">"
+GtEq ">="
+Eof ""

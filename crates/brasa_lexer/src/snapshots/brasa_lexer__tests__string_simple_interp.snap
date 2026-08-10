@@ -1,0 +1,14 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"a#{x + 1}b\\\"\")"
+---
+StringStart "\""
+StringText "a"
+InterpStart "#{"
+Ident "x"
+Plus "+"
+Int "1"
+InterpEnd "}"
+StringText "b"
+StringEnd "\""
+Eof ""

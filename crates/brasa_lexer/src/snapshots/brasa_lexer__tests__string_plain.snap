@@ -1,0 +1,8 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"hello\\\"\")"
+---
+StringStart "\""
+StringText "hello"
+StringEnd "\""
+Eof ""

@@ -1,0 +1,10 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"abc\")"
+---
+StringStart "\""
+StringText "abc"
+Error ""
+Eof ""
+--- errors ---
+4..4: unterminated string literal

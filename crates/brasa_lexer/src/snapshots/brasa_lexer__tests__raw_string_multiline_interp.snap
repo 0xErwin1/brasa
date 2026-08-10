@@ -1,0 +1,12 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"\\\"\\\"line one\\nline #{2}\\ndone\\\"\\\"\\\"\")"
+---
+RawStringStart "\"\"\""
+StringText "line one\nline "
+InterpStart "#{"
+Int "2"
+InterpEnd "}"
+StringText "\ndone"
+StringEnd "\"\"\""
+Eof ""

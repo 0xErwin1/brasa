@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"1.0e-9\")"
+---
+Float "1.0e-9"
+Eof ""

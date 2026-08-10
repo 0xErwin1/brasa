@@ -1,0 +1,16 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"( ) [ ] { } , : . | _\")"
+---
+LParen "("
+RParen ")"
+LBracket "["
+RBracket "]"
+LBrace "{"
+RBrace "}"
+Comma ","
+Colon ":"
+Dot "."
+Pipe "|"
+Underscore "_"
+Eof ""

@@ -1,0 +1,14 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"a#{1 + 2\")"
+---
+StringStart "\""
+StringText "a"
+InterpStart "#{"
+Int "1"
+Plus "+"
+Int "2"
+Error ""
+Eof ""
+--- errors ---
+9..9: unterminated interpolation

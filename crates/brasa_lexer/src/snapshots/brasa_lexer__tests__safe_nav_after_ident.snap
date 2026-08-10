@@ -1,0 +1,12 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"user.nickname?.len()\")"
+---
+Ident "user"
+Dot "."
+Ident "nickname"
+QuestionDot "?."
+Ident "len"
+LParen "("
+RParen ")"
+Eof ""

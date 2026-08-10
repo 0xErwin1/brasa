@@ -1,0 +1,8 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"a\\r\\nb\")"
+---
+Ident "a"
+Newline "\r\n"
+Ident "b"
+Eof ""

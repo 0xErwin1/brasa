@@ -9,3 +9,6 @@ edition.workspace = true
 logos = { workspace = true }
 brasa_token = { workspace = true }
 brasa_diagnostics = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

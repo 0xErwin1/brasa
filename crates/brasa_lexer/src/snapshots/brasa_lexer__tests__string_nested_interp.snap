@@ -1,0 +1,17 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"x#{ \\\"inner #{y}\\\" }z\\\"\")"
+---
+StringStart "\""
+StringText "x"
+InterpStart "#{"
+StringStart "\""
+StringText "inner "
+InterpStart "#{"
+Ident "y"
+InterpEnd "}"
+StringEnd "\""
+InterpEnd "}"
+StringText "z"
+StringEnd "\""
+Eof ""

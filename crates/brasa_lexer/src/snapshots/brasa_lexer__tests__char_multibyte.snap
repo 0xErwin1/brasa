@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"'\\u{f1}'\")"
+---
+Char "'ñ'"
+Eof ""

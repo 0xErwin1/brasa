@@ -1,0 +1,10 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"a @ b\")"
+---
+Ident "a"
+Error "@"
+Ident "b"
+Eof ""
+--- errors ---
+2..3: unexpected character `@`

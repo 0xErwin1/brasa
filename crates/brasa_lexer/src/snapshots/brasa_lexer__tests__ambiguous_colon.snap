@@ -1,0 +1,7 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\": ::\")"
+---
+Colon ":"
+ColonColon "::"
+Eof ""

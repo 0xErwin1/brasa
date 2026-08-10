@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"42\")"
+---
+Int "42"
+Eof ""

@@ -1,0 +1,13 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"|> ?. ?? .. ..= => -> ::\")"
+---
+PipeGt "|>"
+QuestionDot "?."
+QuestionQuestion "??"
+DotDot ".."
+DotDotEq "..="
+FatArrow "=>"
+Arrow "->"
+ColonColon "::"
+Eof ""

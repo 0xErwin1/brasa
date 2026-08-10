@@ -1,0 +1,11 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"+ - * / % **\")"
+---
+Plus "+"
+Minus "-"
+Star "*"
+Slash "/"
+Percent "%"
+StarStar "**"
+Eof ""

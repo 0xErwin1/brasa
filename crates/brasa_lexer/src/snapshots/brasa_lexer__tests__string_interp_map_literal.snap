@@ -1,0 +1,16 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"#{ {\\\"a\\\": 1} }\\\"\")"
+---
+StringStart "\""
+InterpStart "#{"
+LBrace "{"
+StringStart "\""
+StringText "a"
+StringEnd "\""
+Colon ":"
+Int "1"
+RBrace "}"
+InterpEnd "}"
+StringEnd "\""
+Eof ""

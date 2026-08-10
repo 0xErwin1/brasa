@@ -1,0 +1,8 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"\\\"a\\\\nb\\\\tc\\\\\\\"d\\\\\\\\e\\\\#f\\\"\")"
+---
+StringStart "\""
+StringText "a\\nb\\tc\\\"d\\\\e\\#f"
+StringEnd "\""
+Eof ""

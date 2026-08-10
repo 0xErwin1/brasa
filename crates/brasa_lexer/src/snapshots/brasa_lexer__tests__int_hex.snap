@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"0xFF_AB\")"
+---
+Int "0xFF_AB"
+Eof ""

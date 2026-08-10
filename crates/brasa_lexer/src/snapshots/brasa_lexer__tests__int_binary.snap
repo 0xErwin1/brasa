@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"0b10_10\")"
+---
+Int "0b10_10"
+Eof ""
