@@ -53,21 +53,36 @@ same methods received by string. Syntax: Rust's `regex` crate syntax
 ```ruby
 import std::proc
 
-let out = proc.run("git status --short")          # -> Output; throws if exit != 0
+let out = proc.run(["git", "status", "--short"])   # -> Output; throws if exit != 0
 puts out.stdout
 
-let r = proc.tryRun("grep -q foo bar.txt")       # -> Output, never throws
+let out = proc.run("git status --short")          # sugar: whitespace split only
+
+let r = proc.tryRun(["grep", "-q", pattern, file]) # -> Output, never throws
 if r.code == 0 ...
 
-proc.run("wc -l") |> .stdin(text)                 # piping stdin
+proc.run(["wc", "-l"]) |> .stdin(text)            # piping stdin
 proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
 ```
 
-- `run` parses the command with its own splitting (no shell: no
-  accidental injection); `shell` is the explicit opt-in to `/bin/sh -c`.
+- **The argv-array form is the primary API**: `run(Vector<string>)` passes
+  arguments through untouched, so interpolated data (filenames with
+  spaces, user input) can never split into extra arguments. The string
+  form is sugar that splits on **whitespace only** — no quote handling, no
+  escapes; it exists for literal commands typed by the author. Building a
+  string command from variables is a bug, and the docs say so.
+- `shell` is the explicit opt-in to `/bin/sh -c` — the only form where
+  shell metacharacters mean anything.
 - `Output` = `{ stdout: string, stderr: string, code: int }`.
 - `run` throws `proc.NonZeroExit { output }` if code != 0 — the bash
   `set -e` default behavior, with `tryRun` as the escape hatch.
+- **Environment**: children inherit the parent environment by default
+  (scripting expects `PATH`, `HOME`, `SSH_AUTH_SOCK` to work). Overrides
+  via `proc.run(cmd, env: { ... })`; `proc.runClean(cmd)` starts from an
+  empty environment for the paranoid case.
+- **PATH resolution**: an unqualified command name resolves through `PATH`
+  only. A relative path (`./script.sh`) must be written as such — the
+  current directory is never implicitly searched.
 - `env.get(name): Option<string>`, `env.set`, `env.vars`, `args()`,
   `exit(code)`, `cwd()`, `cd(path)`.
 

@@ -24,6 +24,6 @@ def main()
 
   puts "#{count} popular repos"
 
-  let branch = proc.run("git branch --show-current").stdout.trim()
+  let branch = proc.run(["git", "branch", "--show-current"]).stdout.trim()
   puts "current branch: #{branch}"
 end
