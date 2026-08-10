@@ -1,0 +1,176 @@
+name: Nightly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+  clippy:
+    name: Run clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang and mold
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang and mold
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+  release:
+    name: Build and publish rolling nightly release
+    needs: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang and mold
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build brasa
+        run: cargo build --release --locked -p brasa
+
+      - name: Create package
+        run: |
+          mkdir -p pkg
+          cp target/release/brasa pkg/brasa
+          chmod +x pkg/brasa
+          cp LICENSE pkg/
+          cp README.md pkg/
+
+      - name: Create tar archive
+        run: |
+          cd pkg
+          tar -czf ../brasa-nightly-x86_64-linux.tar.gz .
+
+      - name: Checksum tar archive
+        run: sha256sum brasa-nightly-x86_64-linux.tar.gz > brasa-nightly-x86_64-linux.tar.gz.sha256
+
+      - name: Compose nightly release body
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u '+%Y-%m-%d')
+
+          cat > release_body.md <<EOF
+          > **Nightly build** — built automatically from \`main\` HEAD on every push.
+          > Not recommended for production use. Assets are replaced on each run.
+          >
+          > Commit: \`${SHORT_SHA}\` — ${DATE}
+          EOF
+
+      - name: Move nightly tag to current commit
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git tag -f nightly HEAD
+          git push origin nightly --force
+
+      - name: Prune existing nightly release assets
+        run: |
+          set -euo pipefail
+
+          # The rolling `nightly` release keeps the same tag forever. Assets
+          # must be cleared explicitly before re-publishing, or stale binaries
+          # from earlier nightlies stay attached alongside the new ones.
+          RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/nightly" 2>/dev/null || true)
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "No existing nightly release found; nothing to prune."
+            exit 0
+          fi
+
+          ASSET_IDS=$(jq -r '.assets[].id' <<<"$RELEASE_JSON")
+          if [ -z "$ASSET_IDS" ]; then
+            echo "Existing nightly release has no assets to prune."
+            exit 0
+          fi
+
+          while IFS= read -r ASSET_ID; do
+            [ -n "$ASSET_ID" ] || continue
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}"
+          done <<<"$ASSET_IDS"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish rolling nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Brasa Nightly
+          body_path: release_body.md
+          prerelease: true
+          files: |
+            brasa-nightly-x86_64-linux.tar.gz
+            brasa-nightly-x86_64-linux.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
