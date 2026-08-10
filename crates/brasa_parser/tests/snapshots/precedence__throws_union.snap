@@ -1,0 +1,6 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"def fetch(url: string): string throws NetError | DnsError\\n  url\\nend\")"
+---
+FuncDef fetch(url) throws NetError|DnsError
+  Ident(url)

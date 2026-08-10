@@ -1,0 +1,137 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+StructDef Repo
+  field name
+  field stars
+FuncDef topNames(repos, min)
+  Pipe
+    Pipe
+      Pipe
+        Ident(repos)
+        Call
+          Ident(filter)
+          Lambda(r)
+            Binary(>=)
+              Field(stars)
+                Ident(r)
+              Ident(min)
+      Call
+        Ident(sortBy)
+        Lambda(r)
+          Unary(-)
+            Field(stars)
+              Ident(r)
+    Call
+      Ident(map)
+      Lambda(r)
+        Field(name)
+          Ident(r)
+Let repos
+  VectorLit
+    StructLit(Repo)
+      field name
+        StringLit
+          Text(raw=false) "brasa"
+      field stars
+        Int(1)
+    StructLit(Repo)
+      field name
+        StringLit
+          Text(raw=false) "ignis"
+      field stars
+        Int(120)
+    StructLit(Repo)
+      field name
+        StringLit
+          Text(raw=false) "dbflux"
+      field stars
+        Int(48)
+For
+  Binding(name)
+  Call
+    Ident(topNames)
+    Ident(repos)
+    Int(10)
+  Call
+    Ident(puts)
+    Ident(name)
+Let stars
+  MapLit
+    entry
+      StringLit
+        Text(raw=false) "brasa"
+      Int(1)
+    entry
+      StringLit
+        Text(raw=false) "ignis"
+      Int(120)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "brasa: "
+    Interp
+      Coalesce
+        Index
+          Ident(stars)
+          StringLit
+            Text(raw=false) "brasa"
+        Int(0)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "unknown: "
+    Interp
+      Coalesce
+        Index
+          Ident(stars)
+          StringLit
+            Text(raw=false) "nope"
+        Int(0)
+Let total
+  Call
+    Field(reduce)
+      Call
+        Field(map)
+          Ident(repos)
+        Lambda(r)
+          Field(stars)
+            Ident(r)
+    Int(0)
+    Lambda(acc, s)
+      Binary(+)
+        Ident(acc)
+        Ident(s)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "total stars: "
+    Interp
+      Ident(total)
+Call
+  Field(each)
+    Ident(repos)
+  Lambda(r)
+    Let tag
+      If
+        cond
+          Binary(>)
+            Field(stars)
+              Ident(r)
+            Int(100)
+        then
+          StringLit
+            Text(raw=false) "hot"
+        else
+          StringLit
+            Text(raw=false) "warm"
+    Call
+      Ident(puts)
+      StringLit
+        Interp
+          Field(name)
+            Ident(r)
+        Text(raw=false) " is "
+        Interp
+          Ident(tag)

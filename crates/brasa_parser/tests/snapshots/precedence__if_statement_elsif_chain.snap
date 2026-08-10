@@ -1,0 +1,26 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"if n % 15 == 0\\n  \\\"FizzBuzz\\\"\\nelsif n % 3 == 0\\n  \\\"Fizz\\\"\\nelse\\n  \\\"other\\\"\\nend\")"
+---
+If
+  cond
+    Binary(==)
+      Binary(%)
+        Ident(n)
+        Int(15)
+      Int(0)
+  then
+    StringLit
+      Text(raw=false) "FizzBuzz"
+  elsif
+    Binary(==)
+      Binary(%)
+        Ident(n)
+        Int(3)
+      Int(0)
+  then
+    StringLit
+      Text(raw=false) "Fizz"
+  else
+    StringLit
+      Text(raw=false) "other"

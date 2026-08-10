@@ -1,0 +1,11 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"recv.each do |x|\\n  puts x\\nend\")"
+---
+Call
+  Field(each)
+    Ident(recv)
+  Lambda(x)
+    Call
+      Ident(puts)
+      Ident(x)

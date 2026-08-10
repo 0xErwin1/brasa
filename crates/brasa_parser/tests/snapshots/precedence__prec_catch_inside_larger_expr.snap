@@ -1,0 +1,15 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"1 + (fetch(u) catch (e) NetError => \\\"x\\\" end).len()\")"
+---
+Binary(+)
+  Int(1)
+  Call
+    Field(len)
+      Catch(exhaustive=false, binding=e)
+        Call
+          Ident(fetch)
+          Ident(u)
+        arm NetError
+            StringLit
+              Text(raw=false) "x"

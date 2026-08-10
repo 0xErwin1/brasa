@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"1 + 2 * 3\")"
+---
+Binary(+)
+  Int(1)
+  Binary(*)
+    Int(2)
+    Int(3)

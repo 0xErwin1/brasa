@@ -57,6 +57,7 @@ snapshot!(lambda_no_params, "|_|");
 // --- keywords vs identifiers ---
 
 snapshot!(keyword_if_vs_ident, "if iffy");
+snapshot!(keyword_do_vs_ident, "do door");
 snapshot!(predicate_ident, "isDir?");
 snapshot!(bang_ident, "sort!");
 snapshot!(type_ident, "Vector");

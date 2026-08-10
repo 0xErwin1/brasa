@@ -1,0 +1,6 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"def pure(x: int): int throws never\\n  x\\nend\")"
+---
+FuncDef pure(x) throws never
+  Ident(x)

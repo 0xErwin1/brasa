@@ -1,0 +1,153 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+StructDef Point
+  field x
+  field y
+  FuncDef dist(self, other)
+    Call
+      Field(sqrt)
+        Binary(+)
+          Binary(**)
+            Binary(-)
+              Field(x)
+                SelfExpr
+              Field(x)
+                Ident(other)
+            Float(2)
+          Binary(**)
+            Binary(-)
+              Field(y)
+                SelfExpr
+              Field(y)
+                Ident(other)
+            Float(2)
+EnumDef Shape
+  variant Circle(radius)
+  variant Rect(w, h)
+  variant Dot()
+FuncDef area(shape)
+  Match
+    Ident(shape)
+    Ctor(Circle)
+      Binding(r)
+      Binary(*)
+        Binary(*)
+          Float(3.14159)
+          Ident(r)
+        Ident(r)
+    Ctor(Rect)
+      Binding(w)
+      Binding(h)
+      Binary(*)
+        Ident(w)
+        Ident(h)
+    Ctor(Dot)
+      Float(0)
+FuncDef describe(shape)
+  Match
+    Ident(shape)
+    Ctor(Circle)
+      Binding(r)
+    guard
+      Binary(>)
+        Ident(r)
+        Float(100)
+      StringLit
+        Text(raw=false) "huge circle"
+    Ctor(Circle)
+      Wildcard
+      StringLit
+        Text(raw=false) "circle"
+    Ctor(Rect)
+      Binding(w)
+      Binding(h)
+    guard
+      Binary(==)
+        Ident(w)
+        Ident(h)
+      StringLit
+        Text(raw=false) "square"
+    Ctor(Rect)
+      Wildcard
+      Wildcard
+      StringLit
+        Text(raw=false) "rectangle"
+    Ctor(Dot)
+      StringLit
+        Text(raw=false) "dot"
+FuncDef biggest(shapes)
+  Call
+    Field(first)
+      Call
+        Field(sortBy)
+          Ident(shapes)
+        Lambda(s)
+          Unary(-)
+            Call
+              Ident(area)
+              Ident(s)
+Let shapes
+  VectorLit
+    EnumCtor(Circle)
+      Float(2)
+    EnumCtor(Rect)
+      Float(3)
+      Float(3)
+    EnumCtor(Dot)
+For
+  Binding(s)
+  Ident(shapes)
+  Call
+    Ident(puts)
+    StringLit
+      Interp
+        Call
+          Ident(describe)
+          Ident(s)
+      Text(raw=false) ": area "
+      Interp
+        Call
+          Ident(area)
+          Ident(s)
+Match
+  Call
+    Ident(biggest)
+    Ident(shapes)
+  Ctor(Some)
+    Binding(s)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "biggest is a "
+        Interp
+          Call
+            Ident(describe)
+            Ident(s)
+  Ctor(None)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "no shapes"
+Let origin
+  StructLit(Point)
+    field x
+      Float(0)
+    field y
+      Float(0)
+Let p
+  StructLit(Point)
+    field x
+      Float(3)
+    field y
+      Float(4)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "distance: "
+    Interp
+      Call
+        Field(dist)
+          Ident(origin)
+        Ident(p)

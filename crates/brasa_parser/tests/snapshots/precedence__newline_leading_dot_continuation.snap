@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"value\\n  .trim()\\n  .toUpper()\")"
+---
+Call
+  Field(toUpper)
+    Call
+      Field(trim)
+        Ident(value)

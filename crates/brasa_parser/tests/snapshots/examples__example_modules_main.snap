@@ -1,0 +1,22 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::File("utils.brs")
+Let banner
+  Call
+    Field(shout)
+      Ident(utils)
+    StringLit
+      Text(raw=false) "brasa modules"
+FuncDef main()
+  Call
+    Ident(puts)
+    Ident(banner)
+  Call
+    Ident(puts)
+    Call
+      Field(slugify)
+        Ident(utils)
+      StringLit
+        Text(raw=false) "Hola Mundo Brasa"

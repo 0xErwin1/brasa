@@ -1,0 +1,5 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "brasa_parser::dump::dump(&result.ast, &result.roots)"
+---
+Ident(x)

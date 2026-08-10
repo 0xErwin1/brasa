@@ -1,0 +1,21 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"let sign = if n < 0 then -1 elsif n > 0 then 1 else 0 end\")"
+---
+Let sign
+  If
+    cond
+      Binary(<)
+        Ident(n)
+        Int(0)
+    then
+      Unary(-)
+        Int(1)
+    elsif
+      Binary(>)
+        Ident(n)
+        Int(0)
+    then
+      Int(1)
+    else
+      Int(0)

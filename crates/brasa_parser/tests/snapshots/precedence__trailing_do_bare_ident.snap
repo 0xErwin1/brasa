@@ -1,0 +1,10 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"spawn_task do |x|\\n  puts x\\nend\")"
+---
+Call
+  Ident(spawn_task)
+  Lambda(x)
+    Call
+      Ident(puts)
+      Ident(x)

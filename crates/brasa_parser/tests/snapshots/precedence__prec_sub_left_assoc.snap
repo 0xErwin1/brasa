@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"a - b - c\")"
+---
+Binary(-)
+  Binary(-)
+    Ident(a)
+    Ident(b)
+  Ident(c)

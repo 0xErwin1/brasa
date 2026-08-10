@@ -1,0 +1,13 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"repos\\n  |> filter(x)\\n  |> map(y)\")"
+---
+Pipe
+  Pipe
+    Ident(repos)
+    Call
+      Ident(filter)
+      Ident(x)
+  Call
+    Ident(map)
+    Ident(y)

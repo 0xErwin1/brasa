@@ -1,0 +1,8 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"items[0].name\")"
+---
+Field(name)
+  Index
+    Ident(items)
+    Int(0)

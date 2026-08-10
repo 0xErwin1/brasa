@@ -1,0 +1,14 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"def max<T: Comparable>(a: T, b: T): T\\n  if a > b then a else b end\\nend\")"
+---
+FuncDef max<T: Comparable>(a, b)
+  If
+    cond
+      Binary(>)
+        Ident(a)
+        Ident(b)
+    then
+      Ident(a)
+    else
+      Ident(b)

@@ -1,0 +1,10 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"puts \\\"a\\\", \\\"b\\\"\")"
+---
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "a"
+  StringLit
+    Text(raw=false) "b"

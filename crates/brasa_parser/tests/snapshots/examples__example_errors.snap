@@ -1,0 +1,108 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+StructDef NetError
+  field detail
+StructDef ParseError
+  field line
+FuncDef fetchPage(ok)
+  If
+    cond
+      Unary(!)
+        Ident(ok)
+    then
+      Throw
+        StructLit(NetError)
+          field detail
+            StringLit
+              Text(raw=false) "timeout"
+  StringLit
+    Text(raw=false) "<html>"
+FuncDef fetchStrict(url) throws NetError
+  Call
+    Ident(fetchPage)
+    Binary(>)
+      Call
+        Field(len)
+          Ident(url)
+      Int(0)
+Let page
+  Catch(exhaustive=false, binding=e)
+    Call
+      Ident(fetchPage)
+      Bool(false)
+    arm NetError
+        StringLit
+          Text(raw=false) "recovered: "
+          Interp
+            Field(detail)
+              Ident(e)
+Call
+  Ident(puts)
+  Ident(page)
+FuncDef parse(s)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(s)
+        Int(0)
+    then
+      Throw
+        StructLit(ParseError)
+          field line
+            Int(1)
+  Call
+    Field(toInt)
+      Ident(s)
+Let n
+  Catch(exhaustive=true, binding=e)
+    Call
+      Ident(parse)
+      StringLit
+        Text(raw=false) "42"
+    arm ParseError
+        Unary(-)
+          Int(1)
+    arm _
+        Unary(-)
+          Int(2)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "parsed: "
+    Interp
+      Ident(n)
+Let items
+  VectorLit
+    Int(1)
+    Int(2)
+    Int(3)
+Let out
+  Catch(exhaustive=false, binding=e)
+    Index
+      Ident(items)
+      Int(10)
+    arm panics.IndexOutOfBounds
+        Int(0)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "out of range gives "
+    Interp
+      Ident(out)
+StructDef ConfigError
+  field cause
+FuncDef loadConfig(ok)
+  Catch(exhaustive=false, binding=e)
+    Call
+      Ident(fetchPage)
+      Ident(ok)
+    arm NetError
+        Throw
+          StructLit(ConfigError)
+            field cause
+              Field(detail)
+                Ident(e)

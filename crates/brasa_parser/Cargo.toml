@@ -10,6 +10,7 @@ brasa_token = { workspace = true }
 brasa_lexer = { workspace = true }
 brasa_ast = { workspace = true }
 brasa_diagnostics = { workspace = true }
+brasa_source = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

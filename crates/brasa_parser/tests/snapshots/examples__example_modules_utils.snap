@@ -1,0 +1,28 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+pub FuncDef slugify(s)
+  Call
+    Field(replace)
+      Call
+        Field(toLower)
+          Call
+            Field(trim)
+              Ident(s)
+    StringLit
+      Text(raw=false) " "
+    StringLit
+      Text(raw=false) "-"
+pub FuncDef shout(s)
+  Call
+    Ident(decorate)
+    Call
+      Field(toUpper)
+        Ident(s)
+FuncDef decorate(s)
+  StringLit
+    Text(raw=false) ">> "
+    Interp
+      Ident(s)
+    Text(raw=false) " <<"

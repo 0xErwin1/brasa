@@ -1,0 +1,88 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::fs)
+Import::Std(std::json)
+Import::Std(std::proc)
+FuncDef main()
+  Let raw
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(read)
+          Ident(fs)
+        StringLit
+          Text(raw=false) "repos.json"
+      arm fs.NotFound
+          StringLit
+            Text(raw=false) "[]"
+  Let data
+    Call
+      Field(parse)
+        Ident(json)
+      Ident(raw)
+  Let mut count
+    Int(0)
+  For
+    Binding(repo)
+    Coalesce
+      Index
+        Ident(data)
+        StringLit
+          Text(raw=false) "repos"
+      Call
+        Field(parse)
+          Ident(json)
+        StringLit
+          Text(raw=false) "[]"
+    Let stars
+      Coalesce
+        Index
+          Ident(repo)
+          StringLit
+            Text(raw=false) "stars"
+        Int(0)
+    If
+      cond
+        Binary(>)
+          Ident(stars)
+          Int(50)
+      then
+        Call
+          Ident(puts)
+          StringLit
+            Interp
+              Coalesce
+                Index
+                  Ident(repo)
+                  StringLit
+                    Text(raw=false) "name"
+                StringLit
+                  Text(raw=false) "unknown"
+            Text(raw=false) ": "
+            Interp
+              Ident(stars)
+        Assign +=
+          Ident(count)
+          Int(1)
+  Call
+    Ident(puts)
+    StringLit
+      Interp
+        Ident(count)
+      Text(raw=false) " popular repos"
+  Let branch
+    Call
+      Field(trim)
+        Field(stdout)
+          Call
+            Field(run)
+              Ident(proc)
+            StringLit
+              Text(raw=false) "git branch --show-current"
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "current branch: "
+      Interp
+        Ident(branch)

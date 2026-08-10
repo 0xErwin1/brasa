@@ -145,6 +145,15 @@ pub enum Expr {
         lhs: ExprId,
         target: PipeTarget,
     },
+    /// `a ?? b`: the null-coalescing operator. Kept raw, the same way
+    /// `Pipe` and `SafeNav` are: `docs/spec/00-vision.md`'s HIR row lists
+    /// `?./?? -> match over Option` as a lowering step, so desugaring
+    /// into a `match` over `Option::Some`/`Option::None` happens once, in
+    /// AST->HIR lowering, not in the parser.
+    Coalesce {
+        lhs: ExprId,
+        rhs: ExprId,
+    },
     Lambda {
         params: Vec<LambdaParam>,
         body: LambdaBody,

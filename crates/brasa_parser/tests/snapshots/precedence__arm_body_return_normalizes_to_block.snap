@@ -1,0 +1,12 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"match x\\n  Some(n) => return n\\n  None => 0\\nend\")"
+---
+Match
+  Ident(x)
+  Ctor(Some)
+    Binding(n)
+    Return
+      Ident(n)
+  Ctor(None)
+    Int(0)

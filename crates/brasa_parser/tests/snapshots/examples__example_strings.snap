@@ -1,0 +1,118 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Let line
+  StringLit
+    Text(raw=false) "  Hello, Brasa World  "
+Call
+  Ident(puts)
+  Call
+    Field(trim)
+      Ident(line)
+Call
+  Ident(puts)
+  Call
+    Field(toUpper)
+      Call
+        Field(trim)
+          Ident(line)
+Call
+  Ident(puts)
+  Call
+    Field(replace)
+      Call
+        Field(trim)
+          Ident(line)
+    StringLit
+      Text(raw=false) "World"
+    StringLit
+      Text(raw=false) "Script"
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "words: "
+    Interp
+      Call
+        Field(len)
+          Call
+            Field(split)
+              Call
+                Field(trim)
+                  Ident(line)
+            StringLit
+              Text(raw=false) " "
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "starts? "
+    Interp
+      Call
+        Field(startsWith?)
+          Call
+            Field(trim)
+              Ident(line)
+        StringLit
+          Text(raw=false) "Hello"
+Let items
+  VectorLit
+    StringLit
+      Text(raw=false) "a"
+    StringLit
+      Text(raw=false) "b"
+    StringLit
+      Text(raw=false) "c"
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "joined: "
+    Interp
+      Call
+        Field(join)
+          Call
+            Field(map)
+              Ident(items)
+            Lambda(s)
+              StringLit
+                Text(raw=false) "<"
+                Interp
+                  Ident(s)
+                Text(raw=false) ">"
+        StringLit
+          Text(raw=false) ", "
+Let name
+  StringLit
+    Text(raw=false) "brasa"
+Let snippet
+  StringLit
+    Text(raw=true) "\nline one \\n stays literal\nproject: "
+    Interp
+      Ident(name)
+    Text(raw=true) "\n"
+Call
+  Ident(puts)
+  Ident(snippet)
+For
+  Binding(c)
+  Call
+    Field(chars)
+      StringLit
+        Text(raw=false) "ñandú"
+  Call
+    Ident(puts)
+    Ident(c)
+Let n
+  Catch(exhaustive=false, binding=e)
+    Call
+      Field(toInt)
+        StringLit
+          Text(raw=false) "not-a-number"
+    arm ParseError
+        Unary(-)
+          Int(1)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "parsed: "
+    Interp
+      Ident(n)

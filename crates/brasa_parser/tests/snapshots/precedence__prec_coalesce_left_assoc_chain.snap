@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"x ?? y ?? z\")"
+---
+Coalesce
+  Coalesce
+    Ident(x)
+    Ident(y)
+  Ident(z)

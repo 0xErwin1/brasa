@@ -23,6 +23,7 @@ use brasa_source::Span;
 pub enum TokenKind {
     // Keywords
     Def,
+    Do,
     End,
     If,
     Then,
@@ -160,6 +161,7 @@ impl Token {
 pub fn keyword(text: &str) -> Option<TokenKind> {
     Some(match text {
         "def" => TokenKind::Def,
+        "do" => TokenKind::Do,
         "end" => TokenKind::End,
         "if" => TokenKind::If,
         "then" => TokenKind::Then,
@@ -302,6 +304,8 @@ mod tests {
         assert_eq!(keyword("if"), Some(TokenKind::If));
         assert_eq!(keyword("iffy"), None);
         assert_eq!(keyword("catch_all"), Some(TokenKind::CatchAll));
+        assert_eq!(keyword("do"), Some(TokenKind::Do));
+        assert_eq!(keyword("door"), None);
     }
 
     #[test]

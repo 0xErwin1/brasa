@@ -1,0 +1,47 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+FuncDef label(n)
+  If
+    cond
+      Binary(==)
+        Binary(%)
+          Ident(n)
+          Int(15)
+        Int(0)
+    then
+      StringLit
+        Text(raw=false) "FizzBuzz"
+    elsif
+      Binary(==)
+        Binary(%)
+          Ident(n)
+          Int(3)
+        Int(0)
+    then
+      StringLit
+        Text(raw=false) "Fizz"
+    elsif
+      Binary(==)
+        Binary(%)
+          Ident(n)
+          Int(5)
+        Int(0)
+    then
+      StringLit
+        Text(raw=false) "Buzz"
+    else
+      StringLit
+        Interp
+          Ident(n)
+For
+  Binding(n)
+  Range(inclusive=true)
+    Int(1)
+    Int(20)
+  Call
+    Ident(puts)
+    Call
+      Ident(label)
+      Ident(n)

@@ -1,0 +1,16 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"match x\\n  Some(n) => puts n\\n  None => puts \\\"none\\\"\\nend\")"
+---
+Match
+  Ident(x)
+  Ctor(Some)
+    Binding(n)
+    Call
+      Ident(puts)
+      Ident(n)
+  Ctor(None)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "none"

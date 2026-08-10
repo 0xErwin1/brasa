@@ -1,0 +1,22 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Let name
+  StringLit
+    Text(raw=false) "world"
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "hello, "
+    Interp
+      Ident(name)
+    Text(raw=false) "!"
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "1 + 1 = "
+    Interp
+      Binary(+)
+        Int(1)
+        Int(1)

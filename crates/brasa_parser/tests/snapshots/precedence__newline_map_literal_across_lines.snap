@@ -1,0 +1,13 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"{\\n  \\\"a\\\": 1,\\n  \\\"b\\\": 2,\\n}\")"
+---
+MapLit
+  entry
+    StringLit
+      Text(raw=false) "a"
+    Int(1)
+  entry
+    StringLit
+      Text(raw=false) "b"
+    Int(2)

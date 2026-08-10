@@ -1,0 +1,11 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"a ?? b |> f(c)\")"
+---
+Pipe
+  Coalesce
+    Ident(a)
+    Ident(b)
+  Call
+    Ident(f)
+    Ident(c)

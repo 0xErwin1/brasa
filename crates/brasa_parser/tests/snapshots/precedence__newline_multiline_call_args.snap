@@ -1,0 +1,9 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"f(\\n  a,\\n  b,\\n  c\\n)\")"
+---
+Call
+  Ident(f)
+  Ident(a)
+  Ident(b)
+  Ident(c)
