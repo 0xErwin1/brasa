@@ -20,6 +20,10 @@ struct Cli {
     #[arg(long)]
     dump_ast: bool,
 
+    /// Print the lowered HIR to stdout instead of executing the script.
+    #[arg(long)]
+    dump_hir: bool,
+
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
@@ -78,6 +82,35 @@ fn main() -> ExitCode {
 
     if cli.dump_ast {
         println!("{}", brasa_parser::dump::dump(&result.ast, &result.roots));
+        return ExitCode::from(0);
+    }
+
+    if cli.dump_hir {
+        let lowered = brasa_hir::lower(&result.ast, &result.roots);
+
+        let mut stderr = BufWriter::new(std::io::stderr());
+        for diagnostic in &lowered.diagnostics {
+            if let Err(err) =
+                brasa_diagnostics::render::render(diagnostic, &sources, &mut stderr, color)
+            {
+                eprintln!("brasa: failed to render diagnostic: {err}");
+                return ExitCode::from(70);
+            }
+        }
+        if let Err(err) = stderr.flush() {
+            eprintln!("brasa: failed to flush diagnostics: {err}");
+            return ExitCode::from(70);
+        }
+
+        let lowering_failed = lowered
+            .diagnostics
+            .iter()
+            .any(|diag| diag.severity == Severity::Error);
+        if lowering_failed {
+            return ExitCode::from(65);
+        }
+
+        println!("{}", brasa_hir::dump::dump(&lowered.hir, &lowered.roots));
         return ExitCode::from(0);
     }
 

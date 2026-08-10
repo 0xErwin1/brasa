@@ -15,6 +15,7 @@ brasa_token = { path = "crates/brasa_token" }
 brasa_lexer = { path = "crates/brasa_lexer" }
 brasa_ast = { path = "crates/brasa_ast" }
 brasa_parser = { path = "crates/brasa_parser" }
+brasa_hir = { path = "crates/brasa_hir" }
 
 [workspace.package]
 authors = ["Ignacio Perez <ignacio@feuer.me>"]

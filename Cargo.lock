@@ -79,6 +79,7 @@ name = "brasa"
 version = "0.1.0"
 dependencies = [
  "brasa_diagnostics",
+ "brasa_hir",
  "brasa_parser",
  "brasa_source",
  "clap",
@@ -101,6 +102,18 @@ name = "brasa_diagnostics"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "brasa_source",
+ "insta",
+]
+
+[[package]]
+name = "brasa_hir"
+version = "0.1.0"
+dependencies = [
+ "brasa_arena",
+ "brasa_ast",
+ "brasa_diagnostics",
+ "brasa_parser",
  "brasa_source",
  "insta",
 ]
