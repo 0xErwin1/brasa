@@ -1,0 +1,266 @@
+//! Snapshot tests for name resolution. Inputs are parsed and lowered
+//! (both with zero diagnostics required), then resolved. Happy-path
+//! tests snapshot the span-free resolution dump; error tests snapshot
+//! the rendered diagnostics so wording, labels, and spans are all
+//! pinned.
+
+use std::path::PathBuf;
+
+use brasa_source::SourceMap;
+
+fn resolve_source(
+    name: &str,
+    source: &str,
+) -> (
+    brasa_hir::LowerResult,
+    brasa_resolver::ResolveResult,
+    SourceMap,
+) {
+    let mut source_map = SourceMap::new();
+    let file = source_map.add_file(PathBuf::from(format!("{name}.brs")), source.to_string());
+
+    let parsed = brasa_parser::parse(source, file);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "{name} expected zero parse diagnostics, got: {:#?}",
+        parsed.diagnostics
+    );
+
+    let lowered = brasa_hir::lower(&parsed.ast, &parsed.roots);
+    assert!(
+        lowered.diagnostics.is_empty(),
+        "{name} expected zero lowering diagnostics, got: {:#?}",
+        lowered.diagnostics
+    );
+
+    let resolved = brasa_resolver::resolve(&lowered.hir, &lowered.roots);
+    (lowered, resolved, source_map)
+}
+
+fn render_diagnostics(
+    diagnostics: &[brasa_diagnostics::Diagnostic],
+    sources: &SourceMap,
+) -> String {
+    let mut out = Vec::new();
+    for diag in diagnostics {
+        brasa_diagnostics::render::render(diag, sources, &mut out, false)
+            .expect("render should not fail");
+    }
+    String::from_utf8(out).expect("rendered output should be valid utf-8")
+}
+
+macro_rules! resolution_test {
+    ($test_name:ident, $source:expr) => {
+        #[test]
+        fn $test_name() {
+            let (lowered, resolved, _map) = resolve_source(stringify!($test_name), $source);
+            assert!(
+                resolved.diagnostics.is_empty(),
+                "expected zero resolve diagnostics, got: {:#?}",
+                resolved.diagnostics
+            );
+            let dump = brasa_resolver::dump::dump(&lowered.hir, &resolved.resolutions);
+            insta::assert_snapshot!(stringify!($test_name), dump);
+        }
+    };
+}
+
+macro_rules! resolution_error_test {
+    ($test_name:ident, $source:expr) => {
+        #[test]
+        fn $test_name() {
+            let (_lowered, resolved, map) = resolve_source(stringify!($test_name), $source);
+            assert!(
+                !resolved.diagnostics.is_empty(),
+                "expected resolve diagnostics, got none"
+            );
+            let rendered = render_diagnostics(&resolved.diagnostics, &map);
+            insta::assert_snapshot!(stringify!($test_name), rendered);
+        }
+    };
+}
+
+resolution_test!(
+    scopes_and_shadowing,
+    r#"
+def apply(x: int, f: (int) -> int): int
+  f(x)
+end
+
+def main()
+  let mut total = 0
+  let x = 1
+  while total < 10
+    let x = x + 1
+    total = total + x
+  end
+  if x > 0
+    let x = "shadowed with another type"
+    puts x
+  else
+    print x
+  end
+  for n in 1..x
+    total = total + n
+  end
+  puts apply(total, |y| y * 2)
+end
+"#
+);
+
+resolution_test!(
+    items_types_and_generics,
+    r#"
+interface Greeter
+  def greet(self, other: Self): string
+end
+
+struct Point<T: Comparable>
+  x: T
+  y: T
+
+  def swap(self): Point<T>
+    Point { x: self.y, y: self.x }
+  end
+end
+
+enum Shape
+  Circle(radius: float)
+  Dot
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def pick<T: { def toString(): string }>(items: Vector<T>): Option<T>
+  items.first()
+end
+
+let best = maxOf(1, 2)
+"#
+);
+
+resolution_test!(
+    imports_ctors_and_catch,
+    r#"
+import std::fs
+import "./helpers.brs"
+
+enum Status
+  Active(since: int)
+  Idle
+end
+
+def describe(s: Status): string
+  match s
+    Active(since) if since > 0 => "active #{since}"
+    Active(_) => "active"
+    Idle => "idle"
+  end
+end
+
+def load(path: string): string
+  fs.read(path) catch (e)
+    fs.NotFound => "missing"
+    _ if path.len() > 0 => helpers.fallback(path)
+    _ => ""
+  end
+end
+
+let current = Some(Active(3))
+match current
+  Some(s) => puts describe(s)
+  None => puts "nothing"
+end
+"#
+);
+
+resolution_test!(
+    top_level_order,
+    r#"
+def double(n: int): int
+  n * later + n
+end
+
+let base = 10
+let derived = double(base)
+
+puts derived
+let later = base + 1
+"#
+);
+
+resolution_error_test!(
+    unknown_names_types_and_ctors,
+    r#"
+def go(p: Bogus): unit
+  puts missing
+  let s = Nope { x: 1 }
+  match s
+    Whatever(x) => puts x
+    _ => puts "no"
+  end
+end
+"#
+);
+
+resolution_error_test!(
+    duplicate_definitions,
+    r#"
+def twice(n: int, n: int): int
+  let a = 1
+  let a = 2
+  a
+end
+
+def twice(): unit
+end
+
+let twice = 3
+
+enum Pair
+  Two(a: int, b: int)
+end
+
+match Two(1, 2)
+  Two(x, x) => puts x
+  _ => puts "no"
+end
+"#
+);
+
+resolution_error_test!(
+    self_imports_and_order,
+    r#"
+import std::teleport
+
+def free(): int
+  self.x
+end
+
+puts early
+let early = 1
+"#
+);
+
+resolution_error_test!(
+    ambiguous_ctor_and_bad_constraint,
+    r#"
+enum Coin
+  Heads
+  Tails
+end
+
+enum Toss
+  Heads
+  Edge
+end
+
+def flip<T: Coin>(value: T): T
+  value
+end
+
+let c = Heads
+"#
+);

@@ -1,0 +1,47 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param s
+  l1 pattern since
+  l2 param path
+  l3 catch e
+  l4 pattern s
+func params
+  describe -> [l0]
+  load -> [l2]
+exprs
+  e0 s -> local l0
+  e1 since -> local l1
+  e5 since -> local l1
+  e11 fs -> module fs
+  e13 path -> local l2
+  e16 path -> local l2
+  e21 helpers -> module helpers
+  e23 path -> local l2
+  e30 current -> item current
+  e31 puts -> builtin puts
+  e32 describe -> item describe
+  e33 s -> local l4
+  e36 puts -> builtin puts
+ctor exprs
+  e28 Active -> Status::Active
+  e29 Some -> Option::Some
+ctor patterns
+  p1 Active -> Status::Active
+  p3 Active -> Status::Active
+  p4 Idle -> Status::Idle
+  p6 Some -> Option::Some
+  p7 None -> Option::None
+pattern bindings
+  p0 since -> l1
+  p5 s -> l4
+catch bindings
+  e26 e -> l3
+types
+  t0 int -> builtin int
+  t1 Status -> enum Status
+  t2 string -> builtin string
+  t3 string -> builtin string
+  t4 string -> builtin string

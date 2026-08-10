@@ -1,0 +1,20 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param n
+func params
+  double -> [l0]
+exprs
+  e0 n -> local l0
+  e1 later -> item later
+  e3 n -> local l0
+  e6 double -> item double
+  e7 base -> item base
+  e9 puts -> builtin puts
+  e10 derived -> item derived
+  e12 base -> item base
+types
+  t0 int -> builtin int
+  t1 int -> builtin int

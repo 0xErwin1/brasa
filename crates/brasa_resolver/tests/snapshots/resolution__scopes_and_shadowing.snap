@@ -1,0 +1,51 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param x
+  l1 param f
+  l2 let mut total
+  l3 let x
+  l4 let x
+  l5 let x
+  l6 pattern n
+  l7 lambda-param y
+func params
+  apply -> [l0, l1]
+  main -> []
+exprs
+  e0 f -> local l1
+  e1 x -> local l0
+  e5 total -> local l2
+  e8 x -> local l3
+  e11 total -> local l2
+  e12 total -> local l2
+  e13 x -> local l4
+  e15 x -> local l3
+  e19 puts -> builtin puts
+  e20 x -> local l5
+  e22 print -> builtin print
+  e23 x -> local l3
+  e26 x -> local l3
+  e28 total -> local l2
+  e29 total -> local l2
+  e30 n -> local l6
+  e32 puts -> builtin puts
+  e33 apply -> item apply
+  e34 total -> local l2
+  e35 y -> local l7
+pattern bindings
+  p0 n -> l6
+stmt lets
+  s1 -> l2
+  s2 -> l3
+  s3 -> l4
+  s6 -> l5
+lambda params
+  e38 -> [l7]
+types
+  t0 int -> builtin int
+  t1 int -> builtin int
+  t2 int -> builtin int
+  t4 int -> builtin int

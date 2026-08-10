@@ -1,0 +1,42 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param a
+  l1 param b
+  l2 param items
+func params
+  Point.swap -> [self]
+  maxOf -> [l0, l1]
+  pick -> [l2]
+exprs
+  e0 self -> self
+  e2 self -> self
+  e5 a -> local l0
+  e6 b -> local l1
+  e8 a -> local l0
+  e9 b -> local l1
+  e10 items -> local l2
+  e13 maxOf -> item maxOf
+generic constraints
+  Point<T> -> builtin Comparable
+  maxOf<T> -> builtin Comparable
+struct lits
+  e4 Point -> struct Point
+types
+  t0 Self -> Self
+  t1 string -> builtin string
+  t2 T -> generic T of Point
+  t3 T -> generic T of Point
+  t4 T -> generic T of Point
+  t5 Point -> struct Point
+  t6 float -> builtin float
+  t7 T -> generic T of maxOf
+  t8 T -> generic T of maxOf
+  t9 T -> generic T of maxOf
+  t10 string -> builtin string
+  t11 T -> generic T of pick
+  t12 Vector -> builtin Vector
+  t13 T -> generic T of pick
+  t14 Option -> builtin Option
