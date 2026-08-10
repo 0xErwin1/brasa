@@ -1,43 +1,43 @@
-# Brasa — stdlib de scripting (bosquejo v1)
+# Brasa — scripting stdlib (v1 sketch)
 
-La stdlib es la razón de existir del lenguaje: el 60% del scripting es
-manipulación de strings y buena parte del resto es llamar comandos. Este
-documento fija módulos, superficie mínima y convenciones; las firmas
-exactas se cierran módulo a módulo durante M4.
+The stdlib is the language's reason to exist: 60% of scripting is
+string manipulation and most of the rest is calling commands. This
+document fixes modules, minimum surface, and conventions; exact
+signatures are closed module by module during M4.
 
-## Convenciones
+## Conventions
 
-- **La stdlib es nativa**: escrita en Rust y expuesta como builtins de la
-  VM. No hay archivos `.brs` de stdlib que parsear en cada arranque;
-  `Option` y `Json` son tipos conocidos por el compilador. Una capa fina en
-  Brasa podría existir a futuro, nunca en el camino del arranque.
-- Errores por `throw` (structs `*Error` por módulo: `fs.NotFound`,
-  `proc.NonZeroExit`, `json.ParseError`); ausencia esperada por `Option`.
-- Todo módulo se importa explícito (`import std::fs`) salvo el **prelude**:
-  `puts`, `print`, `Option`/`Some`/`None`, `Vector`, `Map`, `Set`, rangos y
-  los métodos de tipos primitivos están siempre disponibles.
-- Nombres en `camelCase` (funciones, métodos, variables); tipos en
-  `PascalCase`; predicados con `?` (`file.exists?`, `isDir?`).
+- **The stdlib is native**: written in Rust and exposed as VM builtins.
+  There are no `.brs` stdlib files to parse on every startup;
+  `Option` and `Json` are types known to the compiler. A thin Brasa layer
+  might exist in the future, never on the startup path.
+- Errors via `throw` (`*Error` structs per module: `fs.NotFound`,
+  `proc.NonZeroExit`, `json.ParseError`); expected absence via `Option`.
+- Every module is imported explicitly (`import std::fs`) except the
+  **prelude**: `puts`, `print`, `Option`/`Some`/`None`, `Vector`, `Map`,
+  `Set`, ranges, and primitive type methods are always available.
+- Names in `camelCase` (functions, methods, variables); types in
+  `PascalCase`; predicates with `?` (`file.exists?`, `isDir?`).
 
-## `string` (métodos del tipo, sin import)
+## `string` (type methods, no import needed)
 
-Prioridad máxima.
+Highest priority.
 
-- Corte y armado: `split`, `join`, `lines`, `chars`, `bytes`, `slice`,
+- Cutting and assembling: `split`, `join`, `lines`, `chars`, `bytes`, `slice`,
   `repeat`, `reverse`.
-- Limpieza: `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`.
-- Búsqueda: `contains?`, `startsWith?`, `endsWith?`, `find` (-> Option),
+- Cleanup: `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`.
+- Search: `contains?`, `startsWith?`, `endsWith?`, `find` (-> Option),
   `count`.
-- Transformación: `replace`, `toUpper`, `toLower`, `toInt` (-> throw
+- Transformation: `replace`, `toUpper`, `toLower`, `toInt` (-> throw
   `ParseError`), `toFloat`.
-- Regex integrada: `match?(re)`, `captures(re)` (-> Option<Vector<string>>),
+- Built-in regex: `match?(re)`, `captures(re)` (-> Option<Vector<string>>),
   `replaceRe(re, with)`, `scan(re)`.
 
 ## `std::re`
 
-Regex compiladas para reuso: `re.compile(pattern)`, tipo `Regex` con los
-mismos métodos que recibe string. Sintaxis: la de `regex` de Rust (sin
-backtracking, sin catastrofes).
+Compiled regexes for reuse: `re.compile(pattern)`, `Regex` type with the
+same methods received by string. Syntax: Rust's `regex` crate syntax
+(no backtracking, no catastrophic cases).
 
 ## `std::fs`
 
@@ -46,52 +46,52 @@ backtracking, sin catastrofes).
 - `ls(path): Vector<string>`, `glob(pattern): Vector<string>`, `walk(path)`.
 - `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`.
 - `path` helpers: `join`, `base`, `dir`, `ext`, `abs`.
-- Errores: `fs.NotFound`, `fs.Denied`, `fs.IoError`.
+- Errors: `fs.NotFound`, `fs.Denied`, `fs.IoError`.
 
-## `std::proc` — el reemplazo de bash
+## `std::proc` — the bash replacement
 
 ```ruby
 import std::proc
 
-let out = proc.run("git status --short")          # -> Output; throw si exit != 0
+let out = proc.run("git status --short")          # -> Output; throws if exit != 0
 puts out.stdout
 
-let r = proc.tryRun("grep -q foo bar.txt")       # -> Output, nunca lanza
+let r = proc.tryRun("grep -q foo bar.txt")       # -> Output, never throws
 if r.code == 0 ...
 
-proc.run("wc -l") |> .stdin(texto)                # piping de stdin
-proc.shell("ls *.brs | wc -l")                    # vía /bin/sh explícito
+proc.run("wc -l") |> .stdin(text)                 # piping stdin
+proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
 ```
 
-- `run` parsea el comando con splitting propio (sin shell: sin injection
-  accidental); `shell` es el opt-in explícito a `/bin/sh -c`.
+- `run` parses the command with its own splitting (no shell: no
+  accidental injection); `shell` is the explicit opt-in to `/bin/sh -c`.
 - `Output` = `{ stdout: string, stderr: string, code: int }`.
-- `run` lanza `proc.NonZeroExit { output }` si code != 0 — el caso bash
-  `set -e` por defecto, con `tryRun` como escape.
+- `run` throws `proc.NonZeroExit { output }` if code != 0 — the bash
+  `set -e` default behavior, with `tryRun` as the escape hatch.
 - `env.get(name): Option<string>`, `env.set`, `env.vars`, `args()`,
   `exit(code)`, `cwd()`, `cd(path)`.
 
 ## `std::json`
 
 - `json.parse(s): Json` (-> throw `json.ParseError`), `json.stringify(v)`.
-- `Json` es un enum (`Object(Map<string, Json>) | Array(Vector<Json>) |
-  Str | Num | Bool | Null`) con azúcar de indexado que devuelve Option:
+- `Json` is an enum (`Object(Map<string, Json>) | Array(Vector<Json>) |
+  Str | Num | Bool | Null`) with indexing sugar that returns Option:
   `data["users"][0]["name"] ?? "anon"`.
-- Puente tipado (`json.decode<T>(s)`) queda para v2.
+- A typed bridge (`json.decode<T>(s)`) is deferred to v2.
 
 ## `std::io`
 
 - `puts`, `print`, `eprint` (stderr), `readLine(): Option<string>`,
-  `readAll(): string` (stdin completo — clave para filtros estilo Unix).
+  `readAll(): string` (full stdin — key for Unix-style filters).
 
 ## `std::math`, `std::time`, `std::rand`
 
 - `math`: `abs`, `min`, `max`, `floor`, `ceil`, `round`, `sqrt`, `pow`,
-  constantes.
-- `time`: `now()`, timestamps, `sleep(ms)`, formateo básico ISO-8601.
+  constants.
+- `time`: `now()`, timestamps, `sleep(ms)`, basic ISO-8601 formatting.
 - `rand`: `int(range)`, `float()`, `choice(vector)`, `shuffle`.
 
-## Colecciones (métodos, sin import)
+## Collections (methods, no import needed)
 
 - `Vector<T>`: `len`, `push`, `pop`, `map`, `filter`, `reduce`, `each`,
   `find`, `any?`, `all?`, `sort`, `sortBy`, `reverse`, `contains?`,
@@ -100,7 +100,9 @@ proc.shell("ls *.brs | wc -l")                    # vía /bin/sh explícito
   `has?`, `get` (≡ `[k]`, -> Option), `merge`, `each`.
 - `Set<T>`: `add`, `remove`, `has?`, `union`, `intersect`, `diff`.
 
-## Fuera de v1
+## Out of v1
 
-`http` (cliente), `csv`, `toml`/`yaml`, `crypto`/hashing, sockets,
-concurrencia. Entran por demanda real después de M5.
+`http` (client), `csv`, `toml`/`yaml`, `crypto`/hashing, sockets,
+concurrency. Added on real demand after M5.
+
+> Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

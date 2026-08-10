@@ -49,7 +49,7 @@ pub enum Throws {
 /// A method signature inside an `interface` body or an inline anonymous
 /// interface constraint. Never carries generics, but MAY declare `throws`:
 /// interfaces are contracts and error contracts are not inferred (see
-/// `docs/spec/04-errores.md`), so a throwing interface method must state
+/// `docs/spec/04-errors.md`), so a throwing interface method must state
 /// its error set here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfaceMember {
@@ -95,7 +95,7 @@ pub struct StructDef {
 pub struct Variant {
     pub name: String,
     /// Empty when the variant carries no payload (`Point` in the `Shape`
-    /// example of `docs/spec/01-sintaxis.md`).
+    /// example of `docs/spec/01-syntax.md`).
     pub fields: Vec<Field>,
 }
 

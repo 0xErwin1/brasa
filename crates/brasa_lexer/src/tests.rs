@@ -126,7 +126,7 @@ fn lexing_continues_after_an_error() {
     assert_eq!(tokens[3].kind, brasa_token::TokenKind::Eof);
 }
 
-// --- integration: the full example program from docs/spec/01-sintaxis.md ---
+// --- integration: the full example program from docs/spec/01-syntax.md ---
 
 snapshot!(
     example_program,

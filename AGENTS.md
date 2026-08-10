@@ -11,10 +11,10 @@ scripting tasks.
 | Doc | Contents |
 |-----|----------|
 | `docs/spec/00-vision.md` | Goals, closed decisions, compiler architecture, roadmap |
-| `docs/spec/01-sintaxis.md` | User-facing syntax |
-| `docs/spec/02-gramatica.md` | Lexical grammar + EBNF + ambiguity resolutions |
-| `docs/spec/03-tipos.md` | Type system semantics |
-| `docs/spec/04-errores.md` | BAML-style error system (inferred error-sets) |
+| `docs/spec/01-syntax.md` | User-facing syntax |
+| `docs/spec/02-grammar.md` | Lexical grammar + EBNF + ambiguity resolutions |
+| `docs/spec/03-types.md` | Type system semantics |
+| `docs/spec/04-errors.md` | BAML-style error system (inferred error-sets) |
 | `docs/spec/05-stdlib.md` | Stdlib surface (native, written in Rust) |
 
 Spec changes must be mirrored to the Atlas workspace `brasa` (project

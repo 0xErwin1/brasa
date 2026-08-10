@@ -1,6 +1,6 @@
 //! Token definitions for Brasa.
 //!
-//! The token set mirrors the lexical grammar in `docs/spec/02-gramatica.md`.
+//! The token set mirrors the lexical grammar in `docs/spec/02-grammar.md`.
 //! Kept separate from the lexer so the parser depends on token *types*
 //! without depending on how they are produced (BRS-8 fills this in).
 
@@ -196,7 +196,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
     })
 }
 
-/// Parses an `INT` literal (`docs/spec/02-gramatica.md`): decimal, `0x`
+/// Parses an `INT` literal (`docs/spec/02-grammar.md`): decimal, `0x`
 /// hex, or `0b` binary, with optional `_` digit separators. No octal form
 /// exists in Brasa.
 ///

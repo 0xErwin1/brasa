@@ -24,7 +24,7 @@ pub enum BinaryOp {
     Gt,
     GtEq,
     /// `&&` and the `and` keyword are aliases with identical semantics
-    /// (`docs/spec/02-gramatica.md`), so both lex to this one operator.
+    /// (`docs/spec/02-grammar.md`), so both lex to this one operator.
     And,
     /// `||` and the `or` keyword alias.
     Or,
@@ -113,7 +113,7 @@ pub enum Expr {
         name: String,
     },
     /// `recv?.name` (safe field access) or `recv?.name(args)` (safe
-    /// method call). Per `docs/spec/02-gramatica.md`'s `postfix`
+    /// method call). Per `docs/spec/02-grammar.md`'s `postfix`
     /// production, a trailing `(args)` is technically its own postfix
     /// operation and could instead be modeled as a `Call` wrapping a bare
     /// `SafeNav`; this AST folds it into `SafeNav` directly instead, so
@@ -168,7 +168,7 @@ pub enum Expr {
     },
     /// Postfix `catch`/`catch_all` on `subject`. `exhaustive` is `true`
     /// for `catch_all`; unhandled catch types re-throw only when it is
-    /// `false`; full semantics in `docs/spec/04-errores.md`.
+    /// `false`; full semantics in `docs/spec/04-errors.md`.
     Catch {
         subject: ExprId,
         exhaustive: bool,

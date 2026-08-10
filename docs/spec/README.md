@@ -1,16 +1,16 @@
-# Especificación de Brasa
+# Brasa specification
 
-Lenguaje de scripting: tipado estático fuerte con inferencia, sintaxis
-Ruby-like, VM de bytecode con GC, implementado en Rust.
+Scripting language: strongly statically typed with inference, Ruby-like
+syntax, bytecode VM with GC, implemented in Rust.
 
-| Documento | Contenido | Estado |
+| Document | Contents | Status |
 |-----------|-----------|--------|
-| [00-vision.md](00-vision.md) | Objetivos, decisiones cerradas, roadmap | cerrado |
-| [01-sintaxis.md](01-sintaxis.md) | El lenguaje visto por el usuario | cerrado |
-| [02-gramatica.md](02-gramatica.md) | Léxico + EBNF + ambigüedades | borrador para revisión |
-| [03-tipos.md](03-tipos.md) | Sistema de tipos y semántica | borrador para revisión |
-| [04-errores.md](04-errores.md) | Sistema de errores estilo BAML | cerrado (validado contra BAML canary) |
-| [05-stdlib.md](05-stdlib.md) | Módulos de la stdlib v1 | bosquejo |
+| [00-vision.md](00-vision.md) | Goals, closed decisions, roadmap | closed |
+| [01-syntax.md](01-syntax.md) | The language as seen by the user | closed |
+| [02-grammar.md](02-grammar.md) | Lexicon + EBNF + ambiguities | draft for review |
+| [03-types.md](03-types.md) | Type system and semantics | draft for review |
+| [04-errors.md](04-errors.md) | BAML-style error system | closed (validated against BAML canary) |
+| [05-stdlib.md](05-stdlib.md) | Stdlib v1 modules | sketch |
 
-Predecesor: OTL (`~/dev/personal/OCaml/OTL`), el prototipo OCaml que validó
-el pipeline lexer → parser → checker → intérprete.
+Predecessor: OTL (`~/dev/personal/OCaml/OTL`), the OCaml prototype that
+validated the lexer → parser → checker → interpreter pipeline.

@@ -2,7 +2,7 @@
 
 use crate::PatternId;
 
-/// A literal pattern. `docs/spec/02-gramatica.md`'s `pattern` production
+/// A literal pattern. `docs/spec/02-grammar.md`'s `pattern` production
 /// references an undefined `literal` nonterminal; this covers the
 /// lexical literal kinds (`INT`, `FLOAT`, `true`/`false`, `CHAR`,
 /// `STRING`). See BRS-9 open questions for whether a `STRING` pattern may

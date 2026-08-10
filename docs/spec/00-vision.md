@@ -1,80 +1,82 @@
-# Brasa — visión y alcance
+# Brasa — vision and scope
 
-Brasa es un lenguaje de scripting con tipado estático fuerte e inferencia,
-sintaxis inspirada en Ruby, y una VM de bytecode con GC implementada en Rust.
-Objetivo: reemplazar Python y bash en el ~90% de los casos de scripting:
-manipulación de texto, llamadas a comandos, archivos, JSON, automatización.
+Brasa is a scripting language with strong static typing and inference,
+Ruby-inspired syntax, and a bytecode VM with GC implemented in Rust.
+Goal: replace Python and bash in ~90% of scripting use cases: text
+manipulation, command invocation, files, JSON, automation.
 
-Extensión: `.brs`. Ejecución: `brasa script.brs` o shebang
-`#!/usr/bin/env brasa`. Un archivo suelto corre sin proyecto ni manifest.
+Extension: `.brs`. Execution: `brasa script.brs` or shebang
+`#!/usr/bin/env brasa`. A standalone file runs without a project or manifest.
 
-## Principios
+## Principles
 
-1. **El happy path se escribe sin ceremonia.** Sin `Result`, sin `unwrap`,
-   sin anotaciones obligatorias fuera de las firmas de función.
-2. **Fuerte siempre, nunca débil.** No hay coerciones implícitas. La
-   flexibilidad viene del tipado *estructural* (interfaces por forma), no de
-   relajar el chequeo.
-3. **Defaults conservadores.** Inmutable por defecto (`let` / `let mut`),
-   privado por defecto (`pub` explícito), sin `nil` (`Option<T>`).
-4. **Los errores no son virales.** Sistema estilo BAML: se lanzan valores,
-   los error-sets se infieren en las firmas, `catch` es un match no
-   exhaustivo. Ver [04-errores.md](04-errores.md).
-5. **La stdlib es el producto.** Strings, procesos, fs, JSON, regex y glob
-   de primera clase. El lenguaje existe para servir a esos casos.
-6. **Arranque instantáneo.** Parse + typecheck + ejecución de un script
-   chico debe sentirse inmediato (< 10 ms de frío para un hello world).
+1. **The happy path is written without ceremony.** No `Result`, no `unwrap`,
+   no mandatory annotations outside function signatures.
+2. **Strong always, never weak.** No implicit coercions. Flexibility comes
+   from *structural* typing (shape-based interfaces), not from relaxing
+   checks.
+3. **Conservative defaults.** Immutable by default (`let` / `let mut`),
+   private by default (explicit `pub`), no `nil` (`Option<T>`).
+4. **Errors are not viral.** BAML-style system: values are thrown,
+   error-sets are inferred in signatures, `catch` is a non-exhaustive
+   match. See [04-errors.md](04-errors.md).
+5. **The stdlib is the product.** First-class strings, processes, fs, JSON,
+   regex, and glob. The language exists to serve these use cases.
+6. **Instant startup.** Parse + typecheck + execution of a small script
+   must feel immediate (< 10 ms cold for a hello world).
 
-## Decisiones cerradas
+## Closed decisions
 
-| Área | Decisión |
+| Area | Decision |
 |------|----------|
-| Implementación | Rust; lexer con `logos`, parser recursivo descendente a mano, diagnósticos con `ariadne`/`codespan` |
-| Ejecución | VM de bytecode propia, GC (v1: precise, simple; optimizar después) |
-| Tipado | Estático fuerte, inferencia local, estructural para interfaces |
-| Mutabilidad | `let` inmutable, `let mut` mutable |
-| Semántica de datos | Structs y colecciones por referencia (heap GC); primitivos por valor |
-| Nulabilidad | Sin `nil`; `Option<T>` + azúcar `?.` y `??` |
-| Genéricos | Monomorfización no requerida en v1 (VM dinámica bajo tipos estáticos); constraints estructurales, sin uniones |
-| OOP | No hay herencia ni clases; structs + métodos + interfaces estructurales |
-| Errores | Modelo BAML (throw de valores, inferencia de error-sets, catch-match) |
-| Módulos | Un archivo = un módulo; `import std::fs` (stdlib), `import "./foo.brs"` (archivos); sin import selectivo; `pub` explícito |
-| Stdlib | Nativa en Rust (builtins de la VM); nunca escrita en Brasa en el camino del arranque |
-| Concurrencia | Fuera de v1; diseño futuro orientado a event loop multi-hilo |
+| Implementation | Rust; lexer with `logos`, hand-written recursive descent parser, diagnostics with `ariadne`/`codespan` |
+| Execution | Custom bytecode VM, GC (v1: precise, simple; optimize later) |
+| Typing | Static, strong, local inference, structural for interfaces |
+| Mutability | `let` immutable, `let mut` mutable |
+| Data semantics | Structs and collections by reference (GC heap); primitives by value |
+| Nullability | No `nil`; `Option<T>` + `?.` and `??` sugar |
+| Generics | Monomorphization not required in v1 (dynamic VM under static types); structural constraints, no unions |
+| OOP | No inheritance or classes; structs + methods + structural interfaces |
+| Errors | BAML model (throw values, error-set inference, catch-match) |
+| Modules | One file = one module; `import std::fs` (stdlib), `import "./foo.brs"` (files); no selective import; explicit `pub` |
+| Stdlib | Native in Rust (VM builtins); never written in Brasa on the startup path |
+| Concurrency | Out of v1; future design oriented toward a multi-threaded event loop |
 
-## Arquitectura del compilador
+## Compiler architecture
 
 ```
-fuente ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ Type check ─→ Error-sets ─→ Codegen ─→ VM
-          logos    Pratt+RD   desugar          nombres     inferencia    fixpoint      bytecode
-          tokens   AST        ↓                scopes      exhaustividad
-                              tree-walker (M1) corre sobre HIR
+source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ Type check ─→ Error-sets ─→ Codegen ─→ VM
+          logos    Pratt+RD   desugar          names       inference     fixpoint      bytecode
+          tokens   AST        ↓                scopes      exhaustiveness
+                              tree-walker (M1) runs over HIR
 ```
 
-| Decisión | Detalle |
-|----------|---------|
-| Parser | Recursive descent para declaraciones/sentencias; **Pratt** (binding powers) para expresiones. La tabla de precedencias de `02-gramatica.md` se traduce directo a pares `(left_bp, right_bp)`; `**` derecha = par invertido; `catch` es un postfix más del loop |
-| AST | **Arenas de índices**: `Vec<Expr>` por tipo de nodo + IDs tipados `Copy` (`ExprId(u32)`, `FuncId`, ...). Sin `Box`, sin lifetimes virales. Patrón rustc/rust-analyzer |
-| Side tables | El AST/HIR es inmutable; cada fase produce tablas paralelas por ID: `types: Map<ExprId, Type>`, `spans`, `error_sets: Map<FuncId, ErrorSet>` |
-| HIR | AST desazucarado: `\|>` → calls, `?.`/`??` → match sobre Option, `for` → protocolo de iteración, interpolación → concat, `+=` → asignación. Checker, error-sets, tree-walker y codegen trabajan sobre el núcleo chico |
-| Analyzer | Tres pasadas sobre HIR: resolución de nombres → type check → inferencia de error-sets (fixpoint sobre el grafo de llamadas; necesita los tipos, por eso va después) |
-| ¿MIR? | **No.** HIR → bytecode directo (como Lua/CPython). Un MIR SSA/CFG solo paga con optimizador serio, que es no-objetivo de v1. Si algún día hace falta, se inserta entre HIR y codegen sin tocar las fases anteriores |
-| Codegen | VM de pila. `match` compila a **árboles de decisión** desde el día uno (la versión naïve en cadena de ifs es dolorosa de reemplazar después) |
+| Decision | Detail |
+|----------|--------|
+| Parser | Recursive descent for declarations/statements; **Pratt** (binding powers) for expressions. The precedence table in `02-grammar.md` translates directly into `(left_bp, right_bp)` pairs; `**` right-associative = inverted pair; `catch` is one more loop postfix |
+| AST | **Index arenas**: `Vec<Expr>` per node kind + typed `Copy` IDs (`ExprId(u32)`, `FuncId`, ...). No `Box`, no viral lifetimes. rustc/rust-analyzer pattern |
+| Side tables | The AST/HIR is immutable; each phase produces parallel tables keyed by ID: `types: Map<ExprId, Type>`, `spans`, `error_sets: Map<FuncId, ErrorSet>` |
+| HIR | Desugared AST: `\|>` → calls, `?.`/`??` → match over Option, `for` → iteration protocol, interpolation → concat, `+=` → assignment. Checker, error-sets, tree-walker, and codegen work over the small core |
+| Analyzer | Three passes over HIR: name resolution → type check → error-set inference (fixpoint over the call graph; needs the types, hence it runs last) |
+| MIR? | **No.** HIR → direct bytecode (like Lua/CPython). An SSA/CFG MIR only pays off with a serious optimizer, which is a non-goal for v1. If it's ever needed, it slots in between HIR and codegen without touching earlier phases |
+| Codegen | Stack-based VM. `match` compiles to **decision trees** from day one (the naive if-chain version is painful to replace later) |
 
-## No-objetivos (v1)
+## Non-goals (v1)
 
-- Concurrencia / async (palabra clave reservada, sin semántica).
-- Compilación AOT o JIT.
-- Uniones de tipos generales (`int | string`); los enums cubren el caso.
-- Macros / metaprogramación.
-- Interop con C (Ignis ya cubre ese nicho).
+- Concurrency / async (reserved keyword, no semantics).
+- AOT or JIT compilation.
+- General type unions (`int | string`); enums cover the case.
+- Macros / metaprogramming.
+- C interop (Ignis already covers that niche).
 
-## Roadmap de implementación
+## Implementation roadmap
 
-1. **M0** — lexer + parser + AST + diagnósticos bonitos (sin ejecutar).
-2. **M1** — type checker completo (inferencia, genéricos, interfaces
-   estructurales, Option) sobre tree-walking provisional.
-3. **M2** — sistema de errores BAML (inferencia de error-sets + catch).
-4. **M3** — VM de bytecode + GC; el tree-walker queda como referencia.
-5. **M4** — stdlib de scripting (strings, fs, proceso, JSON, regex, glob).
-6. **M5** — REPL, formatter, LSP mínimo.
+1. **M0** — lexer + parser + AST + pretty diagnostics (no execution).
+2. **M1** — full type checker (inference, generics, structural
+   interfaces, Option) over a provisional tree-walker.
+3. **M2** — BAML-style error system (error-set inference + catch).
+4. **M3** — bytecode VM + GC; the tree-walker remains as a reference.
+5. **M4** — scripting stdlib (strings, fs, process, JSON, regex, glob).
+6. **M5** — REPL, formatter, minimal LSP.
+
+> Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

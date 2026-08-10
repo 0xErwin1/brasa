@@ -22,7 +22,7 @@ pub enum AssignOp {
 
 /// The shared shape of `if`/`elsif`/`else`, used by both `Stmt::If` and
 /// `Expr::If` since the grammar treats them as one construct ("if
-/// expresión vs sentencia: mismo nodo", `docs/spec/02-gramatica.md`). The
+/// expression vs statement: same node", `docs/spec/02-grammar.md`). The
 /// inline `then`-form's single-expression branches are normalized into
 /// one-statement blocks when the AST is built, so both surface syntaxes
 /// (`if ... NL block ... end` and `if ... then expr ... end`) share this
