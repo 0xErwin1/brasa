@@ -149,7 +149,9 @@ jobs:
             exit 0
           fi
 
-          ASSET_IDS=$(jq -r '.assets[].id' <<<"$RELEASE_JSON")
+          # `.assets[]?` tolerates the 404 error body gh api returns when the
+          # nightly release does not exist yet (first run): .assets is null.
+          ASSET_IDS=$(jq -r '.assets[]?.id // empty' <<<"$RELEASE_JSON")
           if [ -z "$ASSET_IDS" ]; then
             echo "Existing nightly release has no assets to prune."
             exit 0
