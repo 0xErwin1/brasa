@@ -1,0 +1,11 @@
+---
+source: crates/brasa_diagnostics/src/render.rs
+expression: "render_to_string(&diagnostic, &sources)"
+---
+[BRS-E001] Error: undefined variable `z`
+   ╭─[ <tabs>:2:10 ]
+   │
+ 2 │     let y = z
+   │             ┬  
+   │             ╰── used here
+───╯

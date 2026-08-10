@@ -2,7 +2,7 @@
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 
-use std::io::IsTerminal;
+use std::io::{BufWriter, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -28,6 +28,18 @@ struct Cli {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    match std::fs::metadata(&cli.script) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            eprintln!("brasa: {} is not a regular file", cli.script.display());
+            return ExitCode::from(65);
+        }
+        Err(err) => {
+            eprintln!("brasa: cannot read {}: {err}", cli.script.display());
+            return ExitCode::from(65);
+        }
+    }
+
     let source = match std::fs::read_to_string(&cli.script) {
         Ok(source) => source,
         Err(err) => {
@@ -46,13 +58,18 @@ fn main() -> ExitCode {
         .any(|diag| diag.severity == Severity::Error);
 
     let color = std::io::stderr().is_terminal();
+    let mut stderr = BufWriter::new(std::io::stderr());
     for diagnostic in &result.diagnostics {
         if let Err(err) =
-            brasa_diagnostics::render::render(diagnostic, &sources, &mut std::io::stderr(), color)
+            brasa_diagnostics::render::render(diagnostic, &sources, &mut stderr, color)
         {
             eprintln!("brasa: failed to render diagnostic: {err}");
             return ExitCode::from(70);
         }
+    }
+    if let Err(err) = stderr.flush() {
+        eprintln!("brasa: failed to flush diagnostics: {err}");
+        return ExitCode::from(70);
     }
 
     if has_errors {

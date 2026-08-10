@@ -55,6 +55,46 @@ impl AriadneSpan for ByteSpan {
     }
 }
 
+/// Replaces raw C0 control bytes (`0x00`-`0x1F`) and DEL (`0x7F`) in `text`
+/// with a single visible ASCII placeholder, so that terminal control
+/// sequences embedded in a source file (ANSI escapes, BEL, etc.) are never
+/// forwarded verbatim into a rendered diagnostic and interpreted by the
+/// user's terminal. `\n` and `\t` are left untouched: `ariadne` relies on
+/// both for line splitting and column alignment.
+///
+/// Used both for the source snippet text ariadne quotes (where preserving
+/// byte offsets matters, see below) and for diagnostic messages, label
+/// messages, and notes (which may themselves embed a raw offending
+/// character, e.g. a lexer's "unexpected character `<char>`" message, and
+/// carry no span to keep aligned).
+///
+/// The placeholder is a single ASCII byte (`?`) rather than a Unicode
+/// replacement character such as U+FFFD (3 bytes in UTF-8) so the
+/// sanitized text keeps the exact same byte length and byte offsets as the
+/// original: every [`brasa_source::Span`] computed against the original
+/// source stays valid against the sanitized text handed to `ariadne`.
+///
+/// C0 bytes and DEL never occur as part of a multi-byte UTF-8 sequence
+/// (UTF-8 continuation bytes are always `>= 0x80`), so rewriting them
+/// byte-for-byte cannot produce invalid UTF-8.
+///
+/// C1 control codes (`U+0080`-`U+009F`) are intentionally left untouched:
+/// they are encoded as 2 bytes in UTF-8, so replacing one with a 1-byte
+/// placeholder would shift every following byte offset and break span
+/// alignment. Handling them would require remapping spans, which is out of
+/// scope for this fix.
+fn sanitize_control_bytes(text: &str) -> String {
+    let mut bytes = text.as_bytes().to_vec();
+
+    for byte in &mut bytes {
+        if matches!(*byte, 0x00..=0x08 | 0x0B..=0x1F | 0x7F) {
+            *byte = b'?';
+        }
+    }
+
+    String::from_utf8(bytes).expect("replacing ASCII control bytes cannot produce invalid UTF-8")
+}
+
 /// Adapts a [`SourceMap`] to `ariadne`'s [`Cache`] trait, lazily building
 /// and memoizing one [`ariadne::Source`] per file it is asked to fetch.
 struct SourceMapCache<'a> {
@@ -77,7 +117,8 @@ impl Cache<FileId> for SourceMapCache<'_> {
     fn fetch(&mut self, id: &FileId) -> Result<&Source<String>, impl fmt::Debug> {
         if !self.built.contains_key(id) {
             let file = self.sources.get(id);
-            self.built.insert(*id, Source::from(file.text.clone()));
+            self.built
+                .insert(*id, Source::from(sanitize_control_bytes(&file.text)));
         }
 
         Ok::<_, ()>(&self.built[id])
@@ -116,16 +157,18 @@ pub fn render(
         ByteSpan::from(diag.primary_span),
     )
     .with_code(&diag.error_code)
-    .with_message(&diag.message)
+    .with_message(sanitize_control_bytes(&diag.message))
     .with_config(config);
 
     for label in &diag.labels {
-        builder = builder
-            .with_label(AriadneLabel::new(ByteSpan::from(label.span)).with_message(&label.message));
+        builder = builder.with_label(
+            AriadneLabel::new(ByteSpan::from(label.span))
+                .with_message(sanitize_control_bytes(&label.message)),
+        );
     }
 
     for note in &diag.notes {
-        builder = builder.with_note(note);
+        builder = builder.with_note(sanitize_control_bytes(note));
     }
 
     let report = builder.finish();
@@ -208,5 +251,59 @@ mod tests {
         .with_label(span, "shadows the outer `niño`".to_string());
 
         insta::assert_snapshot!(render_to_string(&diagnostic, &sources));
+    }
+
+    #[test]
+    fn renders_source_with_tabs_and_correct_columns() {
+        let mut sources = SourceMap::new();
+        let file = sources.add_virtual("tabs", "let x = 1\n\tlet y = z\n".to_string());
+
+        // Points at `z`, past a leading tab on line 2.
+        let span = Span::new(file, BytePosition(19), BytePosition(20));
+
+        let diagnostic = Diagnostic::new(
+            Severity::Error,
+            "undefined variable `z`".to_string(),
+            "BRS-E001".to_string(),
+            span,
+        )
+        .with_label(span, "used here".to_string());
+
+        insta::assert_snapshot!(render_to_string(&diagnostic, &sources));
+    }
+
+    #[test]
+    fn strips_raw_control_bytes_from_rendered_output() {
+        let mut sources = SourceMap::new();
+        let file = sources.add_virtual(
+            "evil",
+            "let x = \x1b[8mHIDDEN\x1b[0m @\x07\x7f\n".to_string(),
+        );
+
+        let span = Span::new(file, BytePosition(0), BytePosition(3));
+
+        let diagnostic = Diagnostic::new(
+            Severity::Error,
+            "unexpected character".to_string(),
+            "BRS-E003".to_string(),
+            span,
+        )
+        .with_label(span, "here".to_string());
+
+        let mut out = Vec::new();
+        render(&diagnostic, &sources, &mut out, false).expect("render should not fail");
+
+        assert!(
+            !out.contains(&0x1B),
+            "output must not contain a raw ESC byte"
+        );
+        assert!(
+            !out.contains(&0x07),
+            "output must not contain a raw BEL byte"
+        );
+        assert!(
+            !out.contains(&0x7F),
+            "output must not contain a raw DEL byte"
+        );
     }
 }
