@@ -1,0 +1,114 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 total -> (Vector<int>) -> int
+  i1 process -> (Vector<int>, Set<string>) -> Vector<string>
+  i2 empty -> Vector<int>
+  i3 words -> Vector<string>
+  i4 joined -> string
+  i5 first -> string
+  i6 lookup -> Map<string, int>
+  i7 one -> int
+  i8 keys -> Vector<string>
+  i9 trimmed -> string
+  i10 parsed -> Option<int>
+local types
+  l0 nums -> Vector<int>
+  l1 acc -> int
+  l2 n -> int
+  l3 nums -> Vector<int>
+  l4 tags -> Set<string>
+  l5 n -> int
+  l6 doubled -> Vector<int>
+  l7 n -> int
+  l8 evens -> Vector<int>
+  l9 n -> int
+  l10 names -> Vector<string>
+  l11 s -> string
+  l12 $tmp0 -> int
+expr types
+  e0 -> int
+  e1 -> Vector<int>
+  e2 -> ((int) -> unit) -> unit
+  e3 -> int
+  e4 -> int
+  e5 -> int
+  e6 -> int
+  e7 -> (int) -> unit
+  e8 -> unit
+  e9 -> int
+  e10 -> Vector<int>
+  e11 -> ((int) -> unknown) -> Vector<int>
+  e12 -> int
+  e13 -> int
+  e14 -> int
+  e15 -> (int) -> int
+  e16 -> Vector<int>
+  e17 -> Vector<int>
+  e18 -> ((int) -> bool) -> Vector<int>
+  e19 -> int
+  e20 -> int
+  e21 -> int
+  e22 -> int
+  e23 -> bool
+  e24 -> (int) -> bool
+  e25 -> Vector<int>
+  e26 -> Vector<int>
+  e27 -> ((int) -> unknown) -> Vector<string>
+  e28 -> string
+  e29 -> int
+  e30 -> string
+  e31 -> string
+  e32 -> (int) -> string
+  e33 -> Vector<string>
+  e34 -> Set<string>
+  e35 -> (string) -> unit
+  e36 -> string
+  e37 -> unit
+  e38 -> Set<string>
+  e39 -> (string) -> bool
+  e40 -> string
+  e41 -> bool
+  e42 -> Vector<string>
+  e43 -> () -> Vector<string>
+  e44 -> Vector<string>
+  e45 -> Vector<string>
+  e46 -> ((string) -> unknown) -> Vector<string>
+  e47 -> string
+  e48 -> () -> int
+  e49 -> int
+  e50 -> (string) -> int
+  e51 -> Vector<string>
+  e52 -> Vector<int>
+  e53 -> string
+  e54 -> string
+  e55 -> Vector<string>
+  e56 -> Vector<string>
+  e57 -> (string) -> string
+  e58 -> string
+  e59 -> string
+  e60 -> Vector<string>
+  e61 -> int
+  e62 -> string
+  e63 -> string
+  e64 -> int
+  e65 -> Map<string, int>
+  e66 -> Map<string, int>
+  e67 -> string
+  e68 -> Option<int>
+  e69 -> int
+  e70 -> int
+  e71 -> int
+  e72 -> Map<string, int>
+  e73 -> () -> Vector<string>
+  e74 -> Vector<string>
+  e75 -> string
+  e76 -> () -> string
+  e77 -> string
+  e78 -> () -> string
+  e79 -> string
+  e80 -> string
+  e81 -> () -> Option<int>
+  e82 -> Option<int>

@@ -1,0 +1,79 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 scale -> (int, int) -> int
+  i1 label -> (float) -> string
+  i2 bounds -> (int, float) -> bool
+  i3 big -> bool
+  i4 banner -> string
+  i5 half -> float
+  i6 ch -> bool
+  i7 squared -> int
+local types
+  l0 base -> int
+  l1 factor -> int
+  l2 total -> int
+  l3 value -> float
+  l4 prefix -> string
+  l5 text -> string
+  l6 a -> int
+  l7 b -> float
+expr types
+  e0 -> int
+  e1 -> int
+  e2 -> int
+  e3 -> int
+  e4 -> int
+  e5 -> int
+  e6 -> string
+  e7 -> string
+  e8 -> float
+  e9 -> () -> string
+  e10 -> string
+  e11 -> string
+  e12 -> string
+  e13 -> int
+  e14 -> int
+  e15 -> bool
+  e16 -> float
+  e17 -> float
+  e18 -> bool
+  e19 -> bool
+  e20 -> int
+  e21 -> int
+  e22 -> bool
+  e23 -> bool
+  e24 -> bool
+  e25 -> (int, int) -> int
+  e26 -> int
+  e27 -> int
+  e28 -> int
+  e29 -> int
+  e30 -> bool
+  e31 -> string
+  e32 -> (int, int) -> int
+  e33 -> int
+  e34 -> int
+  e35 -> int
+  e36 -> string
+  e37 -> string
+  e38 -> string
+  e39 -> string
+  e40 -> bool
+  e41 -> string
+  e42 -> string
+  e43 -> string
+  e44 -> string
+  e45 -> float
+  e46 -> float
+  e47 -> float
+  e48 -> char
+  e49 -> char
+  e50 -> bool
+  e51 -> int
+  e52 -> int
+  e53 -> int
+  e54 -> int
+  e55 -> int

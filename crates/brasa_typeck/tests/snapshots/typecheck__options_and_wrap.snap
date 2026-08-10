@@ -1,0 +1,70 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i3 nick -> (Option<Account>) -> string
+  i4 getX -> (Option<Point>) -> int
+  i5 find -> (Vector<int>) -> Option<int>
+  i6 some -> Option<int>
+  i7 none -> Option<int>
+  i8 fallback -> int
+local types
+  l0 acct -> Option<Account>
+  l1 $tmp0 -> Account
+  l2 profile -> Option<Profile>
+  l3 $tmp1 -> Profile
+  l4 name -> Option<string>
+  l5 $tmp2 -> string
+  l6 p -> Option<Point>
+  l7 $tmp3 -> Point
+  l8 $tmp4 -> int
+  l9 nums -> Vector<int>
+  l10 n -> int
+  l11 $tmp5 -> int
+expr types
+  e0 -> Option<Account>
+  e1 -> Account
+  e2 -> Option<Profile>
+  e3 -> Option<Profile>
+  e4 -> Option<unknown>
+  e5 -> Option<Profile>
+  e6 -> Option<Profile>
+  e7 -> Profile
+  e8 -> Option<string>
+  e9 -> Option<string>
+  e10 -> Option<string>
+  e11 -> Option<string>
+  e12 -> Option<string>
+  e13 -> string
+  e14 -> string
+  e15 -> string
+  e16 -> Option<Point>
+  e17 -> Point
+  e18 -> int
+  e19 -> Option<int>
+  e20 -> Option<unknown>
+  e21 -> Option<int>
+  e22 -> int
+  e23 -> int
+  e24 -> int
+  e25 -> Vector<int>
+  e26 -> () -> Option<int>
+  e27 -> Option<int>
+  e28 -> int
+  e29 -> int
+  e30 -> int
+  e31 -> Option<int>
+  e32 -> Option<int>
+  e33 -> Option<int>
+  e34 -> int
+  e35 -> Option<int>
+  e36 -> Option<int>
+  e37 -> Option<int>
+  e38 -> int
+  e39 -> int
+  e40 -> int
+wrap decisions
+  e3 -> no-op
+  e9 -> no-op
+  e19 -> wrap

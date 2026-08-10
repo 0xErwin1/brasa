@@ -81,7 +81,9 @@ dependencies = [
  "brasa_diagnostics",
  "brasa_hir",
  "brasa_parser",
+ "brasa_resolver",
  "brasa_source",
+ "brasa_typeck",
  "clap",
 ]
 
@@ -164,6 +166,19 @@ name = "brasa_token"
 version = "0.1.0"
 dependencies = [
  "brasa_source",
+]
+
+[[package]]
+name = "brasa_typeck"
+version = "0.1.0"
+dependencies = [
+ "brasa_arena",
+ "brasa_diagnostics",
+ "brasa_hir",
+ "brasa_parser",
+ "brasa_resolver",
+ "brasa_source",
+ "insta",
 ]
 
 [[package]]

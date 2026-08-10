@@ -1,0 +1,49 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 c -> Counter
+  i3 n -> int
+  i5 bump -> (int) -> int
+  i6 derived -> string
+local types
+  l0 by -> int
+expr types
+  e0 -> Counter
+  e1 -> int
+  e2 -> Counter
+  e3 -> int
+  e4 -> int
+  e5 -> int
+  e6 -> Counter
+  e7 -> int
+  e8 -> Counter
+  e9 -> string
+  e10 -> string
+  e11 -> string
+  e12 -> string
+  e13 -> Counter
+  e14 -> int
+  e15 -> string
+  e16 -> string
+  e17 -> string
+  e18 -> int
+  e19 -> Counter
+  e20 -> Counter
+  e21 -> int
+  e22 -> int
+  e23 -> Counter
+  e24 -> (int) -> int
+  e25 -> int
+  e26 -> int
+  e27 -> (unknown) -> unit
+  e28 -> Counter
+  e29 -> () -> string
+  e30 -> string
+  e31 -> unit
+  e32 -> Counter
+  e33 -> (int) -> int
+  e34 -> Counter
+  e35 -> () -> string
+  e36 -> string

@@ -8,7 +8,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use brasa_diagnostics::Severity;
+use brasa_diagnostics::{Diagnostic, Severity};
+use brasa_source::SourceMap;
 
 #[derive(Parser)]
 #[command(name = "brasa", version, about = "The Brasa programming language")]
@@ -87,36 +88,65 @@ fn main() -> ExitCode {
 
     if cli.dump_hir {
         let lowered = brasa_hir::lower(&result.ast, &result.roots);
-
-        let mut stderr = BufWriter::new(std::io::stderr());
-        for diagnostic in &lowered.diagnostics {
-            if let Err(err) =
-                brasa_diagnostics::render::render(diagnostic, &sources, &mut stderr, color)
-            {
-                eprintln!("brasa: failed to render diagnostic: {err}");
-                return ExitCode::from(70);
-            }
-        }
-        if let Err(err) = stderr.flush() {
-            eprintln!("brasa: failed to flush diagnostics: {err}");
-            return ExitCode::from(70);
-        }
-
-        let lowering_failed = lowered
-            .diagnostics
-            .iter()
-            .any(|diag| diag.severity == Severity::Error);
-        if lowering_failed {
-            return ExitCode::from(65);
+        match render_diagnostics(&lowered.diagnostics, &sources, color) {
+            Ok(false) => {}
+            Ok(true) => return ExitCode::from(65),
+            Err(code) => return code,
         }
 
         println!("{}", brasa_hir::dump::dump(&lowered.hir, &lowered.roots));
         return ExitCode::from(0);
     }
 
-    // Pipeline continues here as milestones complete: check (M1), run (M1
+    let lowered = brasa_hir::lower(&result.ast, &result.roots);
+    match render_diagnostics(&lowered.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
+
+    let resolved = brasa_resolver::resolve(&lowered.hir, &lowered.roots);
+    match render_diagnostics(&resolved.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
+
+    let checked = brasa_typeck::check(&lowered.hir, &lowered.roots, &resolved.resolutions);
+    match render_diagnostics(&checked.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
+
+    // Pipeline continues here as milestones complete: run (M1
     // tree-walker, M3 VM).
-    eprintln!("parsed OK (execution lands in M1)");
+    eprintln!("check OK (execution lands with the M1 tree-walker)");
 
     ExitCode::from(70)
+}
+
+/// Renders every diagnostic to stderr and reports whether any was an
+/// error; a rendering or flush failure yields the exit code to return.
+fn render_diagnostics(
+    diagnostics: &[Diagnostic],
+    sources: &SourceMap,
+    color: bool,
+) -> Result<bool, ExitCode> {
+    let mut stderr = BufWriter::new(std::io::stderr());
+    for diagnostic in diagnostics {
+        if let Err(err) = brasa_diagnostics::render::render(diagnostic, sources, &mut stderr, color)
+        {
+            eprintln!("brasa: failed to render diagnostic: {err}");
+            return Err(ExitCode::from(70));
+        }
+    }
+    if let Err(err) = stderr.flush() {
+        eprintln!("brasa: failed to flush diagnostics: {err}");
+        return Err(ExitCode::from(70));
+    }
+
+    Ok(diagnostics
+        .iter()
+        .any(|diag| diag.severity == Severity::Error))
 }
