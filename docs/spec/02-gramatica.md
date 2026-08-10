@@ -9,10 +9,11 @@ alternativa. Los tokens van en MAYÚSCULAS, las keywords entre comillas.
 ```
 IDENT      = [a-zA-Z_][a-zA-Z0-9_]* ("?" | "!")?     # convención: camelCase; pred? y mut!
 TYPE_IDENT = [A-Z][a-zA-Z0-9_]*                       # tipos y constructores, PascalCase
-INT        = [0-9][0-9_]*
-FLOAT      = INT "." [0-9]+ ( "e" [+-]? INT )?
-STRING     = '"' ... '"'            # interpolación #{expr}, escapes \n \t \" \\ \#
-RAWSTRING  = '"""' ... '"""'        # multilínea, misma interpolación
+INT        = [0-9][0-9_]* | "0x" [0-9a-fA-F_]+ | "0b" [01_]+     # sin octal
+FLOAT      = [0-9][0-9_]* "." [0-9]+ ( "e" [+-]? [0-9]+ )?
+STRING     = '"' ... '"'            # interpolación #{expr} ANIDABLE a cualquier
+                                    # profundidad; escapes \n \t \" \\ \#
+RAWSTRING  = '"""' ... '"""'        # multilínea, misma interpolación, SIN escapes
 CHAR       = "'" scalar "'"
 COMMENT    = "#" hasta fin de línea (fuera de string)
 ```
@@ -20,8 +21,8 @@ COMMENT    = "#" hasta fin de línea (fuera de string)
 Keywords reservadas:
 
 ```
-def end if elsif else while for in match enum struct interface import pub
-let mut return break continue throw throws catch catch_all never
+def end if then elsif else while for in match enum struct interface import
+pub let mut return break continue throw throws catch catch_all never
 true false self unit and or not
 spawn                                  # reservada, sin semántica en v1
 ```
@@ -93,6 +94,11 @@ throw_stmt  = "throw" expr
 if_stmt     = "if" expr NL block
               ( "elsif" expr NL block )*
               ( "else" NL block )? "end"
+
+(* forma inline, expresión de una línea; las ramas son UNA expresión *)
+if_inline   = "if" expr "then" expr
+              ( "elsif" expr "then" expr )*
+              ( "else" expr )? "end"
 while_stmt  = "while" expr NL block "end"
 for_stmt    = "for" pattern "in" expr NL block "end"
 ```
@@ -183,3 +189,14 @@ Primitivos: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | `<` de genéricos vs comparación en expresiones | los genéricos solo aparecen tras `def f` / `TYPE_IDENT` en posición de tipo; en expresión, `<` es siempre comparación (no hay turbofish en v1) |
 | `if` expresión vs sentencia | mismo nodo; el checker le da tipo cuando todas las ramas coinciden |
 | `puts` | no es keyword: es función de stdlib (`io.puts`, re-exportada al prelude) |
+| `if` inline vs multilínea | el token después de la condición decide: `then` → forma inline (ramas de una expresión), `NL` → forma de bloques |
+| llamada vs campo | los paréntesis son **obligatorios** en llamadas: `v.len()` llama, `p.x` es acceso a campo; no existe llamada sin paréntesis |
+| sufijo `?`/`!` de idents vs operadores `?.` / `!=` | el operador gana: `foo?.bar` es SIEMPRE safe-nav (`foo` + `?.`), y `foo!=x` es siempre `foo != x`. El sufijo se absorbe en el ident en cualquier otro contexto (`isDir?`, `isDir?()`). Para encadenar sobre un predicado: `(x.valid?).toString()` |
+| escapes en RAWSTRING | los raw strings son crudos de verdad: NO procesan escapes (`\n` es backslash+n literal); solo `#{` y el `"""` de cierre son especiales. Consecuencia: un `#{` literal no puede aparecer en un raw string — usá string normal con `\#{` |
+
+Notas transversales:
+
+- **Trailing commas permitidas** en toda lista separada por comas: args,
+  params, literales de Vector/Map/Set, struct literals, genéricos.
+- Los rangos producen valores de tipo `Range` (ver doc 03), no son
+  sintaxis exclusiva de `for`.

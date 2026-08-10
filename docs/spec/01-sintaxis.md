@@ -95,8 +95,14 @@ for i in 0..10            # rango exclusivo: 0 a 9
 for i in 0..=10           # rango inclusivo: 0 a 10
 ```
 
-`if` es expresión (como en OTL): vale su última expresión cuando todas las
-ramas tipan igual. `break` y `continue` en bucles.
+`if` es expresión: vale su última expresión cuando todas las ramas tipan
+igual. `break` y `continue` en bucles.
+
+Forma inline con `then` (ramas de una sola expresión):
+
+```ruby
+let sign = if n < 0 then -1 elsif n > 0 then 1 else 0 end
+```
 
 ## Structs y métodos
 
@@ -118,8 +124,11 @@ puts p.dist(q)                      # 5.0
 - Sin herencia, sin polimorfismo de subtipo. La reutilización es composición
   y funciones libres.
 - `self` explícito y obligatorio como primer parámetro de un método.
+- **Paréntesis obligatorios en llamadas**: `p.dist(q)` llama, `p.x` accede
+  al campo. No existe llamada sin paréntesis (nada de `v.len` estilo Ruby).
 - Los structs viven en el heap y se pasan por referencia; `==` compara
-  estructuralmente (por valor de los campos).
+  estructuralmente (por valor de los campos). Mutar campos (`p.x = 1.0`)
+  no requiere `let mut` — ver doc 03, la inmutabilidad es del binding.
 
 ## Enums y pattern matching
 
@@ -257,6 +266,29 @@ fs.read("data.txt")
 - Futuro (requiere archivo de proyecto): aliases de path definidos por el
   usuario al estilo de `std::` (p. ej. `import lib::helpers`), y
   posiblemente `import ... as alias` para colisiones de nombre. Fuera de v1.
+
+## Entry point y ejecución
+
+- Los statements de nivel superior de un módulo corren **la primera vez
+  que se importa** (una sola vez, orden DFS post-orden — las dependencias
+  primero, semántica Python).
+- El archivo ejecutado corre su top-level y, **si define `def main()`,
+  main se invoca después** como entry point. Sin `main`, el top-level es
+  el programa completo.
+- Los `main` de módulos importados NO se invocan — solo el del archivo
+  ejecutado.
+
+```ruby
+# script simple: sin main, el top-level es el programa
+puts "hola"
+
+# programa estructurado: top-level para setup, main como entry point
+let config = load()
+
+def main()
+  run(config)
+end
+```
 
 ## Errores
 

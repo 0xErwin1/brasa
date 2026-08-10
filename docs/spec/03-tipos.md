@@ -9,6 +9,7 @@ solo a `float`, nada es "truthy".
 | Categoría | Tipos |
 |-----------|-------|
 | Primitivos | `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit` |
+| `Range` | valor de primera clase (dos `int` + flag inclusivo), por valor, lazy: iterarlo no materializa nada. NO es azúcar de `Vector<int>` — `0..10_000_000` ocupa 17 bytes, no 80MB. Lo consumen `for`, `slice`, `rand.int` |
 | Compuestos nominales | `struct`, `enum` (incluye `Option<T>`) |
 | Compuestos estructurales | tuplas `(A, B)`, funciones `(A, B) -> C`, interfaces |
 | Genéricos | `Vector<T>`, `Map<K, V>`, `Set<T>`, structs/enums/funciones parametrizadas |
@@ -42,9 +43,13 @@ requiere mirar sus call sites.
 - `let` fija el tipo para siempre; reasignar es error (es inmutable).
 - `let mut` permite reasignación **del mismo tipo**.
 - Shadowing permitido en scopes internos, incluso con otro tipo.
-- La inmutabilidad es de la *variable*, no del valor: un `let v = [1]`
-  permite `v.push(2)` (el Vector es mutable por dentro) pero no `v = [2]`.
-  Inmutabilidad profunda queda para v2 si duele.
+- **La inmutabilidad es de la *variable*, no del valor** (decisión cerrada,
+  semántica `const` de JS): `let` prohíbe re-apuntar el binding, nada más.
+  `let v = [1]` permite `v.push(2)`; `let p = Point {...}` permite
+  `p.x = 1.0`. Los valores heap son mutables siempre, sin `let mut`.
+  Razón: con referencias compartidas y sin ownership, exigir `mut` para
+  mutar interiores sería una garantía mentirosa (otro alias muta igual);
+  prometemos exactamente lo que podemos cumplir.
 
 ## Interfaces estructurales
 
@@ -106,7 +111,9 @@ end
 - **`toString` implícito**: todo tipo tiene una representación derivada
   automáticamente (structs como `Point { x: 1.0, y: 2.0 }`, enums como
   `Circle(1.0)`), usada por `puts`, la interpolación y el `Printable`
-  nativo. Definir `toString` propio en un struct la reemplaza.
+  nativo. Definir `toString` propio en un struct la reemplaza. Los floats
+  siempre muestran el punto decimal (`1.0`, nunca `1`) — la separación
+  int/float se mantiene visible.
 
 ## `if` y `match` como expresiones
 
