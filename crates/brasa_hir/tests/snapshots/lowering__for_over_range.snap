@@ -1,0 +1,20 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+For
+  Binding(i)
+  Range(inclusive=false)
+    Int(0)
+    Int(10)
+  Call
+    Ident(puts)
+    Ident(i)
+For
+  Binding(j)
+  Range(inclusive=true)
+    Int(0)
+    Int(3)
+  Call
+    Ident(puts)
+    Ident(j)

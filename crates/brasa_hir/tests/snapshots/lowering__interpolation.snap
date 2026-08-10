@@ -1,0 +1,14 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let e
+  Int(42)
+Call
+  Ident(puts)
+  Binary(+)
+    Binary(+)
+      Str("x")
+      ToString
+        Ident(e)
+    Str("y")

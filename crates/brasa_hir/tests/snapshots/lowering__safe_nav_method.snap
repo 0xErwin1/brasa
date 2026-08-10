@@ -1,0 +1,17 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let m
+  Match
+    Ident(user)
+    Ctor(Some)
+      Binding($tmp0)
+      OptionWrap
+        Call
+          Field(rename)
+            Ident($tmp0)
+          Str("x")
+          Bool(true)
+    Ctor(None)
+      EnumCtor(None)

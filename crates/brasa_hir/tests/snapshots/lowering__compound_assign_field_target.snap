@@ -1,0 +1,15 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let $tmp0
+  Call
+    Ident(point)
+Assign
+  Field(x)
+    Ident($tmp0)
+  Binary(+)
+    Field(x)
+      Ident($tmp0)
+    Call
+      Ident(delta)

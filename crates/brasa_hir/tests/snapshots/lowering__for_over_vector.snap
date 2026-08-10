@@ -1,0 +1,13 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+For
+  Binding(x)
+  VectorLit
+    Int(1)
+    Int(2)
+    Int(3)
+  Call
+    Ident(puts)
+    Ident(x)

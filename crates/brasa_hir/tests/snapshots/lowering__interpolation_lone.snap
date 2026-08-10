@@ -1,0 +1,9 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let e
+  Int(42)
+Let s
+  ToString
+    Ident(e)

@@ -1,0 +1,22 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let c
+  Match
+    Match
+      Ident(user)
+      Ctor(Some)
+        Binding($tmp0)
+        OptionWrap
+          Field(address)
+            Ident($tmp0)
+      Ctor(None)
+        EnumCtor(None)
+    Ctor(Some)
+      Binding($tmp1)
+      OptionWrap
+        Field(city)
+          Ident($tmp1)
+    Ctor(None)
+      EnumCtor(None)

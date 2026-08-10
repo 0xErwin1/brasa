@@ -1,0 +1,18 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let mut x
+  Int(0)
+Assign
+  Ident(x)
+  Int(1)
+Assign
+  Index
+    Ident(grid)
+    Int(0)
+  Int(2)
+Assign
+  Field(x)
+    Ident(p)
+  Int(3)

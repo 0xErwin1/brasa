@@ -1,0 +1,96 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Import::Std(std::fs)
+Import::File("utils.brs")
+InterfaceDef Printable
+  def describe(self)
+EnumDef Shape
+  variant Point()
+  variant Circle(radius)
+pub StructDef Counter
+  field count
+  FuncDef bump(self, by)
+    Binary(+)
+      Field(count)
+        SelfExpr
+      Ident(by)
+pub Let limit
+  Int(10)
+FuncDef classify<T: Printable>(value, shape) throws never
+  Match
+    Ident(shape)
+    Ctor(Point)
+      Str("point")
+    Ctor(Circle)
+      Binding(r)
+    guard
+      Binary(>)
+        Ident(r)
+        Float(1)
+      Call
+        Field(describe)
+          Ident(value)
+    Wildcard
+      Str("other")
+FuncDef main()
+  Let mut total
+    Int(0)
+  Let ch
+    Char('a')
+  Let names
+    MapLit
+      entry
+        Str("a")
+        Int(1)
+  Let c
+    StructLit(Counter)
+      field count
+        Int(0)
+  For
+    Tuple
+      Binding(key)
+      Binding(value)
+    Ident(names)
+    Call
+      Ident(puts)
+      Ident(key)
+  While
+    Binary(<)
+      Ident(total)
+      Ident(limit)
+    Assign
+      Ident(total)
+      Call
+        Field(bump)
+          Ident(c)
+        Ident(total)
+    If
+      cond
+        Binary(==)
+          Ident(total)
+          Int(3)
+      then
+        Continue
+      elsif
+        Binary(>)
+          Ident(total)
+          Int(8)
+      then
+        Break
+      else
+        Call
+          Ident(puts)
+          Ident(total)
+  Let risky
+    Catch(exhaustive=false, binding=e)
+      Call
+        Ident(compute)
+      arm MathError
+          Unary(-)
+            Int(1)
+  Call
+    Ident(puts)
+    Ident(risky)
+  Return

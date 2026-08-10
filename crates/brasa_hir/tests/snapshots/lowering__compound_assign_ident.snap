@@ -1,0 +1,31 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let mut x
+  Int(0)
+Assign
+  Ident(x)
+  Binary(+)
+    Ident(x)
+    Int(1)
+Assign
+  Ident(x)
+  Binary(-)
+    Ident(x)
+    Int(2)
+Assign
+  Ident(x)
+  Binary(*)
+    Ident(x)
+    Int(3)
+Assign
+  Ident(x)
+  Binary(/)
+    Ident(x)
+    Int(4)
+Assign
+  Ident(x)
+  Binary(%)
+    Ident(x)
+    Int(5)

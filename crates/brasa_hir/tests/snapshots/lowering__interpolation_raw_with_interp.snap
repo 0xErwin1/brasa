@@ -1,0 +1,13 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let name
+  Str("brasa")
+Let snippet
+  Binary(+)
+    Binary(+)
+      Str("\nproject: ")
+      ToString
+        Ident(name)
+    Str(" \\n literal\n")

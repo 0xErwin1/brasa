@@ -1,0 +1,19 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let $tmp0
+  Call
+    Ident(cells)
+Let $tmp1
+  Call
+    Ident(nextIndex)
+Assign
+  Index
+    Ident($tmp0)
+    Ident($tmp1)
+  Binary(*)
+    Index
+      Ident($tmp0)
+      Ident($tmp1)
+    Int(2)

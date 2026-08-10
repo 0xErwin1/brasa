@@ -1,0 +1,8 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let plain
+  Str("hello\nworld")
+Let raw
+  Str("\nline one \\n stays literal\n")

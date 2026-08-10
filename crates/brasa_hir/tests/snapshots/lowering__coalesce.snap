@@ -1,0 +1,14 @@
+---
+source: crates/brasa_hir/tests/lowering.rs
+expression: dump
+---
+Let x
+  Match
+    Call
+      Ident(lookup)
+      Str("k")
+    Ctor(Some)
+      Binding($tmp0)
+      Ident($tmp0)
+    Ctor(None)
+      Int(0)
