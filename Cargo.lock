@@ -103,6 +103,7 @@ version = "0.1.0"
 dependencies = [
  "brasa_diagnostics",
  "brasa_token",
+ "insta",
  "logos",
 ]
 
@@ -120,6 +121,9 @@ dependencies = [
 [[package]]
 name = "brasa_token"
 version = "0.1.0"
+dependencies = [
+ "brasa_diagnostics",
+]
 
 [[package]]
 name = "cfg-if"
