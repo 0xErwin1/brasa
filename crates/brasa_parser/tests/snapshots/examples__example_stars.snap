@@ -78,8 +78,13 @@ FuncDef main()
           Call
             Field(run)
               Ident(proc)
-            StringLit
-              Text(raw=false) "git branch --show-current"
+            VectorLit
+              StringLit
+                Text(raw=false) "git"
+              StringLit
+                Text(raw=false) "branch"
+              StringLit
+                Text(raw=false) "--show-current"
   Call
     Ident(puts)
     StringLit

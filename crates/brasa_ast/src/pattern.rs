@@ -5,8 +5,9 @@ use crate::PatternId;
 /// A literal pattern. `docs/spec/02-grammar.md`'s `pattern` production
 /// references an undefined `literal` nonterminal; this covers the
 /// lexical literal kinds (`INT`, `FLOAT`, `true`/`false`, `CHAR`,
-/// `STRING`). See BRS-9 open questions for whether a `STRING` pattern may
-/// contain interpolation (the spec does not say).
+/// `STRING`). A `STRING` pattern never contains interpolation: the parser
+/// rejects `#{` inside a pattern's string literal (see
+/// `Parser::parse_plain_string`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Int(i64),

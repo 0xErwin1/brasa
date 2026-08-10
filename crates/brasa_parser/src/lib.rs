@@ -319,10 +319,10 @@ impl<'a> Parser<'a> {
     /// `\n \t \" \\ \#` escape set) at its exact span, per the ruling in
     /// `docs/spec/02-grammar.md`'s ambiguity table: this is always an
     /// error, never a silent drop or pass-through, in both string and
-    /// char literals. Shared by
-    /// `expr.rs`'s string-literal decoding and `pattern.rs`'s char-literal
-    /// decoding, both of which reach an unknown escape through
-    /// `brasa_token`'s validating decoders.
+    /// char literals. Shared by `expr.rs`'s string-literal decoding, which
+    /// calls `brasa_token::unescape_string_text_checked`, and
+    /// `pattern.rs`'s char-literal decoding, which calls the same escape
+    /// table directly via `brasa_token::decode_escape`.
     fn report_unknown_escape(&mut self, span: Span, escaped: char) {
         self.error_at(span, format!("unknown escape sequence `\\{escaped}`"));
     }
@@ -336,13 +336,10 @@ impl<'a> Parser<'a> {
         };
 
         let backslash_start = char_span.start.0 + 1;
-        let end = backslash_start + 1 + escaped.len_utf8() as u32;
-        let span = Span::new(
-            char_span.file,
-            BytePosition(backslash_start),
-            BytePosition(end),
+        self.report_unknown_escape(
+            escape_span(char_span.file, backslash_start, escaped),
+            escaped,
         );
-        self.report_unknown_escape(span, escaped);
     }
 
     fn error_at(&mut self, span: Span, message: String) {
@@ -520,4 +517,14 @@ impl<'a> Parser<'a> {
 
         roots
     }
+}
+
+/// The span of one `\<c>` escape sequence, given the byte offset of its
+/// backslash: one byte for the backslash itself plus `escaped`'s own
+/// UTF-8 width. Shared by [`Parser::report_char_unknown_escape`] and
+/// `expr.rs`'s `Parser::report_unknown_escapes`, both of which locate an
+/// unknown escape from a byte offset relative to some enclosing span.
+pub(crate) fn escape_span(file: FileId, backslash_start: u32, escaped: char) -> Span {
+    let end = backslash_start + 1 + escaped.len_utf8() as u32;
+    Span::new(file, BytePosition(backslash_start), BytePosition(end))
 }

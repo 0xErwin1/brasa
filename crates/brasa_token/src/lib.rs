@@ -2,7 +2,8 @@
 //!
 //! The token set mirrors the lexical grammar in `docs/spec/02-grammar.md`.
 //! Kept separate from the lexer so the parser depends on token *types*
-//! without depending on how they are produced (BRS-8 fills this in).
+//! without depending on how they are produced; see `brasa_lexer` for the
+//! scanner that turns source text into a stream of these tokens.
 
 use brasa_source::Span;
 
@@ -10,8 +11,8 @@ use brasa_source::Span;
 ///
 /// Fieldless by design: a token carries no payload beyond its [`Span`],
 /// so consumers slice the source text themselves (via `parse_int`,
-/// `parse_float`, `unescape_string_text` below, or a raw substring for
-/// identifiers). This keeps `TokenKind` `Copy` and avoids duplicating
+/// `parse_float`, `unescape_string_text_checked` below, or a raw substring
+/// for identifiers). This keeps `TokenKind` `Copy` and avoids duplicating
 /// ownership of source bytes.
 ///
 /// String literals with interpolation are not a single token: they are
@@ -113,7 +114,7 @@ pub enum TokenKind {
     /// Opens a `"""..."""` raw (multiline) string literal.
     RawStringStart,
     /// Literal text inside a string, verbatim from the source including
-    /// escape sequences. Use `unescape_string_text` to decode it.
+    /// escape sequences. Use `unescape_string_text_checked` to decode it.
     StringText,
     /// Opens a `#{` interpolation inside a string; the lexer switches back
     /// to main-mode token scanning until the matching `}`.
@@ -255,13 +256,29 @@ pub struct UnknownEscape {
     pub escaped: char,
 }
 
+/// The single source of truth for the escape set allowed inside `STRING`,
+/// `RAWSTRING`, and `CHAR` literals (`\n \t \" \\ \#`), per
+/// `docs/spec/02-grammar.md`'s ambiguity table.
+///
+/// Returns `None` for any other `\<c>`, which both string and char-literal
+/// decoding treat as an error rather than a silent pass-through or drop.
+pub fn decode_escape(escaped: char) -> Option<char> {
+    match escaped {
+        'n' => Some('\n'),
+        't' => Some('\t'),
+        '"' => Some('"'),
+        '\\' => Some('\\'),
+        '#' => Some('#'),
+        _ => None,
+    }
+}
+
 /// Decodes the escape sequences allowed inside `STRING`/`RAWSTRING` text
-/// (`\n \t \" \\ \#`).
+/// (`\n \t \" \\ \#`, see [`decode_escape`]).
 ///
 /// Per `docs/spec/02-grammar.md`'s ambiguity table, any other `\<c>` is an
 /// error, never a silent pass-through or drop. This validates that ruling
-/// and collects every offending escape found; [`unescape_string_text`]
-/// stays available for raw-string callers that never see escapes at all.
+/// and collects every offending escape found.
 ///
 /// `text` is the raw source slice of a `StringText` token, so it never
 /// contains a bare `"` or an unescaped `#{`.
@@ -277,32 +294,17 @@ pub fn unescape_string_text_checked(text: &str) -> (String, Vec<UnknownEscape>) 
         }
 
         match chars.peek().copied() {
-            Some((_, 'n')) => {
-                out.push('\n');
-                chars.next();
-            }
-            Some((_, 't')) => {
-                out.push('\t');
-                chars.next();
-            }
-            Some((_, '"')) => {
-                out.push('"');
-                chars.next();
-            }
-            Some((_, '\\')) => {
-                out.push('\\');
-                chars.next();
-            }
-            Some((_, '#')) => {
-                out.push('#');
-                chars.next();
-            }
             Some((_, other)) => {
-                unknown.push(UnknownEscape {
-                    offset: offset as u32,
-                    escaped: other,
-                });
-                out.push(other);
+                match decode_escape(other) {
+                    Some(decoded) => out.push(decoded),
+                    None => {
+                        unknown.push(UnknownEscape {
+                            offset: offset as u32,
+                            escaped: other,
+                        });
+                        out.push(other);
+                    }
+                }
                 chars.next();
             }
             None => {
@@ -315,19 +317,6 @@ pub fn unescape_string_text_checked(text: &str) -> (String, Vec<UnknownEscape>) 
     }
 
     (out, unknown)
-}
-
-/// Decodes the escape sequences allowed inside `STRING`/`RAWSTRING` text
-/// (`\n \t \" \\ \#`), leaving any other backslash sequence untouched.
-///
-/// Kept for callers that never see unvalidated escapes (raw strings have
-/// none at all); see [`unescape_string_text_checked`] for the validating
-/// variant used by non-raw strings.
-///
-/// `text` is the raw source slice of a `StringText` token, so it never
-/// contains a bare `"` or an unescaped `#{`.
-pub fn unescape_string_text(text: &str) -> String {
-    unescape_string_text_checked(text).0
 }
 
 #[cfg(test)]
@@ -379,12 +368,13 @@ mod tests {
     }
 
     #[test]
-    fn unescape_handles_all_escapes() {
-        assert_eq!(
-            unescape_string_text(r#"a\nb\tc\"d\\e\#f"#),
-            "a\nb\tc\"d\\e#f"
-        );
-        assert_eq!(unescape_string_text("plain"), "plain");
+    fn decode_escape_handles_every_allowed_escape() {
+        assert_eq!(decode_escape('n'), Some('\n'));
+        assert_eq!(decode_escape('t'), Some('\t'));
+        assert_eq!(decode_escape('"'), Some('"'));
+        assert_eq!(decode_escape('\\'), Some('\\'));
+        assert_eq!(decode_escape('#'), Some('#'));
+        assert_eq!(decode_escape('q'), None);
     }
 
     #[test]

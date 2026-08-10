@@ -265,10 +265,7 @@ impl<'a> Parser<'a> {
 
             match self.kind() {
                 TokenKind::LParen => {
-                    let mut args = self.parse_call_args();
-                    if self.at(TokenKind::Do) {
-                        args.push(self.parse_trailing_do_lambda());
-                    }
+                    let args = self.parse_call_args_with_optional_do();
                     let end = self.span_before_cursor(self.pos);
                     expr = self
                         .ast
@@ -292,10 +289,7 @@ impl<'a> Parser<'a> {
                             Expr::Field { recv: expr, name },
                             Span::merge(&start, &self.span_before_cursor(self.pos)),
                         );
-                        let mut args = self.parse_call_args();
-                        if self.at(TokenKind::Do) {
-                            args.push(self.parse_trailing_do_lambda());
-                        }
+                        let args = self.parse_call_args_with_optional_do();
                         let end = self.span_before_cursor(self.pos);
                         expr = self
                             .ast
@@ -305,15 +299,11 @@ impl<'a> Parser<'a> {
                             Expr::Field { recv: expr, name },
                             Span::merge(&start, &self.span_before_cursor(self.pos)),
                         );
-                        let lambda = self.parse_trailing_do_lambda();
+                        let args = self.parse_do_only_call_args();
                         let end = self.span_before_cursor(self.pos);
-                        expr = self.ast.alloc_expr(
-                            Expr::Call {
-                                callee,
-                                args: vec![lambda],
-                            },
-                            Span::merge(&start, &end),
-                        );
+                        expr = self
+                            .ast
+                            .alloc_expr(Expr::Call { callee, args }, Span::merge(&start, &end));
                     } else {
                         let end = self.span_before_cursor(self.pos);
                         expr = self.ast.alloc_expr(
@@ -327,13 +317,9 @@ impl<'a> Parser<'a> {
                     let name = self.expect_ident_text("a field or method name");
 
                     let args = if self.at(TokenKind::LParen) {
-                        let mut args = self.parse_call_args();
-                        if self.at(TokenKind::Do) {
-                            args.push(self.parse_trailing_do_lambda());
-                        }
-                        Some(args)
+                        Some(self.parse_call_args_with_optional_do())
                     } else if self.at(TokenKind::Do) {
-                        Some(vec![self.parse_trailing_do_lambda()])
+                        Some(self.parse_do_only_call_args())
                     } else {
                         None
                     };
@@ -352,21 +338,35 @@ impl<'a> Parser<'a> {
                     expr = self.parse_catch(expr, start);
                 }
                 TokenKind::Do if is_bare_ident_callee(&self.ast, expr) => {
-                    let lambda = self.parse_trailing_do_lambda();
+                    let args = self.parse_do_only_call_args();
                     let end = self.span_before_cursor(self.pos);
-                    expr = self.ast.alloc_expr(
-                        Expr::Call {
-                            callee: expr,
-                            args: vec![lambda],
-                        },
-                        Span::merge(&start, &end),
-                    );
+                    expr = self
+                        .ast
+                        .alloc_expr(Expr::Call { callee: expr, args }, Span::merge(&start, &end));
                 }
                 _ => break,
             }
         }
 
         expr
+    }
+
+    /// `'(' args ')'`, followed by an optional trailing `do ... end` lambda
+    /// appended as one more argument. Shared by every call-like postfix
+    /// production (`f(...)`, `.m(...)`, `?.m(...)`) so the "call then
+    /// maybe-do" shape lives in one place.
+    fn parse_call_args_with_optional_do(&mut self) -> Vec<ExprId> {
+        let mut args = self.parse_call_args();
+        if self.at(TokenKind::Do) {
+            args.push(self.parse_trailing_do_lambda());
+        }
+        args
+    }
+
+    /// The parenthesis-less call shape: just a trailing `do ... end`
+    /// lambda as the sole argument (`.m do ... end`, `f do ... end`).
+    fn parse_do_only_call_args(&mut self) -> Vec<ExprId> {
+        vec![self.parse_trailing_do_lambda()]
     }
 
     fn parse_call_args(&mut self) -> Vec<ExprId> {
@@ -908,12 +908,7 @@ impl<'a> Parser<'a> {
     fn report_unknown_escapes(&mut self, text_span: Span, unknown: &[brasa_token::UnknownEscape]) {
         for esc in unknown {
             let backslash_start = text_span.start.0 + esc.offset;
-            let end = backslash_start + 1 + esc.escaped.len_utf8() as u32;
-            let span = Span::new(
-                text_span.file,
-                brasa_source::BytePosition(backslash_start),
-                brasa_source::BytePosition(end),
-            );
+            let span = crate::escape_span(text_span.file, backslash_start, esc.escaped);
             self.report_unknown_escape(span, esc.escaped);
         }
     }

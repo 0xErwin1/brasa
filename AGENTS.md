@@ -42,7 +42,7 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 |-------|----------------|
 | `brasa_arena` | Typed index arena (`Id<T>`, `Store<T>`) used by every tree the compiler builds |
 | `brasa_source` | Spans (file-qualified byte ranges), source file table, byte offset -> line/col |
-| `brasa_diagnostics` | Diagnostic builder (severity, labels, notes); rendering (ariadne) lands in BRS-12 |
+| `brasa_diagnostics` | Diagnostic builder (severity, labels, notes); pretty terminal rendering via `ariadne` |
 | `brasa_token` | Token types (no lexing logic) |
 | `brasa_lexer` | logos lexer: text → tokens (newlines are tokens; string-interpolation sub-mode) |
 | `brasa_ast` | Index arenas, typed `Copy` IDs, span side tables |

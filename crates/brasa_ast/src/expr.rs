@@ -34,8 +34,9 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StringPart {
     /// Literal text between interpolations. Already unescaped (see
-    /// `brasa_token::unescape_string_text`) unless `raw` is set, in which
-    /// case `text` is the verbatim source (raw strings apply no escapes).
+    /// `brasa_token::unescape_string_text_checked`) unless `raw` is set, in
+    /// which case `text` is the verbatim source (raw strings apply no
+    /// escapes).
     Text { text: String, raw: bool },
     /// A `#{expr}` interpolation.
     Interp(ExprId),

@@ -124,7 +124,8 @@ impl<'a> Parser<'a> {
 }
 
 /// Decodes a `CHAR` token's text (including its surrounding quotes),
-/// applying the same escape set as strings (`\n \t \" \\ \#`, per
+/// applying the same escape set as strings via
+/// [`brasa_token::decode_escape`] (`\n \t \" \\ \#`, per
 /// `docs/spec/02-grammar.md`'s ambiguity table: "unknown escapes ... in
 /// both string and char literals"). Any other `\<c>` is an unknown
 /// escape (an ERROR, never silently passed through), reported as
@@ -135,12 +136,10 @@ pub(crate) fn parse_char_literal(text: &str) -> (char, Option<char>) {
 
     if let Some(rest) = inner.strip_prefix('\\') {
         match rest.chars().next() {
-            Some('n') => ('\n', None),
-            Some('t') => ('\t', None),
-            Some('"') => ('"', None),
-            Some('\\') => ('\\', None),
-            Some('#') => ('#', None),
-            Some(other) => (other, Some(other)),
+            Some(escaped) => match brasa_token::decode_escape(escaped) {
+                Some(decoded) => (decoded, None),
+                None => (escaped, Some(escaped)),
+            },
             None => ('\\', None),
         }
     } else {

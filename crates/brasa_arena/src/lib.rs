@@ -127,21 +127,6 @@ impl<T> Store<T> {
         self.data.get(id.index() as usize)
     }
 
-    /// Get a mutable reference to the value at the given ID.
-    ///
-    /// # Panics
-    /// Panics if the ID is out of bounds.
-    pub fn get_mut(&mut self, id: &Id<T>) -> &mut T {
-        let index = id.index() as usize;
-        assert!(
-            index < self.data.len(),
-            "Store::get_mut() called with invalid ID: index {} but store only has {} elements",
-            index,
-            self.data.len()
-        );
-        &mut self.data[index]
-    }
-
     pub fn get_all(&self) -> &[T] {
         &self.data
     }
