@@ -76,7 +76,7 @@ fn dump_generics(generics: &[GenericParam]) -> String {
 
 fn dump_param(p: &Param) -> String {
     match p {
-        Param::SelfParam => "self".to_string(),
+        Param::SelfParam { .. } => "self".to_string(),
         Param::Named { name, .. } => name.clone(),
     }
 }

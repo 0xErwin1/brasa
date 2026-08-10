@@ -241,7 +241,7 @@ impl<'a> Checker<'a> {
             .params
             .iter()
             .filter_map(|param| match param {
-                Param::SelfParam => None,
+                Param::SelfParam { .. } => None,
                 Param::Named { ty, .. } => Some(self.conv(*ty)),
             })
             .collect();
@@ -1197,7 +1197,7 @@ impl<'a> Checker<'a> {
             .params
             .iter()
             .filter_map(|param| match param {
-                Param::SelfParam => None,
+                Param::SelfParam { .. } => None,
                 Param::Named { ty, .. } => Some(self.conv(*ty)),
             })
             .collect();

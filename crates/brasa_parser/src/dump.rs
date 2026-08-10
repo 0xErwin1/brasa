@@ -78,7 +78,7 @@ fn dump_generics(generics: &[brasa_ast::GenericParam], out: &mut String) -> Stri
 
 fn dump_param(p: &Param) -> String {
     match p {
-        Param::SelfParam => "self".to_string(),
+        Param::SelfParam { .. } => "self".to_string(),
         Param::Named { name, .. } => name.clone(),
     }
 }

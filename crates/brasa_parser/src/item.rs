@@ -80,20 +80,34 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn expect_ident_text(&mut self, what: &str) -> String {
-        match self.expect(TokenKind::Ident, what) {
-            Some(tok) => {
-                self.source[tok.span.start.0 as usize..tok.span.end.0 as usize].to_string()
-            }
-            None => "<error>".to_string(),
-        }
+        self.expect_ident_spanned(what).0
     }
 
     pub(crate) fn expect_type_ident_text(&mut self, what: &str) -> String {
-        match self.expect(TokenKind::TypeIdent, what) {
-            Some(tok) => {
-                self.source[tok.span.start.0 as usize..tok.span.end.0 as usize].to_string()
-            }
-            None => "<error>".to_string(),
+        self.expect_type_ident_spanned(what).0
+    }
+
+    /// Like [`Self::expect_ident_text`], also returning the identifier
+    /// token's span. On a failed expectation the span is the current
+    /// (unconsumed) token's, the same position the diagnostic points at.
+    pub(crate) fn expect_ident_spanned(&mut self, what: &str) -> (String, Span) {
+        let tok = self.expect(TokenKind::Ident, what);
+        self.spanned_text(tok)
+    }
+
+    /// Like [`Self::expect_ident_spanned`], for `TYPE_IDENT` tokens.
+    pub(crate) fn expect_type_ident_spanned(&mut self, what: &str) -> (String, Span) {
+        let tok = self.expect(TokenKind::TypeIdent, what);
+        self.spanned_text(tok)
+    }
+
+    fn spanned_text(&self, tok: Option<brasa_token::Token>) -> (String, Span) {
+        match tok {
+            Some(tok) => (
+                self.source[tok.span.start.0 as usize..tok.span.end.0 as usize].to_string(),
+                tok.span,
+            ),
+            None => ("<error>".to_string(), self.span()),
         }
     }
 
@@ -106,13 +120,17 @@ impl<'a> Parser<'a> {
 
         while !self.at(TokenKind::Gt) && !self.at(TokenKind::Eof) {
             let checkpoint = self.pos;
-            let name = self.expect_type_ident_text("a generic parameter name");
+            let (name, name_span) = self.expect_type_ident_spanned("a generic parameter name");
             let constraint = if self.eat(TokenKind::Colon).is_some() {
                 Some(self.parse_constraint())
             } else {
                 None
             };
-            params.push(GenericParam { name, constraint });
+            params.push(GenericParam {
+                name,
+                name_span,
+                constraint,
+            });
 
             if self.eat(TokenKind::Comma).is_none() {
                 break;
@@ -153,13 +171,17 @@ impl<'a> Parser<'a> {
             let checkpoint = self.pos;
 
             if self.at(TokenKind::SelfKw) {
-                self.bump();
-                params.push(Param::SelfParam);
+                let tok = self.bump();
+                params.push(Param::SelfParam { span: tok.span });
             } else {
-                let name = self.expect_ident_text("a parameter name");
+                let (name, name_span) = self.expect_ident_spanned("a parameter name");
                 self.expect(TokenKind::Colon, "':' before the parameter type");
                 let ty = self.parse_type();
-                params.push(Param::Named { name, ty });
+                params.push(Param::Named {
+                    name,
+                    name_span,
+                    ty,
+                });
             }
 
             if self.eat(TokenKind::Comma).is_none() {
@@ -229,10 +251,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_field(&mut self) -> Field {
-        let name = self.expect_ident_text("a field name");
+        let (name, name_span) = self.expect_ident_spanned("a field name");
         self.expect(TokenKind::Colon, "':' before the field type");
         let ty = self.parse_type();
-        Field { name, ty }
+        Field {
+            name,
+            name_span,
+            ty,
+        }
     }
 
     fn parse_struct_item(&mut self, is_pub: bool, start: Span) -> ItemId {
@@ -291,7 +317,8 @@ impl<'a> Parser<'a> {
 
         while !self.at(TokenKind::End) && !self.at(TokenKind::Eof) {
             let checkpoint = self.pos;
-            let variant_name = self.expect_type_ident_text("a variant name");
+            let (variant_name, variant_name_span) =
+                self.expect_type_ident_spanned("a variant name");
 
             let fields = if self.eat(TokenKind::LParen).is_some() {
                 let mut fields = Vec::new();
@@ -311,6 +338,7 @@ impl<'a> Parser<'a> {
 
             variants.push(Variant {
                 name: variant_name,
+                name_span: variant_name_span,
                 fields,
             });
 
@@ -344,13 +372,14 @@ impl<'a> Parser<'a> {
 
     fn parse_iface_member(&mut self) -> IfaceMember {
         self.expect(TokenKind::Def, "'def' to start an interface member");
-        let name = self.expect_ident_text("a method name");
+        let (name, name_span) = self.expect_ident_spanned("a method name");
         let params = self.parse_params();
         let ret = self.parse_ret();
         let throws = self.parse_throws();
 
         IfaceMember {
             name,
+            name_span,
             params,
             ret,
             throws,

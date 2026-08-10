@@ -104,6 +104,7 @@ impl LowerCtx<'_> {
                     .iter()
                     .map(|v| Variant {
                         name: v.name.clone(),
+                        name_span: v.name_span,
                         fields: self.lower_fields(&v.fields),
                     })
                     .collect(),
@@ -149,6 +150,7 @@ impl LowerCtx<'_> {
             .iter()
             .map(|g| GenericParam {
                 name: g.name.clone(),
+                name_span: g.name_span,
                 constraint: g.constraint.as_ref().map(|c| match c {
                     ast::Constraint::Named(name) => Constraint::Named(name.clone()),
                     ast::Constraint::Inline(members) => Constraint::Inline(
@@ -161,9 +163,14 @@ impl LowerCtx<'_> {
 
     fn lower_param(&mut self, param: &ast::Param) -> Param {
         match param {
-            ast::Param::SelfParam => Param::SelfParam,
-            ast::Param::Named { name, ty } => Param::Named {
+            ast::Param::SelfParam { span } => Param::SelfParam { span: *span },
+            ast::Param::Named {
+                name,
+                name_span,
+                ty,
+            } => Param::Named {
                 name: name.clone(),
+                name_span: *name_span,
                 ty: self.lower_type_expr(*ty),
             },
         }
@@ -172,6 +179,7 @@ impl LowerCtx<'_> {
     fn lower_iface_member(&mut self, member: &ast::IfaceMember) -> IfaceMember {
         IfaceMember {
             name: member.name.clone(),
+            name_span: member.name_span,
             params: member.params.iter().map(|p| self.lower_param(p)).collect(),
             ret: member.ret.map(|ty| self.lower_type_expr(ty)),
             throws: member.throws.clone(),
@@ -183,6 +191,7 @@ impl LowerCtx<'_> {
             .iter()
             .map(|f| Field {
                 name: f.name.clone(),
+                name_span: f.name_span,
                 ty: self.lower_type_expr(f.ty),
             })
             .collect()
@@ -421,6 +430,7 @@ impl LowerCtx<'_> {
                     .iter()
                     .map(|p| LambdaParam {
                         name: p.name.clone(),
+                        name_span: p.name_span,
                         ty: p.ty.map(|ty| self.lower_type_expr(ty)),
                     })
                     .collect(),

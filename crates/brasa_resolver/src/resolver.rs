@@ -215,7 +215,7 @@ impl<'h> Resolver<'h> {
                 }
                 Item::EnumDef(def) => {
                     self.declare_module_type(&def.name, root, span);
-                    self.check_enum_hygiene(def, span);
+                    self.check_enum_hygiene(def);
                     self.enums.push(root);
                 }
                 Item::InterfaceDef(def) => self.declare_module_type(&def.name, root, span),
@@ -229,18 +229,17 @@ impl<'h> Resolver<'h> {
     /// Enum definition hygiene (BRS-18): a repeated variant name within
     /// one enum is a duplicate-definition error, reported here at the
     /// declaration site — without this it would only surface as a
-    /// self-ambiguity at every constructor use. Variants carry no span
-    /// of their own, so both labels point at the enum item (mirroring
-    /// [`Self::push_generic_frame`]). Fields within each variant are
-    /// checked too.
-    fn check_enum_hygiene(&mut self, def: &'h EnumDef, span: Span) {
+    /// self-ambiguity at every constructor use. Both labels point at the
+    /// variant names themselves (`docs/spec/06-diagnostics.md`). Fields
+    /// within each variant are checked too.
+    fn check_enum_hygiene(&mut self, def: &'h EnumDef) {
         let mut seen: HashMap<&'h str, Span> = HashMap::new();
 
         for variant in &def.variants {
             if let Some(&prev_span) = seen.get(variant.name.as_str()) {
-                self.duplicate_error(&variant.name, span, prev_span);
+                self.duplicate_error(&variant.name, variant.name_span, prev_span);
             } else {
-                seen.insert(&variant.name, span);
+                seen.insert(&variant.name, variant.name_span);
             }
 
             self.check_duplicate_fields(&variant.fields);
@@ -248,19 +247,16 @@ impl<'h> Resolver<'h> {
     }
 
     /// A repeated field name within one struct or enum variant is a
-    /// duplicate-definition error. Fields carry no span of their own, so
-    /// the labels use the field's type annotation span (the closest node
-    /// that has one).
+    /// duplicate-definition error; both labels point at the field names
+    /// themselves (`docs/spec/06-diagnostics.md`).
     fn check_duplicate_fields(&mut self, fields: &'h [Field]) {
         let mut seen: HashMap<&'h str, Span> = HashMap::new();
 
         for field in fields {
-            let span = self.hir.span_of_type_expr(field.ty);
-
             if let Some(&prev_span) = seen.get(field.name.as_str()) {
-                self.duplicate_error(&field.name, span, prev_span);
+                self.duplicate_error(&field.name, field.name_span, prev_span);
             } else {
-                seen.insert(&field.name, span);
+                seen.insert(&field.name, field.name_span);
             }
         }
     }
@@ -403,7 +399,11 @@ impl<'h> Resolver<'h> {
 
     /// Declares `generics` as a new type frame owned by `owner` and
     /// resolves their constraints. `with_self` additionally binds `Self`
-    /// (interface bodies, `docs/spec/03-types.md`).
+    /// (interface bodies, `docs/spec/03-types.md`). Diagnostics about a
+    /// generic (duplicates, bad constraints) point at the parameter's
+    /// name (`docs/spec/06-diagnostics.md`); `span` — the owning item's —
+    /// is only the `Self` binding's span, since `Self` has no name token
+    /// of its own.
     fn push_generic_frame(
         &mut self,
         owner: DefRef,
@@ -416,14 +416,14 @@ impl<'h> Resolver<'h> {
         for (index, generic) in generics.iter().enumerate() {
             if let Some(prev) = frame.get(generic.name.as_str()) {
                 let prev_span = prev.span;
-                self.duplicate_error(&generic.name, span, prev_span);
+                self.duplicate_error(&generic.name, generic.name_span, prev_span);
                 continue;
             }
             frame.insert(
                 &generic.name,
                 TypeBinding {
                     res: TypeRes::GenericParam { owner, index },
-                    span,
+                    span: generic.name_span,
                 },
             );
         }
@@ -450,7 +450,7 @@ impl<'h> Resolver<'h> {
                     Some(_) => {
                         self.error(err_at(
                             codes::R_NOT_AN_INTERFACE,
-                            span,
+                            generic.name_span,
                             format!("`{name}` is not an interface"),
                             "constraints must name an interface",
                         ));
@@ -458,7 +458,7 @@ impl<'h> Resolver<'h> {
                     None => {
                         self.error(err_at(
                             codes::R_UNKNOWN_TYPE,
-                            span,
+                            generic.name_span,
                             format!("unknown type `{name}`"),
                             "not found in this scope",
                         ));
@@ -512,16 +512,24 @@ impl<'h> Resolver<'h> {
         }
 
         let saved_self = self.self_allowed;
-        self.self_allowed = func.params.iter().any(|p| matches!(p, Param::SelfParam));
+        self.self_allowed = func
+            .params
+            .iter()
+            .any(|p| matches!(p, Param::SelfParam { .. }));
 
         self.value_scopes.push(HashMap::new());
         let mut param_locals = Vec::with_capacity(func.params.len());
         for param in &func.params {
             match param {
-                Param::SelfParam => param_locals.push(None),
-                Param::Named { name, ty } => {
+                Param::SelfParam { .. } => param_locals.push(None),
+                Param::Named {
+                    name,
+                    name_span,
+                    ty,
+                } => {
                     self.resolve_type(*ty);
-                    let local = self.declare_local(name, false, span, BinderKind::Param, Some(*ty));
+                    let local =
+                        self.declare_local(name, false, *name_span, BinderKind::Param, Some(*ty));
                     param_locals.push(Some(local));
                 }
             }
@@ -764,8 +772,6 @@ impl<'h> Resolver<'h> {
             }
             Expr::OptionWrap(inner) | Expr::ToString(inner) => self.resolve_expr(*inner),
             Expr::Lambda { params, body } => {
-                let span = hir.span_of_expr(id);
-
                 self.value_scopes.push(HashMap::new());
                 let mut locals = Vec::with_capacity(params.len());
                 for param in params {
@@ -775,7 +781,7 @@ impl<'h> Resolver<'h> {
                     locals.push(self.declare_local(
                         &param.name,
                         false,
-                        span,
+                        param.name_span,
                         BinderKind::LambdaParam,
                         param.ty,
                     ));

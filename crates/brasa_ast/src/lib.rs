@@ -260,6 +260,7 @@ mod tests {
             generics: vec![],
             params: vec![Param::Named {
                 name: "n".to_string(),
+                name_span: span(file, 8, 9),
                 ty: int_ty,
             }],
             ret: Some(int_ty),

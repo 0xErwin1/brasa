@@ -7,6 +7,8 @@
 //! by lowering to carry type-directed behavior the syntax alone cannot
 //! resolve.
 
+use brasa_source::Span;
+
 use crate::stmt::IfNode;
 use crate::{Block, ExprId, PatternId, TypeExprId};
 
@@ -17,6 +19,10 @@ pub use brasa_ast::{BinaryOp, CatchType, UnaryOp};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaParam {
     pub name: String,
+    /// The span of the parameter name itself, copied from the AST, so
+    /// diagnostics about the parameter point at the name rather than the
+    /// whole lambda (`docs/spec/06-diagnostics.md`).
+    pub name_span: Span,
     pub ty: Option<TypeExprId>,
 }
 

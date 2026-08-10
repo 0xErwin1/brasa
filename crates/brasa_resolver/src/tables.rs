@@ -40,10 +40,10 @@ pub enum BinderKind {
 /// parameters); pattern and `catch` bindings never have one.
 ///
 /// `span` is the most precise span the HIR offers for the binding site:
+/// the parameter's own name for function/method and lambda parameters,
 /// the `let` statement for lets, the pattern node for pattern bindings,
-/// and the enclosing function item / lambda / `catch` expression for
-/// parameters and `catch` bindings (HIR params carry no span of their
-/// own).
+/// and the enclosing `catch` expression for `catch` bindings (the one
+/// binder with no name node of its own).
 #[derive(Debug, Clone)]
 pub struct LocalInfo {
     pub name: String,

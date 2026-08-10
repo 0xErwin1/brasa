@@ -3,17 +3,13 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R006] Error: duplicate definition of `n`
-   ╭─[ duplicate_definitions.brs:2:1 ]
+   ╭─[ duplicate_definitions.brs:2:19 ]
    │
- 2 │ ╭───▶ def twice(n: int, n: int): int
-   │ │     ▲                                
-   │ │ ╭───╯                                
-   ┆ ┆ ┆   
- 6 │ ├─│ ▶ end
-   │ │ │     ▲   
-   │ ╰─────────── redefined here
-   │   │     │   
-   │   ╰─────┴─── previously defined here
+ 2 │ def twice(n: int, n: int): int
+   │           ┬       ┬  
+   │           ╰────────── previously defined here
+   │                   │  
+   │                   ╰── redefined here
 ───╯
 [R006] Error: duplicate definition of `a`
    ╭─[ duplicate_definitions.brs:4:3 ]

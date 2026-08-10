@@ -1,5 +1,7 @@
 //! Expression nodes.
 
+use brasa_source::Span;
+
 use crate::stmt::IfNode;
 use crate::{Block, ExprId, PatternId, TypeExprId};
 
@@ -45,6 +47,10 @@ pub enum StringPart {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaParam {
     pub name: String,
+    /// The span of the parameter name itself, so diagnostics about the
+    /// parameter point at the name rather than the whole lambda
+    /// (`docs/spec/06-diagnostics.md`).
+    pub name_span: Span,
     pub ty: Option<TypeExprId>,
 }
 

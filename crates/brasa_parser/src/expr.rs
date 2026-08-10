@@ -423,10 +423,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_lambda_param(&mut self) -> LambdaParam {
-        let name = if self.eat(TokenKind::Underscore).is_some() {
-            "_".to_string()
+        let (name, name_span) = if let Some(tok) = self.eat(TokenKind::Underscore) {
+            ("_".to_string(), tok.span)
         } else {
-            self.expect_ident_text("a lambda parameter name")
+            self.expect_ident_spanned("a lambda parameter name")
         };
 
         let ty = if self.eat(TokenKind::Colon).is_some() {
@@ -435,7 +435,11 @@ impl<'a> Parser<'a> {
             None
         };
 
-        LambdaParam { name, ty }
+        LambdaParam {
+            name,
+            name_span,
+            ty,
+        }
     }
 
     fn parse_primary(&mut self) -> ExprId {

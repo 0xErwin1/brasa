@@ -1,5 +1,7 @@
 //! Top-level item nodes.
 
+use brasa_source::Span;
+
 use crate::stmt::LetStmt;
 use crate::{Block, StmtId, TypeExprId};
 
@@ -31,13 +33,25 @@ pub enum Constraint {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
     pub name: String,
+    /// The span of the parameter name itself, so diagnostics about the
+    /// generic point at the name rather than the whole declaring item
+    /// (`docs/spec/06-diagnostics.md`).
+    pub name_span: Span,
     pub constraint: Option<Constraint>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Param {
-    SelfParam,
-    Named { name: String, ty: TypeExprId },
+    SelfParam {
+        span: Span,
+    },
+    Named {
+        name: String,
+        /// The span of the parameter name itself; see
+        /// [`GenericParam::name_span`].
+        name_span: Span,
+        ty: TypeExprId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +68,9 @@ pub enum Throws {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfaceMember {
     pub name: String,
+    /// The span of the member name itself; see
+    /// [`GenericParam::name_span`].
+    pub name_span: Span,
     pub params: Vec<Param>,
     pub ret: Option<TypeExprId>,
     pub throws: Option<Throws>,
@@ -73,6 +90,9 @@ pub struct FuncDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub name: String,
+    /// The span of the field name itself; see
+    /// [`GenericParam::name_span`].
+    pub name_span: Span,
     pub ty: TypeExprId,
 }
 
@@ -94,6 +114,9 @@ pub struct StructDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {
     pub name: String,
+    /// The span of the variant name itself; see
+    /// [`GenericParam::name_span`].
+    pub name_span: Span,
     /// Empty when the variant carries no payload (`Point` in the `Shape`
     /// example of `docs/spec/01-syntax.md`).
     pub fields: Vec<Field>,
