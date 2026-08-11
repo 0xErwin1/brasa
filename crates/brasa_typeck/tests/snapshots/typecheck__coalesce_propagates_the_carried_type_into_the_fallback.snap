@@ -1,0 +1,64 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 ints -> Option<Vector<int>>
+  i1 v -> Vector<int>
+  i2 pairs -> Option<Map<string, int>>
+  i3 m -> Map<string, int>
+  i4 names -> Option<Set<string>>
+  i5 s -> Set<string>
+  i6 show -> (Vector<int>) -> unit
+  i8 annotated -> Vector<int>
+  i9 chained -> Option<Vector<int>>
+  i10 c -> Vector<int>
+local types
+  l0 $tmp0 -> Vector<int>
+  l1 $tmp1 -> Map<string, int>
+  l2 $tmp2 -> Set<string>
+  l3 xs -> Vector<int>
+  l4 $tmp3 -> Vector<int>
+  l5 $tmp4 -> Vector<int>
+  l6 $tmp5 -> Vector<int>
+  l7 $tmp6 -> Vector<int>
+expr types
+  e0 -> Option<Vector<int>>
+  e1 -> Option<Vector<int>>
+  e2 -> Vector<int>
+  e3 -> Vector<int>
+  e4 -> Vector<int>
+  e5 -> Option<Map<string, int>>
+  e6 -> Option<Map<string, int>>
+  e7 -> Map<string, int>
+  e8 -> Map<string, int>
+  e9 -> Map<string, int>
+  e10 -> Option<Set<string>>
+  e11 -> Option<Set<string>>
+  e12 -> Set<string>
+  e13 -> Vector<string>
+  e14 -> Set<string>
+  e15 -> Set<string>
+  e16 -> (unknown) -> unit
+  e17 -> Vector<int>
+  e18 -> () -> int
+  e19 -> int
+  e20 -> unit
+  e21 -> (Vector<int>) -> unit
+  e22 -> Option<Vector<int>>
+  e23 -> Vector<int>
+  e24 -> Vector<int>
+  e25 -> Vector<int>
+  e26 -> unit
+  e27 -> Option<Vector<int>>
+  e28 -> Vector<int>
+  e29 -> Vector<int>
+  e30 -> Vector<int>
+  e31 -> Option<Vector<int>>
+  e32 -> Option<Vector<int>>
+  e33 -> Vector<int>
+  e34 -> Option<Vector<int>>
+  e35 -> Vector<int>
+  e36 -> Vector<int>
+  e37 -> Vector<int>
+  e38 -> Vector<int>

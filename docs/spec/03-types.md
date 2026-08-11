@@ -44,6 +44,11 @@ index expression: there is no `p.0`.
 - Generic type arguments are inferred at the call site
   (`first([1,2])` infers `T = int`); there is no syntax to pass them
   explicitly in v1.
+- `??` supplies its own context: absent an expected type from outside,
+  the fallback is checked against the type the `Option` carries, so
+  `o ?? []` on an `Option<Vector<int>>` needs no annotation. The type is
+  offered, not imposed — a fallback that disagrees is still reported as
+  the operator's own error, not as a mismatch inside the literal.
 
 Golden rule: no type is inferred "at a distance" — reading a function
 never requires looking at its call sites.

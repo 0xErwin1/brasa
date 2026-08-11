@@ -503,6 +503,29 @@ puts(m)
     );
 }
 
+/// `??` yields the carried type, so an empty literal on the fallback
+/// side takes its type from the `Option` itself, with no annotation
+/// anywhere. Both backends must produce the empty container, not a
+/// differently-shaped one.
+#[test]
+fn coalesce_fallback_infers_from_the_option() {
+    assert_success(
+        r##"
+let ints: Option<Vector<int>> = None
+let v = ints ?? []
+puts(v)
+puts(v.len())
+
+let pairs: Option<Map<string, int>> = None
+puts(pairs ?? {})
+
+let present: Option<Vector<int>> = Some([1, 2])
+puts(present ?? [])
+"##,
+        "[]\n0\n{}\n[1, 2]\n",
+    );
+}
+
 /// The capture-order contract exercised end to end: `self` first when
 /// captured, then free locals in ascending `LocalId` order, chained
 /// through nested lambdas (the codegen `closures_and_captures` shape).

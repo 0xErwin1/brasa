@@ -2206,7 +2206,7 @@ impl<'a> Checker<'a> {
             return self.check_sugar_match(scrutinee, &scrutinee_ty, origin, arms, expected, used);
         }
 
-        let acc = self.check_match_arms(&scrutinee_ty, arms, expected, used, None);
+        let acc = self.check_match_arms(&scrutinee_ty, arms, expected, used, None, None);
         self.check_exhaustiveness(id, &scrutinee_ty, arms);
 
         if used { acc } else { Type::Unit }
@@ -2218,6 +2218,12 @@ impl<'a> Checker<'a> {
     /// its arm mismatch is the operator's fallback disagreeing with the
     /// carried type, reported as T030 in source terms, and the result
     /// poisons to `Unknown`.
+    ///
+    /// `carried` is the type the scrutinee already knows it holds, used
+    /// only when the caller supplied no expectation of its own. It is a
+    /// hint rather than a requirement: a fallback that disagrees with it
+    /// must still reach the arm-mismatch path, which reports the
+    /// disagreement in the operator's own terms.
     fn check_match_arms(
         &mut self,
         scrutinee_ty: &Type,
@@ -2225,6 +2231,7 @@ impl<'a> Checker<'a> {
         expected: Option<&Type>,
         used: bool,
         origin: Option<SugarOrigin>,
+        carried: Option<&Type>,
     ) -> Type {
         let mut acc = Type::Never;
         let mut poisoned = false;
@@ -2235,7 +2242,12 @@ impl<'a> Checker<'a> {
                 self.check_expect(guard, &Type::Bool);
             }
 
-            let body_ty = self.check_arm_body(&arm.body, expected, used);
+            let body_ty = match carried {
+                Some(carried) if expected.is_none() => {
+                    self.check_arm_body_hinted(&arm.body, carried, used)
+                }
+                _ => self.check_arm_body(&arm.body, expected, used),
+            };
             if !used {
                 continue;
             }
@@ -2285,7 +2297,24 @@ impl<'a> Checker<'a> {
             return self.report_sugar_needs_option(scrutinee, scrutinee_ty, origin, arms);
         }
 
-        let acc = self.check_match_arms(scrutinee_ty, arms, expected, used, Some(origin));
+        // `??` produces the carried type, so with no expectation from
+        // the context the scrutinee is the context: `o ?? []` on an
+        // `Option<Vector<int>>` knows the element type without an
+        // annotation. `?.` is excluded — its arms build an `Option<R>`
+        // out of a method result, not the carried value.
+        let carried = match (origin, scrutinee_ty) {
+            (SugarOrigin::Coalesce, Type::Option(inner)) => Some((**inner).clone()),
+            _ => None,
+        };
+
+        let acc = self.check_match_arms(
+            scrutinee_ty,
+            arms,
+            expected,
+            used,
+            Some(origin),
+            carried.as_ref(),
+        );
         if used { acc } else { Type::Unit }
     }
 
@@ -2524,6 +2553,21 @@ impl<'a> Checker<'a> {
         match body {
             ArmBody::Expr(expr) => self.check_value(*expr, expected, used),
             ArmBody::Block(block) => self.check_block(block, expected, used),
+        }
+    }
+
+    /// Types an arm body with a type offered rather than imposed: an
+    /// empty literal takes it, and a body that disagrees keeps its own
+    /// type instead of being reported here, leaving the disagreement to
+    /// the caller's arm-mismatch path.
+    fn check_arm_body_hinted(&mut self, body: &ArmBody, hint: &Type, used: bool) -> Type {
+        match body {
+            ArmBody::Expr(expr) => self.check_expr_used(*expr, Some(hint), used),
+            // `??` desugars to expression arms only, so a block body
+            // never reaches here; type it with no expectation rather
+            // than grow a parallel hinted block path for a shape that
+            // cannot occur.
+            ArmBody::Block(block) => self.check_block(block, None, used),
         }
     }
 

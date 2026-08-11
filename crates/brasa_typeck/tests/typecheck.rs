@@ -305,6 +305,48 @@ v[0] = "x"
 "#
 );
 
+// `??` produces the carried type, so the scrutinee IS the context: an
+// empty literal on the fallback side infers from the `Option` without
+// needing an annotation anywhere.
+typecheck_test!(
+    coalesce_propagates_the_carried_type_into_the_fallback,
+    r#"
+let ints: Option<Vector<int>> = None
+let v = ints ?? []
+
+let pairs: Option<Map<string, int>> = None
+let m = pairs ?? {}
+
+let names: Option<Set<string>> = None
+let s = names ?? Set([])
+
+def show(xs: Vector<int>): unit
+  puts(xs.len())
+end
+show(ints ?? [])
+
+let annotated: Vector<int> = ints ?? []
+let chained: Option<Vector<int>> = None
+let c = ints ?? chained ?? []
+"#
+);
+
+// The hint is offered, not imposed: a fallback that disagrees with the
+// carried type still reports T030 in the operator's own terms, and an
+// empty literal with no context anywhere still reports T014.
+typecheck_error_test!(
+    coalesce_fallback_mismatch_and_contextless_literal_still_report,
+    r#"
+let ints: Option<Vector<int>> = None
+let wrong = ints ?? "x"
+
+let nested: Option<int> = None
+let doubled = nested ?? nested
+
+let bare = []
+"#
+);
+
 typecheck_test!(
     options_and_wrap,
     r#"
