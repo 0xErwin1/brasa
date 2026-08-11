@@ -131,6 +131,19 @@ impl BuiltinType {
     }
 }
 
+/// The closed panic union of `docs/spec/04-errors.md`, by qualified
+/// name, in spec order. This is the canonical list: the resolver
+/// validates `panics.`-qualified `catch` arm names against it, and the
+/// interpreter's `PanicKind` (`brasa_interp`) mirrors it — a unit test
+/// there asserts the two stay identical.
+pub const PANIC_UNION: &[&str] = &[
+    "panics.IndexOutOfBounds",
+    "panics.DivisionByZero",
+    "panics.IntegerOverflow",
+    "panics.AssertionFailed",
+    "panics.StackOverflow",
+];
+
 /// What a value-namespace reference resolved to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Res {
@@ -203,10 +216,19 @@ pub struct Resolutions {
     pub catch_bindings: HashMap<ExprId, LocalId>,
     /// Resolved bare `CatchType::Named` arm types. `CatchType` lives
     /// inline in its arm and has no arena id, so the key is positional:
-    /// (catch expr, arm index, index within the arm's `|` group). Dotted
-    /// names (`panics.X`, stdlib errors) are absent — they resolve in M4
-    /// (BRS-24).
+    /// (catch expr, arm index, index within the arm's `|` group).
+    /// `panics.X` names live in [`Resolutions::catch_arm_panics`];
+    /// other dotted names (stdlib errors) are absent until M4.
     pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
+    /// `catch` arm names matching a member of the closed panic union
+    /// ([`PANIC_UNION`]), keyed like [`Resolutions::catch_arm_types`];
+    /// the value is the canonical qualified name. Kept in a separate
+    /// table on purpose: panics are not error types
+    /// (`docs/spec/04-errors.md`) — they never subtract from error-sets
+    /// and never count toward `catch_all` exhaustiveness, so the
+    /// error-set checks, which only consume `catch_arm_types`, must not
+    /// see them.
+    pub catch_arm_panics: HashMap<(ExprId, usize, usize), &'static str>,
     /// Resolved `throws Type | ...` declaration lists, aligned with the
     /// declaring function/method's `Throws::Types` names; `None` marks a
     /// name that resolved to nothing (reported as `R003`). Interface

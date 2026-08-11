@@ -747,6 +747,19 @@ let total = recover(true) + 1
 "#
 );
 
+typecheck_test!(
+    panic_arm_narrowing,
+    r#"
+def guard(n: int): int
+  10 / n catch (e)
+    panics.DivisionByZero => e.len()
+  end
+end
+
+let safe = guard(0)
+"#
+);
+
 typecheck_error_test!(
     error_catch_narrowing,
     r#"

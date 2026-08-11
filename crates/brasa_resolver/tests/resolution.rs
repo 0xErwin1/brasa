@@ -195,6 +195,18 @@ end
 );
 
 resolution_error_test!(
+    unknown_panic,
+    r#"
+def go(n: int): int
+  n catch (e)
+    panics.Nope => 0
+    _ => 1
+  end
+end
+"#
+);
+
+resolution_error_test!(
     unknown_catch_arm_type,
     r#"
 def go(n: int): int

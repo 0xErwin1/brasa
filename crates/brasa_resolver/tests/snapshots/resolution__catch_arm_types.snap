@@ -15,6 +15,8 @@ catch arm types
   e5 arm 0 type 0 NetError -> struct NetError
   e5 arm 1 type 0 string -> builtin string
   e5 arm 1 type 1 NetError -> struct NetError
+catch arm panics
+  e5 arm 2 type 0 -> panic panics.DivisionByZero
 types
   t0 string -> builtin string
   t1 int -> builtin int

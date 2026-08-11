@@ -21,8 +21,9 @@
 //! top-level `let`s declared earlier (items are always visible).
 //!
 //! Out of scope: file-import loading and cycle detection (the module
-//! loader is a later work item), dotted `catch` arm types (`panics.X`,
-//! stdlib errors — their namespaces are M4, BRS-24; bare arm type names
+//! loader is a later work item), dotted `catch` arm types other than
+//! `panics.X` (stdlib errors — their namespaces are M4; `panics.X`
+//! validates against the closed union, BRS-24; bare arm type names
 //! resolve here, `04-errors.md`), and everything type-shaped (member
 //! lookup after `.`, mutability enforcement, constructor disambiguation
 //! by expected type).
@@ -32,8 +33,8 @@ mod resolver;
 mod tables;
 
 pub use tables::{
-    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, Res, Resolutions,
-    TypeRes,
+    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, PANIC_UNION, Res,
+    Resolutions, TypeRes,
 };
 
 use brasa_diagnostics::Diagnostic;

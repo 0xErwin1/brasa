@@ -74,6 +74,9 @@ pub const R_UNKNOWN_IMPORT_ROOT: &str = "R008";
 pub const R_UNKNOWN_STD_MODULE: &str = "R009";
 /// A generic constraint naming a type that is not an interface.
 pub const R_NOT_AN_INTERFACE: &str = "R010";
+/// A `panics.`-qualified `catch` arm naming no member of the closed
+/// panic union.
+pub const R_UNKNOWN_PANIC: &str = "R011";
 
 // --- type checker (T) ---
 
@@ -210,6 +213,7 @@ mod tests {
         super::R_UNKNOWN_IMPORT_ROOT,
         super::R_UNKNOWN_STD_MODULE,
         super::R_NOT_AN_INTERFACE,
+        super::R_UNKNOWN_PANIC,
         super::T_MISMATCHED_TYPES,
         super::T_INVALID_OPERANDS,
         super::T_CANNOT_COMPARE_EQUALITY,

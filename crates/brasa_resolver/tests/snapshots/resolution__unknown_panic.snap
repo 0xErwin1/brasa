@@ -1,0 +1,13 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R011] Error: unknown panic `panics.Nope`
+   ╭─[ unknown_panic.brs:4:5 ]
+   │
+ 4 │     panics.Nope => 0
+   │     ─────┬─────  
+   │          ╰─────── the panic union is closed
+   │ 
+   │ Note: the panic union: panics.IndexOutOfBounds, panics.DivisionByZero, panics.IntegerOverflow, panics.AssertionFailed, panics.StackOverflow
+───╯

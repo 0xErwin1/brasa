@@ -46,8 +46,9 @@ use crate::value::{
 /// heap values during rendering.
 const MAX_DISPLAY_DEPTH: usize = 100;
 
-/// The closed panic union of `docs/spec/04-errors.md` plus the
-/// interpreter's own recursion guard.
+/// The closed panic union of `docs/spec/04-errors.md`. Mirrors the
+/// canonical [`brasa_resolver::PANIC_UNION`] list one-to-one (asserted
+/// by `panic_kinds_match_the_resolver_union` below).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PanicKind {
     IndexOutOfBounds,
@@ -1598,5 +1599,29 @@ fn escape_char(c: char) -> String {
         '\t' => "\\t".to_string(),
         '\r' => "\\r".to_string(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PanicKind;
+
+    /// [`PanicKind`] and the resolver's canonical closed union
+    /// (`brasa_resolver::PANIC_UNION`, BRS-24) must stay identical in
+    /// members, qualified names, and order: the resolver validates
+    /// `catch` arm names against its list while `eval_catch` matches
+    /// signals against these names.
+    #[test]
+    fn panic_kinds_match_the_resolver_union() {
+        let kinds = [
+            PanicKind::IndexOutOfBounds,
+            PanicKind::DivisionByZero,
+            PanicKind::IntegerOverflow,
+            PanicKind::AssertionFailed,
+            PanicKind::StackOverflow,
+        ];
+
+        let names: Vec<&str> = kinds.iter().map(|kind| kind.name()).collect();
+        assert_eq!(names.as_slice(), brasa_resolver::PANIC_UNION);
     }
 }

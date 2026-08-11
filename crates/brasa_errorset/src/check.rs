@@ -84,9 +84,11 @@ pub(crate) fn catch_expr(
 
     // E001, named arms: a type a CLOSED subject set cannot throw is
     // unreachable whether the arm is guarded or not — the guard runs
-    // only after the type matches. Dotted names resolve in M4 and
-    // unresolved names subtract nothing, so both are skipped, like the
-    // subtraction in `Collector::catch`.
+    // only after the type matches. Panic arms (`panics.X`, in
+    // `catch_arm_panics`, never read here) handle panics rather than
+    // errors and are exempt; stdlib-error dotted names resolve in M4
+    // and unresolved names subtract nothing, so all are skipped, like
+    // the subtraction in `Collector::catch`.
     if !subject.open {
         for (arm_index, arm) in arms.iter().enumerate() {
             for (type_index, catch_type) in arm.types.iter().enumerate() {

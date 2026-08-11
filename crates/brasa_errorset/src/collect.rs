@@ -385,8 +385,11 @@ impl<'a> Collector<'a> {
     ///   unknowable escapes either (decision recorded here);
     /// - a GUARDED arm subtracts nothing: the guard may be false, the
     ///   same rule exhaustiveness uses;
-    /// - dotted (`panics.X`, unresolved until M4) and unresolved arm
-    ///   names subtract nothing.
+    /// - panic arms (`panics.X`, recorded in `catch_arm_panics`, which
+    ///   this pass never reads) subtract nothing: panics are not in
+    ///   error-sets (`docs/spec/04-errors.md`);
+    /// - other dotted (stdlib errors, unresolved until M4) and
+    ///   unresolved arm names subtract nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set

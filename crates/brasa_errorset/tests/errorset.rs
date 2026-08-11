@@ -185,6 +185,28 @@ end
 );
 
 errorset_test!(
+    panic_arms_are_not_error_arms,
+    r#"
+struct NetError
+  detail: string
+end
+
+def risky(mode: int): int
+  if mode == 1
+    throw NetError { detail: "down" }
+  end
+  10 / mode
+end
+
+def guard(mode: int): int
+  risky(mode) catch (e)
+    panics.DivisionByZero => 0
+  end
+end
+"#
+);
+
+errorset_test!(
     mutual_recursion_converges,
     r#"
 struct AlphaError
@@ -368,6 +390,28 @@ def guardedDoesNotCount(mode: int): string
   risky(mode) catch_all (e)
     NetError if mode > 0 => "sometimes"
     ParseError => "parse"
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e002_panic_arms_do_not_count,
+    r#"
+struct NetError
+  detail: string
+end
+
+def risky(mode: int): int
+  if mode == 1
+    throw NetError { detail: "down" }
+  end
+  10 / mode
+end
+
+def edge(mode: int): int
+  risky(mode) catch_all (e)
+    panics.DivisionByZero => 0
   end
 end
 "#

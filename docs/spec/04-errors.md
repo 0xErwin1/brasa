@@ -122,11 +122,14 @@ end
 
 ## Panics vs errors
 
-Panics are a **closed union in the stdlib** (`panics.IndexOutOfBounds`,
-`panics.DivisionByZero`, `panics.IntegerOverflow`,
-`panics.AssertionFailed`, ...), separate from the error channel. They do
+Panics are a **closed union in the stdlib** — in v1 exactly
+`panics.IndexOutOfBounds`, `panics.DivisionByZero`,
+`panics.IntegerOverflow`, `panics.AssertionFailed`, and
+`panics.StackOverflow` (the recursion limit panics rather than crash
+the runtime) — separate from the error channel. They do
 not appear in error-sets and `_` does not catch them. The only way to
-catch one is to **name it explicitly** in an arm:
+catch one is to **name it explicitly** in an arm; inside that arm, `e`
+is bound to the panic's detail message (a `string`):
 
 ```ruby
 let x = items[i] catch (e)

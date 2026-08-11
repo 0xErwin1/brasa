@@ -2105,15 +2105,22 @@ impl<'a> Checker<'a> {
     ///   (structs/enums, or a primitive — the spec allows throwing
     ///   `string`/`int`/... values, so primitive arm types are
     ///   legitimate);
+    /// - exactly one resolved panic name (`panics.X`, BRS-24) →
+    ///   `string`: the runtime binds the panic's detail message
+    ///   (`brasa_interp`'s `eval_catch`; `04-errors.md`);
     /// - a `|` group → `Unknown` (the spec binds "what's common to
     ///   both"; common-interface narrowing is deferred to error-set
     ///   work, BRS-22/23);
-    /// - `_`, dotted names (`panics.X` — unresolved until M4), and
-    ///   unresolved names → `Unknown`.
+    /// - `_`, dotted names other than `panics.X` (stdlib errors —
+    ///   unresolved until M4), and unresolved names → `Unknown`.
     fn catch_arm_binding_type(&self, id: ExprId, arm_index: usize, arm: &CatchArm) -> Type {
         let [CatchType::Named { .. }] = arm.types.as_slice() else {
             return Type::Unknown;
         };
+
+        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0)) {
+            return Type::String;
+        }
 
         match self.res.catch_arm_types.get(&(id, arm_index, 0)) {
             Some(&res) => self.catch_type_res_to_type(res),

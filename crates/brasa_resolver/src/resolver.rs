@@ -24,8 +24,10 @@
 //!   the binding is recorded and member access stays opaque.
 //! - `catch` arm types (`CatchType`): bare names resolve in the type
 //!   namespace (`docs/spec/04-errors.md`, arms match error types
-//!   nominally); dotted names (`panics.X`, stdlib errors) are skipped
-//!   until the panic/stdlib error namespaces land (M4, BRS-24).
+//!   nominally); `panics.X` names are validated against the builtin
+//!   closed panic union (BRS-24, no import needed — like the prelude);
+//!   other dotted names (stdlib errors) are skipped until their
+//!   namespaces land (M4).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,8 +41,8 @@ use brasa_hir::{
 use brasa_source::Span;
 
 use crate::tables::{
-    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, Res, Resolutions,
-    TypeRes,
+    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, PANIC_UNION, Res,
+    Resolutions, TypeRes,
 };
 
 /// Which position a constructor name was written in. The builtin `Set`
@@ -899,17 +901,22 @@ impl<'h> Resolver<'h> {
                     self.declare_local(binding, false, span, BinderKind::CatchBinding, None);
                 self.res.catch_bindings.insert(id, local);
 
-                // Bare arm type names resolve here; dotted names
-                // (`panics.X`, stdlib errors) are skipped until their
-                // namespaces land (M4, BRS-24). Whatever `lookup_type`
-                // returns is recorded as-is — the type checker decides
-                // what the binding narrows to per arm.
+                // Bare arm type names resolve here; `panics.X` names
+                // check against the builtin closed panic union (BRS-24,
+                // `docs/spec/04-errors.md` — no import needed, like the
+                // prelude); other dotted names (stdlib errors) are
+                // skipped until their namespaces land (M4). Whatever
+                // `lookup_type` returns is recorded as-is — the type
+                // checker decides what the binding narrows to per arm.
                 for (arm_index, arm) in arms.iter().enumerate() {
                     for (type_index, arm_type) in arm.types.iter().enumerate() {
                         let CatchType::Named { name, span } = arm_type else {
                             continue;
                         };
                         if name.contains('.') {
+                            if name.starts_with("panics.") {
+                                self.resolve_panic_arm(id, arm_index, type_index, name, *span);
+                            }
                             continue;
                         }
 
@@ -945,6 +952,38 @@ impl<'h> Resolver<'h> {
                 for &arg in args {
                     self.resolve_expr(arg);
                 }
+            }
+        }
+    }
+
+    /// A `panics.`-qualified `catch` arm name: the union is closed
+    /// (`docs/spec/04-errors.md`), so the name either matches a member
+    /// of [`PANIC_UNION`] — recorded in `catch_arm_panics` with the
+    /// canonical `&'static str` — or is an `R011` error.
+    fn resolve_panic_arm(
+        &mut self,
+        id: ExprId,
+        arm_index: usize,
+        type_index: usize,
+        name: &str,
+        span: Span,
+    ) {
+        match PANIC_UNION.iter().find(|&&panic| panic == name) {
+            Some(&panic) => {
+                self.res
+                    .catch_arm_panics
+                    .insert((id, arm_index, type_index), panic);
+            }
+            None => {
+                self.error(
+                    err_at(
+                        codes::R_UNKNOWN_PANIC,
+                        span,
+                        format!("unknown panic `{name}`"),
+                        "the panic union is closed",
+                    )
+                    .with_note(format!("the panic union: {}", PANIC_UNION.join(", "))),
+                );
             }
         }
     }

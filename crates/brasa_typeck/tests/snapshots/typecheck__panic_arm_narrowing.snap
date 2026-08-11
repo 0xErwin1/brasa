@@ -1,0 +1,21 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 guard -> (int) -> int
+  i1 safe -> int
+local types
+  l0 n -> int
+  l1 e -> string
+expr types
+  e0 -> int
+  e1 -> int
+  e2 -> string
+  e3 -> () -> int
+  e4 -> int
+  e5 -> int
+  e6 -> int
+  e7 -> (int) -> int
+  e8 -> int
+  e9 -> int

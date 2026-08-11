@@ -122,6 +122,7 @@ Rules:
 | `R008` | unknown import root | ``unknown import root `sys::io` `` |
 | `R009` | unknown std module | ``unknown std module `netz` `` |
 | `R010` | constraint is not an interface | `` `Point` is not an interface`` |
+| `R011` | unknown panic | ``unknown panic `panics.Nope` `` |
 
 Notes on kind boundaries:
 
@@ -132,6 +133,10 @@ Notes on kind boundaries:
 - `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
   path naming no known module) are distinct lookups and keep distinct
   codes.
+- `R011` covers only the `panics.` namespace, whose union is closed
+  (`04-errors.md`) and builtin (no import needed); other dotted `catch`
+  arm names (stdlib errors) are not yet checked — their namespaces land
+  in M4.
 
 ### Type checker (`T`)
 
