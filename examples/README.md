@@ -14,7 +14,7 @@ runs yet (the interpreter lands in M1); these files serve three purposes:
 | `fib.brs` | functions, recursion, inline `then` if, while |
 | `fizzbuzz.brs` | elsif chains, ranges, `for` |
 | `shapes.brs` | structs, methods, enums, match, Option |
-| `errors.brs` | throw, catch, catch_all, panics, throws clause |
+| `errors.brs` | throw, catch, catch!, panics, throws clause |
 | `pipeline.brs` | vectors, maps, lambdas, pipe operator |
 | `strings.brs` | string methods, raw strings, chars |
 | `modules/` | file imports, `pub`, `def main()` entry point |

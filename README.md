@@ -42,9 +42,9 @@ at the gap:
 
 - **Static typing without ceremony** — strong types with local inference;
   annotations only on function signatures.
-- **Errors without virality** — a BAML-inspired system: `throw` any value,
-  error sets are *inferred* into signatures, `catch` is a non-exhaustive
-  match. No `Result<T, E>` plumbing, no `unwrap`, no forgotten exceptions.
+- **Errors without virality** — `throw` any value, error sets are
+  *inferred* into signatures, `catch` is a non-exhaustive match. No
+  `Result<T, E>` plumbing, no `unwrap`, no forgotten exceptions.
 - **The stdlib is the product** — first-class strings, regex, processes
   (`proc.run` with `set -e` semantics by default), fs, glob, JSON.
 - **Instant startup** — single binary, shebang support, no project files

@@ -17,9 +17,9 @@ Extension: `.brs`. Execution: `brasa script.brs` or shebang
    checks.
 3. **Conservative defaults.** Immutable by default (`let` / `let mut`),
    private by default (explicit `pub`), no `nil` (`Option<T>`).
-4. **Errors are not viral.** BAML-style system: values are thrown,
-   error-sets are inferred in signatures, `catch` is a non-exhaustive
-   match. See [04-errors.md](04-errors.md).
+4. **Errors are not viral.** Values are thrown, error-sets are inferred
+   in signatures, `catch` is a non-exhaustive match. See
+   [04-errors.md](04-errors.md).
 5. **The stdlib is the product.** First-class strings, processes, fs, JSON,
    regex, and glob. The language exists to serve these use cases.
 6. **Instant startup.** Parse + typecheck + execution of a small script
@@ -37,7 +37,7 @@ Extension: `.brs`. Execution: `brasa script.brs` or shebang
 | Nullability | No `nil`; `Option<T>` + `?.` and `??` sugar |
 | Generics | Monomorphization not required in v1 (dynamic VM under static types); structural constraints, no unions |
 | OOP | No inheritance or classes; structs + methods + structural interfaces |
-| Errors | BAML model (throw values, error-set inference, catch-match) |
+| Errors | Throw values, error-set inference, catch-match |
 | Modules | One file = one module; `import std::fs` (stdlib), `import "./foo.brs"` (files); no selective import; explicit `pub` |
 | Stdlib | Native in Rust (VM builtins); never written in Brasa on the startup path |
 | Concurrency | Out of v1; future design oriented toward a multi-threaded event loop |
@@ -74,7 +74,7 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
 1. **M0** — lexer + parser + AST + pretty diagnostics (no execution).
 2. **M1** — full type checker (inference, generics, structural
    interfaces, Option) over a provisional tree-walker.
-3. **M2** — BAML-style error system (error-set inference + catch).
+3. **M2** — error system (error-set inference + catch).
 4. **M3** — bytecode VM + GC; the tree-walker remains as a reference.
 5. **M4** — scripting stdlib (strings, fs, process, JSON, regex, glob).
 6. **M5** — REPL, formatter, minimal LSP.

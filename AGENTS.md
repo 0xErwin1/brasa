@@ -14,7 +14,7 @@ scripting tasks.
 | `docs/spec/01-syntax.md` | User-facing syntax |
 | `docs/spec/02-grammar.md` | Lexical grammar + EBNF + ambiguity resolutions |
 | `docs/spec/03-types.md` | Type system semantics |
-| `docs/spec/04-errors.md` | BAML-style error system (inferred error-sets) |
+| `docs/spec/04-errors.md` | Error system (thrown values, inferred error-sets) |
 | `docs/spec/05-stdlib.md` | Stdlib surface (native, written in Rust) |
 | `docs/spec/06-diagnostics.md` | Diagnostic model, code registry, wording |
 | `docs/spec/07-bytecode.md` | Bytecode: execution model, values, instruction set, module format |
@@ -69,7 +69,7 @@ tree-walker), `brasa_vm` + `brasa_codegen` (M3), `brasa_stdlib` (native).
 ## Language conventions (Brasa code, `.brs` files and examples)
 
 - `camelCase` for functions/methods/variables, `PascalCase` for types,
-  `?` suffix for predicates. Keywords lowercase (`catch_all` is a keyword).
+  `?` suffix for predicates. Keywords lowercase (`catch!` is a keyword).
 - No `nil`, no implicit coercions, no inheritance.
 
 ## Rust conventions
