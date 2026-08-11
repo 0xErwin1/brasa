@@ -26,9 +26,10 @@ use brasa_bytecode::{
 };
 use brasa_interp::Outcome;
 
+use crate::heap::{Heap, Interner};
 use crate::value::{
-    BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, StructValue,
-    Value, value_cmp, value_eq,
+    BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, Value,
+    value_cmp, value_eq,
 };
 
 pub(crate) const INDEX_OUT_OF_BOUNDS: &str = "panics.IndexOutOfBounds";
@@ -66,17 +67,42 @@ pub(crate) struct Vm<'a> {
     globals: Vec<Option<Value>>,
     stack: Vec<Value>,
     frames: Vec<Frame>,
+    pub(crate) heap: Heap,
+    interner: Interner,
+    /// Constants pre-materialized at load: string constants are
+    /// interned once here, so every `const` push shares one allocation.
+    consts: Vec<Value>,
     pub(crate) out: &'a mut dyn Write,
     max_depth: usize,
 }
 
 impl<'a> Vm<'a> {
-    pub(crate) fn new(module: &'a Module, out: &'a mut dyn Write, max_depth: usize) -> Vm<'a> {
+    pub(crate) fn new(
+        module: &'a Module,
+        out: &'a mut dyn Write,
+        max_depth: usize,
+        gc_threshold: usize,
+    ) -> Vm<'a> {
+        let mut interner = Interner::default();
+        let consts = module
+            .constants
+            .iter()
+            .map(|(_, constant)| match constant {
+                Constant::Int(v) => Value::Int(*v),
+                Constant::Float(v) => Value::Float(*v),
+                Constant::Str(v) => Value::Str(interner.intern(v)),
+                Constant::Char(v) => Value::Char(*v),
+            })
+            .collect();
+
         Vm {
             module,
             globals: vec![None; module.globals.len()],
             stack: Vec::new(),
             frames: Vec::new(),
+            heap: Heap::new(gc_threshold),
+            interner,
+            consts,
             out,
             max_depth,
         }
@@ -87,9 +113,20 @@ impl<'a> Vm<'a> {
         self.finish(result)
     }
 
+    pub(crate) fn run_stats(&self) -> crate::RunStats {
+        let heap = self.heap.stats();
+        crate::RunStats {
+            heap_allocations: heap.allocations,
+            gc_collections: heap.collections,
+            live_heap_objects: heap.live,
+            interned_strings: self.interner.len(),
+            intern_hits: self.interner.hits(),
+        }
+    }
+
     fn run_program(&mut self) -> Result<(), Signal> {
         self.enter_function(FuncId(0), 0, 0)?;
-        self.execute(1)?;
+        self.execute(1, true)?;
         self.stack.clear();
 
         if let Some(main) = self.find_main() {
@@ -99,7 +136,7 @@ impl<'a> Vm<'a> {
                 ));
             }
             self.enter_function(main, 0, 0)?;
-            self.execute(1)?;
+            self.execute(1, true)?;
             self.stack.clear();
         }
 
@@ -238,8 +275,22 @@ impl<'a> Vm<'a> {
     /// bounded frame returned (its result is on the stack) or unwinding
     /// crossed the boundary (the signal propagates to the caller with
     /// the frames below intact).
-    fn execute(&mut self, min_frames: usize) -> Result<(), Signal> {
+    ///
+    /// Only the program-level loops (`run_program`) pass `safepoint`:
+    /// between two instructions there, every live value sits on the
+    /// value stack or in a global slot, so the collector's root set is
+    /// exact. Nested bounded loops (builtin HOFs, `toString` rendering,
+    /// the post-run error rendering) hold values in Rust locals the
+    /// collector cannot see, so they never collect — garbage created
+    /// inside one nested call is reclaimed at the next top-level
+    /// instruction boundary.
+    fn execute(&mut self, min_frames: usize, safepoint: bool) -> Result<(), Signal> {
         while self.frames.len() >= min_frames {
+            if safepoint && self.heap.should_collect() {
+                self.heap
+                    .collect(self.stack.iter().chain(self.globals.iter().flatten()));
+            }
+
             let frame = self.frames.last_mut().expect("loop condition holds");
             let op = self.module.functions[frame.func.0 as usize].chunk.ops()[frame.ip];
             frame.ip += 1;
@@ -333,12 +384,7 @@ impl<'a> Vm<'a> {
     fn step(&mut self, op: Op) -> Result<(), Signal> {
         match op {
             Op::Const(id) => {
-                let value = match self.module.constants.get(id) {
-                    Constant::Int(v) => Value::Int(*v),
-                    Constant::Float(v) => Value::Float(*v),
-                    Constant::Str(v) => Value::str(v),
-                    Constant::Char(v) => Value::Char(*v),
-                };
+                let value = self.consts[id.0 as usize].clone();
                 self.push(value);
             }
             Op::LoadUnit => self.push(Value::Unit),
@@ -451,7 +497,7 @@ impl<'a> Vm<'a> {
             Op::Eq => {
                 let b = self.pop();
                 let a = self.pop();
-                self.push(Value::Bool(value_eq(&a, &b)));
+                self.push(Value::Bool(value_eq(&self.heap, &a, &b)));
             }
             Op::Lt => self.ordering(|o| o.is_lt())?,
             Op::Le => self.ordering(|o| o.is_le())?,
@@ -528,7 +574,7 @@ impl<'a> Vm<'a> {
                 let Value::Struct(s) = self.pop() else {
                     unreachable!("get_field reads a struct");
                 };
-                let value = s.fields.borrow()[ix as usize].clone();
+                let value = self.heap.struct_value(s).fields.borrow()[ix as usize].clone();
                 self.push(value);
             }
             Op::SetField(ix) => {
@@ -536,7 +582,7 @@ impl<'a> Vm<'a> {
                 let Value::Struct(s) = self.pop() else {
                     unreachable!("set_field writes a struct");
                 };
-                s.fields.borrow_mut()[ix as usize] = value;
+                self.heap.struct_value(s).fields.borrow_mut()[ix as usize] = value;
             }
             Op::GetIndex => {
                 let index = self.pop();
@@ -577,19 +623,24 @@ impl<'a> Vm<'a> {
 
             Op::MakeVector(n) => {
                 let items = self.pop_n(n as usize);
-                self.push(Value::vector(items));
+                let vector = self.heap.alloc_vector(items);
+                self.push(vector);
             }
             Op::MakeMap(n) => {
                 let flat = self.pop_n(2 * n as usize);
                 let mut entries: Vec<(Value, Value)> = Vec::with_capacity(n as usize);
                 let mut flat = flat.into_iter();
                 while let (Some(key), Some(value)) = (flat.next(), flat.next()) {
-                    match entries.iter_mut().find(|(k, _)| value_eq(k, &key)) {
+                    match entries
+                        .iter_mut()
+                        .find(|(k, _)| value_eq(&self.heap, k, &key))
+                    {
                         Some(entry) => entry.1 = value,
                         None => entries.push((key, value)),
                     }
                 }
-                self.push(Value::Map(Rc::new(std::cell::RefCell::new(entries))));
+                let map = self.heap.alloc_map(entries);
+                self.push(map);
             }
             Op::MakeTuple(n) => {
                 let items = self.pop_n(n as usize);
@@ -599,22 +650,25 @@ impl<'a> Vm<'a> {
                 let Value::Vector(items) = self.pop() else {
                     return Err(Self::fatal("brasa: `Set` takes exactly 1 Vector argument"));
                 };
-                let items = items.borrow();
+                let items = self.heap.vector(items).borrow();
                 let mut set: Vec<Value> = Vec::new();
                 for item in items.iter() {
-                    if !set.iter().any(|existing| value_eq(existing, item)) {
+                    if !set
+                        .iter()
+                        .any(|existing| value_eq(&self.heap, existing, item))
+                    {
                         set.push(item.clone());
                     }
                 }
-                self.push(Value::Set(Rc::new(std::cell::RefCell::new(set))));
+                drop(items);
+                let set = self.heap.alloc_set(set);
+                self.push(set);
             }
             Op::MakeStruct(shape) => {
                 let field_count = self.module.structs[shape.0 as usize].fields.len();
                 let fields = self.pop_n(field_count);
-                self.push(Value::Struct(Rc::new(StructValue {
-                    shape,
-                    fields: std::cell::RefCell::new(fields),
-                })));
+                let strukt = self.heap.alloc_struct(shape, fields);
+                self.push(strukt);
             }
             Op::MakeEnum {
                 enum_id,
@@ -799,7 +853,8 @@ impl<'a> Vm<'a> {
         let Value::Struct(s) = &recv else {
             unreachable!("struct dispatch needs a struct receiver");
         };
-        let shape = self.module_struct(s.shape);
+        let s = *s;
+        let shape = self.module_struct(self.heap.struct_value(s).shape);
 
         if let Some(&func) = shape
             .methods
@@ -813,7 +868,7 @@ impl<'a> Vm<'a> {
         }
 
         if let Some(ix) = shape.fields.iter().position(|field| field == name) {
-            let field = s.fields.borrow()[ix].clone();
+            let field = self.heap.struct_value(s).fields.borrow()[ix].clone();
             return self.call_callable(field, args);
         }
 
@@ -828,7 +883,7 @@ impl<'a> Vm<'a> {
     fn get_index(&self, recv: &Value, index: &Value) -> VmResult {
         match (recv, index) {
             (Value::Vector(items), Value::Int(i)) => {
-                let items = items.borrow();
+                let items = self.heap.vector(*items).borrow();
                 let len = items.len();
                 if *i < 0 || *i as usize >= len {
                     return Err(self.panic(
@@ -838,10 +893,12 @@ impl<'a> Vm<'a> {
                 }
                 Ok(items[*i as usize].clone())
             }
-            (Value::Map(entries), key) => Ok(entries
+            (Value::Map(entries), key) => Ok(self
+                .heap
+                .map(*entries)
                 .borrow()
                 .iter()
-                .find(|(k, _)| value_eq(k, key))
+                .find(|(k, _)| value_eq(&self.heap, k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             _ => Err(Self::fatal("brasa: value does not support indexing")),
@@ -854,7 +911,7 @@ impl<'a> Vm<'a> {
                 let Value::Int(i) = index else {
                     return Err(Self::fatal("brasa: vector index must be an int"));
                 };
-                let mut items = items.borrow_mut();
+                let mut items = self.heap.vector(*items).borrow_mut();
                 let len = items.len();
                 if i < 0 || i as usize >= len {
                     return Err(self.panic(
@@ -866,8 +923,11 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             Value::Map(entries) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter_mut().find(|(k, _)| value_eq(k, &index)) {
+                let mut entries = self.heap.map(*entries).borrow_mut();
+                match entries
+                    .iter_mut()
+                    .find(|(k, _)| value_eq(&self.heap, k, &index))
+                {
                     Some(entry) => entry.1 = value,
                     None => entries.push((index, value)),
                 }
@@ -890,11 +950,13 @@ impl<'a> Vm<'a> {
                 done: false,
             }),
             Value::Vector(items) => Ok(IterState::Items {
-                items: items.borrow().clone(),
+                items: self.heap.vector(*items).borrow().clone(),
                 ix: 0,
             }),
             Value::Map(entries) => Ok(IterState::Items {
-                items: entries
+                items: self
+                    .heap
+                    .map(*entries)
                     .borrow()
                     .iter()
                     .map(|(k, v)| Value::Tuple(Rc::from(vec![k.clone(), v.clone()])))
@@ -902,7 +964,7 @@ impl<'a> Vm<'a> {
                 ix: 0,
             }),
             Value::Set(items) => Ok(IterState::Items {
-                items: items.borrow().clone(),
+                items: self.heap.set(*items).borrow().clone(),
                 ix: 0,
             }),
             Value::Str(s) => Ok(IterState::Items {
@@ -1048,7 +1110,7 @@ impl<'a> Vm<'a> {
             self.write_captures(closure);
         }
 
-        self.execute(self.frames.len())?;
+        self.execute(self.frames.len(), false)?;
         Ok(self.pop())
     }
 
@@ -1089,7 +1151,9 @@ impl<'a> Vm<'a> {
             Value::Map(_) => "Map".to_string(),
             Value::Set(_) => "Set".to_string(),
             Value::Option(_) => "Option".to_string(),
-            Value::Struct(s) => self.module.structs[s.shape.0 as usize].name.clone(),
+            Value::Struct(s) => self.module.structs[self.heap.struct_value(*s).shape.0 as usize]
+                .name
+                .clone(),
             Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
             Value::NativeError { name, .. } => name.to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {

@@ -154,10 +154,10 @@ impl Vm<'_> {
                 } else {
                     s.split(sep.as_ref()).map(Value::str).collect()
                 };
-                Ok(Value::vector(parts))
+                Ok(self.heap.alloc_vector(parts))
             }
-            ("lines", []) => Ok(Value::vector(s.lines().map(Value::str).collect())),
-            ("chars", []) => Ok(Value::vector(s.chars().map(Value::Char).collect())),
+            ("lines", []) => Ok(self.heap.alloc_vector(s.lines().map(Value::str).collect())),
+            ("chars", []) => Ok(self.heap.alloc_vector(s.chars().map(Value::Char).collect())),
             ("slice", [Value::Int(from), Value::Int(to)]) => {
                 let len = s.chars().count() as i64;
                 let from = (*from).clamp(0, len) as usize;
@@ -198,37 +198,46 @@ impl Vm<'_> {
         let Value::Vector(items) = recv else {
             return Err(builtin_error(name));
         };
+        let items = *items;
 
         match (name, args.as_slice()) {
-            ("len", []) => Ok(Value::Int(items.borrow().len() as i64)),
+            ("len", []) => Ok(Value::Int(self.heap.vector(items).borrow().len() as i64)),
             ("push", [value]) => {
-                items.borrow_mut().push(value.clone());
+                self.heap.vector(items).borrow_mut().push(value.clone());
                 Ok(Value::Unit)
             }
-            ("pop", []) => Ok(match items.borrow_mut().pop() {
+            ("pop", []) => Ok(match self.heap.vector(items).borrow_mut().pop() {
                 Some(value) => Value::some(value),
                 None => Value::NONE,
             }),
-            ("first", []) => Ok(items
+            ("first", []) => Ok(self
+                .heap
+                .vector(items)
                 .borrow()
                 .first()
                 .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
-            ("last", []) => Ok(items
+            ("last", []) => Ok(self
+                .heap
+                .vector(items)
                 .borrow()
                 .last()
                 .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             ("reverse", []) => {
-                let mut reversed = items.borrow().clone();
+                let mut reversed = self.heap.vector(items).borrow().clone();
                 reversed.reverse();
-                Ok(Value::vector(reversed))
+                Ok(self.heap.alloc_vector(reversed))
             }
             ("contains?", [value]) => Ok(Value::Bool(
-                items.borrow().iter().any(|v| value_eq(v, value)),
+                self.heap
+                    .vector(items)
+                    .borrow()
+                    .iter()
+                    .any(|v| value_eq(&self.heap, v, value)),
             )),
             ("join", [Value::Str(sep)]) => {
-                let items = items.borrow().clone();
+                let items = self.heap.vector(items).borrow().clone();
                 let mut parts = Vec::with_capacity(items.len());
                 for item in &items {
                     match item {
@@ -243,15 +252,15 @@ impl Vm<'_> {
                 Ok(Value::str(parts.join(sep)))
             }
             ("map", [f]) => {
-                let snapshot = items.borrow().clone();
+                let snapshot = self.heap.vector(items).borrow().clone();
                 let mut mapped = Vec::with_capacity(snapshot.len());
                 for item in snapshot {
                     mapped.push(self.call_callable(f.clone(), vec![item])?);
                 }
-                Ok(Value::vector(mapped))
+                Ok(self.heap.alloc_vector(mapped))
             }
             ("filter", [f]) => {
-                let snapshot = items.borrow().clone();
+                let snapshot = self.heap.vector(items).borrow().clone();
                 let mut kept = Vec::new();
                 for item in snapshot {
                     match self.call_callable(f.clone(), vec![item.clone()])? {
@@ -264,17 +273,17 @@ impl Vm<'_> {
                         }
                     }
                 }
-                Ok(Value::vector(kept))
+                Ok(self.heap.alloc_vector(kept))
             }
             ("each", [f]) => {
-                let snapshot = items.borrow().clone();
+                let snapshot = self.heap.vector(items).borrow().clone();
                 for item in snapshot {
                     self.call_callable(f.clone(), vec![item])?;
                 }
                 Ok(Value::Unit)
             }
             ("sortBy", [f]) => {
-                let snapshot = items.borrow().clone();
+                let snapshot = self.heap.vector(items).borrow().clone();
                 self.sort_by(snapshot, f.clone())
             }
             _ => Err(builtin_error(name)),
@@ -303,44 +312,73 @@ impl Vm<'_> {
         }
 
         keyed.sort_by(|(a, _), (b, _)| value_cmp(a, b).unwrap_or(Ordering::Equal));
-        Ok(Value::vector(keyed.into_iter().map(|(_, v)| v).collect()))
+        Ok(self
+            .heap
+            .alloc_vector(keyed.into_iter().map(|(_, v)| v).collect()))
     }
 
     fn map_builtin(&mut self, recv: &Value, name: &str, args: &[Value]) -> VmResult {
         let Value::Map(entries) = recv else {
             return Err(builtin_error(name));
         };
+        let entries = *entries;
 
         match (name, args) {
-            ("len", []) => Ok(Value::Int(entries.borrow().len() as i64)),
-            ("keys", []) => Ok(Value::vector(
-                entries.borrow().iter().map(|(k, _)| k.clone()).collect(),
-            )),
-            ("values", []) => Ok(Value::vector(
-                entries.borrow().iter().map(|(_, v)| v.clone()).collect(),
-            )),
+            ("len", []) => Ok(Value::Int(self.heap.map(entries).borrow().len() as i64)),
+            ("keys", []) => {
+                let keys = self
+                    .heap
+                    .map(entries)
+                    .borrow()
+                    .iter()
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                Ok(self.heap.alloc_vector(keys))
+            }
+            ("values", []) => {
+                let values = self
+                    .heap
+                    .map(entries)
+                    .borrow()
+                    .iter()
+                    .map(|(_, v)| v.clone())
+                    .collect();
+                Ok(self.heap.alloc_vector(values))
+            }
             ("insert", [key, value]) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter_mut().find(|(k, _)| value_eq(k, key)) {
+                let mut entries = self.heap.map(entries).borrow_mut();
+                match entries
+                    .iter_mut()
+                    .find(|(k, _)| value_eq(&self.heap, k, key))
+                {
                     Some(entry) => entry.1 = value.clone(),
                     None => entries.push((key.clone(), value.clone())),
                 }
                 Ok(Value::Unit)
             }
             ("remove", [key]) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter().position(|(k, _)| value_eq(k, key)) {
+                let mut entries = self.heap.map(entries).borrow_mut();
+                match entries
+                    .iter()
+                    .position(|(k, _)| value_eq(&self.heap, k, key))
+                {
                     Some(index) => Ok(Value::some(entries.remove(index).1)),
                     None => Ok(Value::NONE),
                 }
             }
             ("has?", [key]) => Ok(Value::Bool(
-                entries.borrow().iter().any(|(k, _)| value_eq(k, key)),
+                self.heap
+                    .map(entries)
+                    .borrow()
+                    .iter()
+                    .any(|(k, _)| value_eq(&self.heap, k, key)),
             )),
-            ("get", [key]) => Ok(entries
+            ("get", [key]) => Ok(self
+                .heap
+                .map(entries)
                 .borrow()
                 .iter()
-                .find(|(k, _)| value_eq(k, key))
+                .find(|(k, _)| value_eq(&self.heap, k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             _ => Err(builtin_error(name)),
@@ -351,19 +389,20 @@ impl Vm<'_> {
         let Value::Set(items) = recv else {
             return Err(builtin_error(name));
         };
+        let items = *items;
 
         match (name, args) {
-            ("len", []) => Ok(Value::Int(items.borrow().len() as i64)),
+            ("len", []) => Ok(Value::Int(self.heap.set(items).borrow().len() as i64)),
             ("add", [value]) => {
-                let mut items = items.borrow_mut();
-                if !items.iter().any(|v| value_eq(v, value)) {
+                let mut items = self.heap.set(items).borrow_mut();
+                if !items.iter().any(|v| value_eq(&self.heap, v, value)) {
                     items.push(value.clone());
                 }
                 Ok(Value::Unit)
             }
             ("remove", [value]) => {
-                let mut items = items.borrow_mut();
-                match items.iter().position(|v| value_eq(v, value)) {
+                let mut items = self.heap.set(items).borrow_mut();
+                match items.iter().position(|v| value_eq(&self.heap, v, value)) {
                     Some(index) => {
                         items.remove(index);
                         Ok(Value::Bool(true))
@@ -372,7 +411,11 @@ impl Vm<'_> {
                 }
             }
             ("has?", [value]) => Ok(Value::Bool(
-                items.borrow().iter().any(|v| value_eq(v, value)),
+                self.heap
+                    .set(items)
+                    .borrow()
+                    .iter()
+                    .any(|v| value_eq(&self.heap, v, value)),
             )),
             _ => Err(builtin_error(name)),
         }

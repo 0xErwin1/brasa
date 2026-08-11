@@ -13,15 +13,19 @@ use std::rc::Rc;
 
 use brasa_bytecode::{BuiltinId, EnumId, FuncId, StructId};
 
+use crate::heap::{GcRef, Heap};
+
 /// Shared immutable heap handle.
 ///
-/// The GC unit (BRS-29) replaces these two aliases with GC-managed
-/// handles; every heap kind in [`Value`] routes through them so the
-/// swap touches the aliases, not the interpreter. Until then the VM
-/// models the shared heap with `Rc`, exactly like the walker.
+/// `Rc` is a precise collector for every kind behind these aliases:
+/// they are all frozen at construction, so they can never close a
+/// reference cycle (`crate::heap` module docs prove why). The four
+/// mutable, cycle-capable kinds — `Vector`, `Map`, `Set`, `Struct` —
+/// instead hold a [`GcRef`] into the mark-and-sweep arena.
 pub type Handle<T> = Rc<T>;
 
-/// Shared mutable heap handle (interior mutability); see [`Handle`].
+/// Shared mutable handle for the internal iterator state; see
+/// [`Handle`] (iterators never gain references after creation).
 pub type MutHandle<T> = Rc<RefCell<T>>;
 
 /// A Brasa runtime value in the VM.
@@ -40,14 +44,14 @@ pub enum Value {
         inclusive: bool,
     },
     Tuple(Handle<[Value]>),
-    Vector(MutHandle<Vec<Value>>),
+    Vector(GcRef),
     /// Insertion-ordered map with structural key lookup, as in the
     /// walker (a faster table is a later optimization).
-    Map(MutHandle<Vec<(Value, Value)>>),
+    Map(GcRef),
     /// Insertion-ordered set, same representation rationale as `Map`.
-    Set(MutHandle<Vec<Value>>),
+    Set(GcRef),
     Option(Option<Handle<Value>>),
-    Struct(Handle<StructValue>),
+    Struct(GcRef),
     Enum(Handle<EnumValue>),
     /// A function-table entry used as a value.
     Func(FuncId),
@@ -182,10 +186,6 @@ impl Value {
         Value::Str(Rc::from(s.as_ref()))
     }
 
-    pub fn vector(items: Vec<Value>) -> Value {
-        Value::Vector(Rc::new(RefCell::new(items)))
-    }
-
     pub fn some(inner: Value) -> Value {
         Value::Option(Some(Rc::new(inner)))
     }
@@ -195,8 +195,9 @@ impl Value {
 
 /// Structural equality, ported from the walker: floats follow IEEE
 /// (`NaN != NaN`), Maps and Sets compare content order-insensitively,
-/// functions and closures fall back to identity.
-pub fn value_eq(a: &Value, b: &Value) -> bool {
+/// functions and closures fall back to identity. Takes the heap to
+/// resolve the arena-managed container kinds.
+pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => x == y,
         (Value::Float(x), Value::Float(y)) => x == y,
@@ -213,32 +214,35 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
             },
         ) => lo == lo2 && hi == hi2 && inclusive == inclusive2,
         (Value::Tuple(x), Value::Tuple(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(a, b))
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(heap, a, b))
         }
         (Value::Vector(x), Value::Vector(y)) => {
-            let (x, y) = (x.borrow(), y.borrow());
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(a, b))
+            let (x, y) = (heap.vector(*x).borrow(), heap.vector(*y).borrow());
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(heap, a, b))
         }
         (Value::Map(x), Value::Map(y)) => {
-            let (x, y) = (x.borrow(), y.borrow());
+            let (x, y) = (heap.map(*x).borrow(), heap.map(*y).borrow());
             x.len() == y.len()
-                && x.iter()
-                    .all(|(k, v)| y.iter().any(|(k2, v2)| value_eq(k, k2) && value_eq(v, v2)))
+                && x.iter().all(|(k, v)| {
+                    y.iter()
+                        .any(|(k2, v2)| value_eq(heap, k, k2) && value_eq(heap, v, v2))
+                })
         }
         (Value::Set(x), Value::Set(y)) => {
-            let (x, y) = (x.borrow(), y.borrow());
-            x.len() == y.len() && x.iter().all(|a| y.iter().any(|b| value_eq(a, b)))
+            let (x, y) = (heap.set(*x).borrow(), heap.set(*y).borrow());
+            x.len() == y.len() && x.iter().all(|a| y.iter().any(|b| value_eq(heap, a, b)))
         }
         (Value::Option(x), Value::Option(y)) => match (x, y) {
-            (Some(x), Some(y)) => value_eq(x, y),
+            (Some(x), Some(y)) => value_eq(heap, x, y),
             (None, None) => true,
             _ => false,
         },
         (Value::Struct(x), Value::Struct(y)) => {
+            let (x, y) = (heap.struct_value(*x), heap.struct_value(*y));
             let (fx, fy) = (x.fields.borrow(), y.fields.borrow());
             x.shape == y.shape
                 && fx.len() == fy.len()
-                && fx.iter().zip(fy.iter()).all(|(a, b)| value_eq(a, b))
+                && fx.iter().zip(fy.iter()).all(|(a, b)| value_eq(heap, a, b))
         }
         (Value::Enum(x), Value::Enum(y)) => {
             x.shape == y.shape
@@ -247,7 +251,7 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
                 && x.fields
                     .iter()
                     .zip(y.fields.iter())
-                    .all(|(a, b)| value_eq(a, b))
+                    .all(|(a, b)| value_eq(heap, a, b))
         }
         (Value::Func(x), Value::Func(y)) => x == y,
         (

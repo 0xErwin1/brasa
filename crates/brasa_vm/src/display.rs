@@ -56,17 +56,17 @@ impl<'a> Vm<'a> {
                 Ok(format!("({})", parts.join(", ")))
             }
             Value::Vector(items) => {
-                let items = items.borrow().clone();
+                let items = self.heap.vector(*items).borrow().clone();
                 let parts = self.render_all(&items, depth)?;
                 Ok(format!("[{}]", parts.join(", ")))
             }
             Value::Set(items) => {
-                let items = items.borrow().clone();
+                let items = self.heap.set(*items).borrow().clone();
                 let parts = self.render_all(&items, depth)?;
                 Ok(format!("Set([{}])", parts.join(", ")))
             }
             Value::Map(entries) => {
-                let entries = entries.borrow().clone();
+                let entries = self.heap.map(*entries).borrow().clone();
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }
@@ -86,7 +86,7 @@ impl<'a> Vm<'a> {
                 None => Ok("None".to_string()),
             },
             Value::Struct(s) => {
-                let shape = self.module_struct(s.shape);
+                let shape = self.module_struct(self.heap.struct_value(*s).shape);
                 if let Some(to_string) = shape.to_string {
                     let text = self.call_function(to_string, vec![value.clone()])?;
                     return match text {
@@ -97,7 +97,7 @@ impl<'a> Vm<'a> {
                     };
                 }
 
-                let fields = s.fields.borrow().clone();
+                let fields = self.heap.struct_value(*s).fields.borrow().clone();
                 if fields.is_empty() {
                     return Ok(format!("{} {{}}", shape.name));
                 }

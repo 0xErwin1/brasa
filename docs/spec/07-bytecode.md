@@ -3,9 +3,9 @@
 > Status: draft for review (M3, unit BRS-26). The reference semantics are
 > the M1/M2 tree-walker (`crates/brasa_interp`): where this document and
 > the walker's observable behavior disagree, the walker wins and this
-> document has a bug. HIR→bytecode compilation (BRS-27), the VM loop and
-> GC (BRS-28), and string interning (BRS-29) build on this design; the
-> container types live in `crates/brasa_bytecode`.
+> document has a bug. HIR→bytecode compilation (BRS-27), the VM loop
+> (BRS-28), and GC plus string interning (BRS-29) build on this design;
+> the container types live in `crates/brasa_bytecode`.
 
 ## Scope
 
@@ -214,9 +214,47 @@ four comparable primitives, and derived `toString` (recursion-capped at
 depth 100) all behave exactly as the walker's `value_eq` / `value_cmp` /
 `display`; the VM reuses the same rules over the new representation.
 
-GC contract (design constraint on BRS-28, not specced here): precise and
-simple; the root set is the value stack, the global slots, and nothing
-else — frames hold no `Value`s outside the stack.
+### GC: precise mark & sweep over the mutable kinds (BRS-29)
+
+Reference cycles ARE constructible in the language: the checker accepts
+recursive struct types (`struct S` with a `Vector<S>` field), containers
+are shared mutable references (`docs/spec/03-types.md`), so
+`s.v.push(s)` closes a cycle — as does storing a closure inside a
+container it captures. Plain reference counting therefore leaks, and the
+VM collects with mark & sweep. Design, as implemented:
+
+- **Arena scope**: only the four kinds that can gain references after
+  creation — `Vector`, `Map`, `Set`, `Struct` (the language's only
+  post-creation mutations are field assignment, index assignment, and
+  the mutating container builtins) — live in the arena behind opaque
+  indices. Every reference cycle must pass through one of them. The
+  immutable kinds (strings, tuples, enum payloads, closures, bound
+  methods, `Option` payloads, caught signals, iterators) are frozen at
+  construction, provably cycle-free, and stay behind `Rc`: for them
+  reference counting IS precise. The tracer walks through immutable
+  structure to reach arena cells; sweeping an unreachable cell breaks
+  its cycle and the `Rc` remainder unwinds.
+- **Roots**: precise and simple; the root set is the value stack, the
+  global slots, and nothing else — frames hold no `Value`s outside the
+  stack (caught signals and loop iterators are ordinary stack values).
+- **Trigger and pause behavior**: collection arms when the live arena
+  count reaches a threshold (default 1024) and runs at the next
+  top-level instruction boundary; the post-collection threshold is
+  `max(initial, 2 × live)`. A collection never interrupts an
+  instruction or a nested native call (builtin HOFs, `toString`
+  rendering) — those hold values in Rust locals the collector cannot
+  see, so garbage created inside one is reclaimed at the next top-level
+  boundary. Pauses are stop-the-world and proportional to live data.
+- **String interning**: the module constant pool's strings are interned
+  once at load into a content-keyed table, so every `const` push shares
+  one allocation. Runtime-computed strings (`concat`, `toString`,
+  string builtins) are not interned. Interning is invisible: equality
+  stays structural, strings have no identity semantics.
+
+The future trigger for widening the arena is any feature that lets an
+immutable kind reference a value created after it (by-reference capture,
+lazy/deferred initialization); recursive types need nothing new — the
+arena already covers them.
 
 ## Instruction set
 
