@@ -783,11 +783,13 @@ end
 
 // --- BRS-25 pinned territory: throws contracts over open sets -------------
 
-// A `throws` TYPE LIST over a body opened by an indirect call is
-// tolerated (check.rs: the declaration is the contract, no
-// exhaustiveness claim), unlike `throws never`, which E005 rejects.
-errorset_test!(
-    declared_throws_tolerates_open_indirect_body,
+// A `throws` TYPE LIST over a body opened by an indirect call cannot
+// be verified: `f` may throw anything, so a caller writing
+// `catch (e) NetError => ...` on the strength of the declaration would
+// not handle what escapes. E004 in its unverifiable wording, the same
+// answer E003 gives `catch!` and E005 gives `throws never`.
+errorset_error_test!(
+    declared_throws_over_open_indirect_body_is_unverifiable,
     r#"
 struct NetError
   detail: string
@@ -795,6 +797,29 @@ end
 
 def callThrough(f: () -> int): int throws NetError
   f()
+end
+"#
+);
+
+// An undeclared tag and an open set are independent findings on the
+// same function: the first names what the body demonstrably throws, the
+// second says the list cannot be proven complete. Both are reported.
+errorset_error_test!(
+    declared_throws_reports_undeclared_tag_and_openness_together,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct DiskError
+  path: string
+end
+
+def callThrough(f: () -> int): int throws NetError
+  if f() == 0
+    throw DiskError { path: "/tmp" }
+  end
+  1
 end
 "#
 );

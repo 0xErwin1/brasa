@@ -21,11 +21,12 @@
 //! - `throws` over-declaration (declaring a type the body never
 //!   throws) gets no diagnostic: the spec is silent, and a widened
 //!   contract is harmless.
-//! - With an open actual set, a declared `throws` list still checks
-//!   the tags that WERE found (E004) but tolerates the openness: the
-//!   declaration is the contract, and unlike `catch!` there is no
-//!   exhaustiveness claim to prove. This is deliberately asymmetric
-//!   with E003.
+//! - A declared `throws` list over an open set is E004 in its
+//!   unverifiable wording, alongside any concrete undeclared tag. A
+//!   `throws` list names everything the body can throw, so an open set
+//!   leaves that claim unproven, and a `catch` written on the strength
+//!   of the declaration would not handle what escapes. This is the
+//!   same rule E003 applies to `catch!` and E005 to `throws never`.
 //! - A declared `throws` name resolving to something that is not a
 //!   throwable nominal or primitive (an interface, a generic
 //!   parameter) maps to no tag and is skipped, like the equivalent
@@ -49,6 +50,10 @@ use brasa_source::Span;
 use crate::collect::{arm_tag, caught_tag};
 use crate::dump::{def_ref_name, tag_name};
 use crate::{ErrorSet, ErrorTag};
+
+/// What every "cannot be verified" diagnostic tells the reader, since
+/// openness is a property of the analysis rather than of any one line.
+const OPEN_SET_NOTE: &str = "an indirect call or a throw of unknown type makes the set open";
 
 fn err(code: &'static str, span: Span, message: String, label: &str) -> Diagnostic {
     Diagnostic::new(Severity::Error, message, code.to_string(), span)
@@ -130,9 +135,7 @@ pub(crate) fn catch_expr(
                 "catch! cannot be verified: the subject's error-set is open".to_string(),
                 "the error-set of this expression is open",
             )
-            .with_note(
-                "an indirect call or a throw of unknown type makes the set open".to_string(),
-            ),
+            .with_note(OPEN_SET_NOTE.to_string()),
         );
         return;
     }
@@ -216,12 +219,15 @@ pub(crate) fn throws_contract(
                     "this function can throw",
                 ));
             } else if set.open {
-                diagnostics.push(err(
-                    codes::E_THROWS_NEVER_VIOLATED,
-                    span,
-                    format!("cannot verify `throws never`: `{name}`'s error-set is open"),
-                    "the error-set of this function is open",
-                ));
+                diagnostics.push(
+                    err(
+                        codes::E_THROWS_NEVER_VIOLATED,
+                        span,
+                        format!("cannot verify `throws never`: `{name}`'s error-set is open"),
+                        "the error-set of this function is open",
+                    )
+                    .with_note(OPEN_SET_NOTE.to_string()),
+                );
             }
         }
         Some(Throws::Types(_)) => {
@@ -245,6 +251,23 @@ pub(crate) fn throws_contract(
                         &format!("this function can throw `{tag}`"),
                     ));
                 }
+            }
+
+            // The undeclared tags above are what the set proves; this is
+            // what it leaves unproven. Both can fire on the same
+            // function, and neither causes the other: one asks for a
+            // wider declaration, the other for a call the analysis can
+            // see through.
+            if set.open {
+                diagnostics.push(
+                    err(
+                        codes::E_UNDECLARED_THROW,
+                        span,
+                        format!("cannot verify `throws`: `{name}`'s error-set is open"),
+                        "the error-set of this function is open",
+                    )
+                    .with_note(OPEN_SET_NOTE.to_string()),
+                );
             }
         }
     }

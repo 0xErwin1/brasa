@@ -180,8 +180,10 @@ pub const E_CATCH_ALL_NOT_EXHAUSTIVE: &str = "E002";
 /// A `catch!` whose subject's error-set is open, so exhaustiveness
 /// cannot be verified.
 pub const E_UNVERIFIABLE_EXHAUSTIVENESS: &str = "E003";
-/// A function whose inferred error-set contains a type its declared
-/// `throws` list does not name.
+/// A declared `throws` list the body does not honor: the inferred
+/// error-set contains a type the list does not name, or it is open
+/// (and the list, being a claim about everything the body can throw,
+/// is therefore unverifiable).
 pub const E_UNDECLARED_THROW: &str = "E004";
 /// A `throws never` contract the body violates: the inferred error-set
 /// is non-empty, or open (and therefore unverifiable).

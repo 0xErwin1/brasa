@@ -1,0 +1,13 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E004] Error: cannot verify `throws`: `callThrough`'s error-set is open
+   ╭─[ declared_throws_over_open_indirect_body_is_unverifiable.brs:6:5 ]
+   │
+ 6 │ def callThrough(f: () -> int): int throws NetError
+   │     ─────┬─────  
+   │          ╰─────── the error-set of this function is open
+   │ 
+   │ Note: an indirect call or a throw of unknown type makes the set open
+───╯

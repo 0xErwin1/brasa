@@ -15,4 +15,6 @@ expression: rendered
  13 │ def runThrough(f: () -> int): int throws never
     │     ─────┬────  
     │          ╰────── the error-set of this function is open
+    │ 
+    │ Note: an indirect call or a throw of unknown type makes the set open
 ────╯

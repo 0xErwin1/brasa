@@ -56,6 +56,15 @@ end
 ```
 
 - If the body can throw something undeclared, it's a compile error.
+- A `throws` list is a claim about **everything** the body can throw, so
+  it is rejected when the body's inferred set is open — an indirect call
+  or a throw of unknown type — even though nothing undeclared was
+  actually found. Tolerating openness would let a caller write a `catch`
+  on the strength of the declaration and still be hit by what escapes;
+  the declaration would name a lower bound while reading like a
+  contract. Same rule as `catch!` exhaustiveness and `throws never`.
+- Over-declaring is fine: naming a type the body never throws is a
+  wider contract, not an error.
 - `throws never` asserts that the function does not throw (it may still
   panic).
 - `interface` methods MUST declare `throws` if they throw: an interface

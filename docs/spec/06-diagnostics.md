@@ -239,7 +239,7 @@ Notes on kind boundaries:
 | `E001` | unreachable `catch` arm | ``unreachable `catch` arm: `ParseError` is not in the error-set here`` |
 | `E002` | `catch!` not exhaustive | ``catch! does not handle `NetError` and `ParseError` `` |
 | `E003` | unverifiable exhaustiveness | `catch! cannot be verified: the subject's error-set is open` |
-| `E004` | undeclared throw | `` `fetch` throws `DnsError` but does not declare it`` |
+| `E004` | undeclared or unverifiable throw | `` `fetch` throws `DnsError` but does not declare it`` |
 | `E005` | `throws never` violated | `` `boom` declares `throws never` but can throw `BoomError` `` |
 
 Notes on kind boundaries:
@@ -263,11 +263,14 @@ Notes on kind boundaries:
   subtraction uses.
 - `E003` is `catch!` over an OPEN subject set: soundness forbids
   claiming exhaustiveness over an incomplete list.
-- `E004` checks the inferred tags against the declared `throws` list;
-  an open actual set is tolerated (the declaration is the contract,
-  there is no exhaustiveness claim to prove — deliberately asymmetric
-  with `E003`). Over-declaration (declaring a type the body never
-  throws) gets no diagnostic. Interface-member `throws` names are
+- `E004` backs two wordings under one kind, like `E005`: a concrete
+  violation (an inferred tag the declared `throws` list does not name)
+  and the unverifiable case (an open inferred set, which leaves the
+  list unprovable — a `throws` list claims to name everything the body
+  can throw). Both fire on the same function when both hold: neither
+  causes the other, and they ask for different repairs. Over-declaration
+  (declaring a type the body never throws) gets no diagnostic:
+  a wider contract is harmless. Interface-member `throws` names are
   validated at resolution (`R003` on an unknown name), but the
   contracts themselves are not enforced yet (deferred with interface
   satisfaction, M3+).
