@@ -9,6 +9,7 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+use brasa_interp::fs_glue;
 use brasa_interp::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
@@ -76,6 +77,8 @@ impl Vm<'_> {
                     self.proc_call(member, args)
                 } else if let Some(member) = name.strip_prefix("env.") {
                     self.env_call(member, args)
+                } else if let Some(member) = name.strip_prefix("fs.") {
+                    self.fs_call(member, args)
                 } else {
                     unreachable!("unknown free builtin `{name}`")
                 }
@@ -179,13 +182,68 @@ impl Vm<'_> {
                 let args = self.script_args.iter().map(Value::str).collect();
                 Ok(self.heap.alloc_vector(args))
             }
-            ("get" | "set" | "vars" | "args", _) => Err(Signal::Fatal(format!(
+            ("cwd", []) => fs_str(fs_glue::cwd()),
+            ("cd", [Value::Str(path)]) => fs_unit(fs_glue::cd(path)),
+            ("get" | "set" | "vars" | "args" | "cwd" | "cd", _) => Err(Signal::Fatal(format!(
                 "brasa: invalid argument(s) to `env.{name}`"
             ))),
             _ => Err(Signal::Fatal(format!(
                 "brasa: unknown member `{name}` on module `env`"
             ))),
         }
+    }
+
+    /// The `std::fs` members plus path helpers, ported from the
+    /// walker's `fs_call` (BRS-33, `docs/spec/05-stdlib.md`); all OS
+    /// behavior lives in the shared `brasa_interp::fs_glue`, only value
+    /// construction happens here.
+    fn fs_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("read", [Value::Str(path)]) => fs_str(fs_glue::read(path)),
+            ("write", [Value::Str(path), Value::Str(contents)]) => {
+                fs_unit(fs_glue::write(path, contents))
+            }
+            ("append", [Value::Str(path), Value::Str(contents)]) => {
+                fs_unit(fs_glue::append(path, contents))
+            }
+            ("exists?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::exists(path))),
+            ("isFile?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_file(path))),
+            ("isDir?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_dir(path))),
+            ("ls", [Value::Str(path)]) => self.fs_strings(fs_glue::ls(path)),
+            ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
+            ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path)),
+            ("mkdir", [Value::Str(path)]) => fs_unit(fs_glue::mkdir(path)),
+            ("mkdirAll", [Value::Str(path)]) => fs_unit(fs_glue::mkdir_all(path)),
+            ("rm", [Value::Str(path)]) => fs_unit(fs_glue::rm(path)),
+            ("rmAll", [Value::Str(path)]) => fs_unit(fs_glue::rm_all(path)),
+            ("cp", [Value::Str(from), Value::Str(to)]) => fs_unit(fs_glue::cp(from, to)),
+            ("mv", [Value::Str(from), Value::Str(to)]) => fs_unit(fs_glue::mv(from, to)),
+            ("join", [Value::Str(base), Value::Str(part)]) => {
+                Ok(Value::str(fs_glue::join(base, part)))
+            }
+            ("base", [Value::Str(path)]) => Ok(Value::str(fs_glue::base(path))),
+            ("dir", [Value::Str(path)]) => Ok(Value::str(fs_glue::dir(path))),
+            ("ext", [Value::Str(path)]) => Ok(Value::str(fs_glue::ext(path))),
+            ("abs", [Value::Str(path)]) => fs_str(fs_glue::abs(path)),
+            (
+                "read" | "write" | "append" | "exists?" | "isFile?" | "isDir?" | "ls" | "glob"
+                | "walk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join" | "base"
+                | "dir" | "ext" | "abs",
+                _,
+            ) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `fs.{name}`"
+            ))),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `fs`"
+            ))),
+        }
+    }
+
+    fn fs_strings(&mut self, result: fs_glue::FsResult<Vec<String>>) -> VmResult {
+        let items = result.map_err(fs_signal)?;
+        Ok(self
+            .heap
+            .alloc_vector(items.into_iter().map(Value::str).collect()))
     }
 
     /// The `std::math` slice executable in M1: f64 semantics
@@ -639,4 +697,16 @@ fn native_error(name: &'static str, message: String) -> Signal {
         name,
         message: Rc::from(message),
     })
+}
+
+fn fs_signal(err: fs_glue::FsError) -> Signal {
+    native_error(err.name, err.message)
+}
+
+fn fs_str(result: fs_glue::FsResult<String>) -> VmResult {
+    result.map(Value::str).map_err(fs_signal)
+}
+
+fn fs_unit(result: fs_glue::FsResult<()>) -> VmResult {
+    result.map(|()| Value::Unit).map_err(fs_signal)
 }

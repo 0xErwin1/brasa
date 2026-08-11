@@ -163,20 +163,36 @@ pub const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
 /// cannot start — missing binary, permission denied, empty command).
 pub const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
 
+/// The canonical qualified name of the native `fs` not-found error
+/// (`docs/spec/05-stdlib.md`, BRS-33: a path that does not exist).
+pub const FS_NOT_FOUND: &str = "fs.NotFound";
+
+/// The canonical qualified name of the native `fs` permission error
+/// (`docs/spec/05-stdlib.md`, BRS-33: the OS denied the operation).
+pub const FS_DENIED: &str = "fs.Denied";
+
+/// The canonical qualified name of the native `fs` catch-all I/O error
+/// (`docs/spec/05-stdlib.md`, BRS-33: every other OS failure, carrying
+/// the OS message).
+pub const FS_IO_ERROR: &str = "fs.IoError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
 /// dotted `catch` arm names in these namespaces against it, the
 /// error-set pass tags native throwers with these names, and the
-/// interpreter raises them verbatim. M4 extends it with the `fs` and
-/// `json` errors; other dotted roots stay unchecked until then. Unlike
-/// panics, these ARE errors: they appear in error-sets and `_` catches
-/// them (`docs/spec/04-errors.md`).
+/// interpreter raises them verbatim. M4 still owes the `json` errors;
+/// other dotted roots stay unchecked until then. Unlike panics, these
+/// ARE errors: they appear in error-sets and `_` catches them
+/// (`docs/spec/04-errors.md`).
 pub const NATIVE_ERRORS: &[&str] = &[
     STRING_PARSE_ERROR,
     STRING_REGEX_ERROR,
     PROC_NON_ZERO_EXIT,
     PROC_SPAWN_ERROR,
+    FS_NOT_FOUND,
+    FS_DENIED,
+    FS_IO_ERROR,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace

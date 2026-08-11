@@ -854,3 +854,47 @@ env.set("A", 1)
 env.unknown("x")
 "#
 );
+
+typecheck_test!(
+    fs_module_signatures,
+    r#"
+import std::fs
+import std::env
+
+let text = fs.read("/tmp/in.txt")
+fs.write("/tmp/out.txt", text)
+fs.append("/tmp/out.txt", "more")
+let there = fs.exists?("/tmp")
+let file = fs.isFile?("/tmp/in.txt")
+let folder = fs.isDir?("/tmp")
+let names = fs.ls("/tmp")
+let matched = fs.glob("/tmp/*.txt")
+let everything = fs.walk("/tmp")
+fs.mkdir("/tmp/a")
+fs.mkdirAll("/tmp/a/b/c")
+fs.cp("/tmp/in.txt", "/tmp/copy.txt")
+fs.mv("/tmp/copy.txt", "/tmp/moved.txt")
+fs.rm("/tmp/moved.txt")
+fs.rmAll("/tmp/a")
+let rebuilt = fs.join(fs.dir("/tmp/in.txt"), fs.base("/tmp/in.txt"))
+let extension = fs.ext("/tmp/in.txt")
+let absolute = fs.abs("rel.txt")
+let here = env.cwd()
+env.cd("/tmp")
+"#
+);
+
+typecheck_error_test!(
+    fs_module_call_errors,
+    r#"
+import std::fs
+import std::env
+
+fs.read(42)
+fs.write("/tmp/x")
+fs.join("a", "b", "c")
+fs.nope("x")
+env.cwd("x")
+env.cd()
+"#
+);

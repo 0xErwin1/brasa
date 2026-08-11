@@ -137,10 +137,10 @@ Notes on kind boundaries:
 - `R011` and `R012` cover the closed builtin `catch`-arm namespaces:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
   stdlib-error names (`string.ParseError`, `string.RegexError`,
-  `proc.NonZeroExit`, `proc.SpawnError`, `05-stdlib.md`) — both
-  builtin, no import needed. Dotted arm names in roots that have not
-  landed (`fs.`, `json.`) are not yet checked — their namespaces land
-  during M4.
+  `proc.NonZeroExit`, `proc.SpawnError`, `fs.NotFound`, `fs.Denied`,
+  `fs.IoError`, `05-stdlib.md`) — both builtin, no import needed.
+  Dotted arm names in roots that have not landed (`json.`) are not yet
+  checked — that namespace lands during M4.
 
 ### Type checker (`T`)
 

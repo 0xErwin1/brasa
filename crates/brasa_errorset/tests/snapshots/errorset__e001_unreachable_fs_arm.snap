@@ -1,0 +1,11 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E001] Error: unreachable `catch` arm: `fs.NotFound` is not in the error-set here
+   ╭─[ e001_unreachable_fs_arm.brs:6:5 ]
+   │
+ 6 │     fs.NotFound => "unused"
+   │     ─────┬─────  
+   │          ╰─────── this expression cannot throw `fs.NotFound`
+───╯

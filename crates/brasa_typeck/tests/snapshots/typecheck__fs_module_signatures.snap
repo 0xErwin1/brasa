@@ -1,0 +1,107 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 text -> string
+  i5 there -> bool
+  i6 file -> bool
+  i7 folder -> bool
+  i8 names -> Vector<string>
+  i9 matched -> Vector<string>
+  i10 everything -> Vector<string>
+  i17 rebuilt -> string
+  i18 extension -> string
+  i19 absolute -> string
+  i20 here -> string
+expr types
+  e0 -> unknown
+  e1 -> unknown
+  e2 -> string
+  e3 -> string
+  e4 -> unknown
+  e5 -> unknown
+  e6 -> string
+  e7 -> string
+  e8 -> unit
+  e9 -> unknown
+  e10 -> unknown
+  e11 -> string
+  e12 -> string
+  e13 -> unit
+  e14 -> unknown
+  e15 -> unknown
+  e16 -> string
+  e17 -> bool
+  e18 -> unknown
+  e19 -> unknown
+  e20 -> string
+  e21 -> bool
+  e22 -> unknown
+  e23 -> unknown
+  e24 -> string
+  e25 -> bool
+  e26 -> unknown
+  e27 -> unknown
+  e28 -> string
+  e29 -> Vector<string>
+  e30 -> unknown
+  e31 -> unknown
+  e32 -> string
+  e33 -> Vector<string>
+  e34 -> unknown
+  e35 -> unknown
+  e36 -> string
+  e37 -> Vector<string>
+  e38 -> unknown
+  e39 -> unknown
+  e40 -> string
+  e41 -> unit
+  e42 -> unknown
+  e43 -> unknown
+  e44 -> string
+  e45 -> unit
+  e46 -> unknown
+  e47 -> unknown
+  e48 -> string
+  e49 -> string
+  e50 -> unit
+  e51 -> unknown
+  e52 -> unknown
+  e53 -> string
+  e54 -> string
+  e55 -> unit
+  e56 -> unknown
+  e57 -> unknown
+  e58 -> string
+  e59 -> unit
+  e60 -> unknown
+  e61 -> unknown
+  e62 -> string
+  e63 -> unit
+  e64 -> unknown
+  e65 -> unknown
+  e66 -> unknown
+  e67 -> unknown
+  e68 -> string
+  e69 -> string
+  e70 -> unknown
+  e71 -> unknown
+  e72 -> string
+  e73 -> string
+  e74 -> string
+  e75 -> unknown
+  e76 -> unknown
+  e77 -> string
+  e78 -> string
+  e79 -> unknown
+  e80 -> unknown
+  e81 -> string
+  e82 -> string
+  e83 -> unknown
+  e84 -> unknown
+  e85 -> string
+  e86 -> unknown
+  e87 -> unknown
+  e88 -> string
+  e89 -> unit

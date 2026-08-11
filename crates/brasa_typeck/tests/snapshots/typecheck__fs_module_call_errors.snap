@@ -1,0 +1,46 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `string`, found `int`
+   ╭─[ fs_module_call_errors.brs:5:9 ]
+   │
+ 5 │ fs.read(42)
+   │         ─┬  
+   │          ╰── expected `string`
+───╯
+[T005] Error: wrong number of arguments: expected 2, found 1
+   ╭─[ fs_module_call_errors.brs:6:1 ]
+   │
+ 6 │ fs.write("/tmp/x")
+   │ ─────────┬─────────  
+   │          ╰─────────── expected 2 argument(s)
+───╯
+[T005] Error: wrong number of arguments: expected 2, found 3
+   ╭─[ fs_module_call_errors.brs:7:1 ]
+   │
+ 7 │ fs.join("a", "b", "c")
+   │ ───────────┬───────────  
+   │            ╰───────────── expected 2 argument(s)
+───╯
+[T007] Error: module `fs` has no member `nope`
+   ╭─[ fs_module_call_errors.brs:8:1 ]
+   │
+ 8 │ fs.nope("x")
+   │ ──────┬──────  
+   │       ╰──────── unknown member
+───╯
+[T005] Error: wrong number of arguments: expected 0, found 1
+   ╭─[ fs_module_call_errors.brs:9:1 ]
+   │
+ 9 │ env.cwd("x")
+   │ ──────┬──────  
+   │       ╰──────── expected 0 argument(s)
+───╯
+[T005] Error: wrong number of arguments: expected 1, found 0
+    ╭─[ fs_module_call_errors.brs:10:1 ]
+    │
+ 10 │ env.cd()
+    │ ────┬────  
+    │     ╰────── expected 1 argument(s)
+────╯

@@ -12,7 +12,10 @@
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
 //! | `proc.run` / `proc.shell` | the `Opaque("proc.NonZeroExit")` and `Opaque("proc.SpawnError")` tags (BRS-32) |
 //! | `proc.tryRun` | the `Opaque("proc.SpawnError")` tag only — it never throws `NonZeroExit` |
-//! | any other stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
+//! | the throwing `fs` members and `env.cd` | all three `fs` tags (`fs.NotFound`, `fs.Denied`, `fs.IoError`) — BRS-33 |
+//! | `fs.abs` / `env.cwd` | the `Opaque("fs.IoError")` tag only (an unreadable current directory) |
+//! | the `fs` predicates and pure path helpers | nothing — they never throw |
+//! | any other stdlib module member (`json.parse(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
@@ -34,8 +37,8 @@ use brasa_hir::{
     LambdaBody, Stmt, StmtId,
 };
 use brasa_resolver::{
-    BuiltinType, DefRef, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions,
-    STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
+    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, PROC_NON_ZERO_EXIT,
+    PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
 };
 use brasa_typeck::{Type, TypeTables};
 
@@ -302,26 +305,40 @@ impl<'a> Collector<'a> {
 
     fn method_call(&mut self, recv: ExprId, name: &str, args: &[ExprId]) -> ErrorSet {
         if self.is_module_ref(recv) {
-            // The `std::proc` runners are the throwing module members
-            // whose signatures have closed (BRS-32,
-            // `docs/spec/05-stdlib.md`): `run`/`shell` raise
-            // `proc.NonZeroExit` on a non-zero exit and every runner
-            // raises `proc.SpawnError` when the child cannot start.
-            // Members of still-open modules are native and throw
-            // nothing until their signatures close during M4.
+            // The throwing module members whose signatures have closed
+            // (`docs/spec/05-stdlib.md`). BRS-32: the `proc` runners
+            // raise `proc.NonZeroExit` on a non-zero exit and
+            // `proc.SpawnError` when the child cannot start. BRS-33:
+            // the filesystem-touching `fs` members and `env.cd` raise
+            // the three `fs` errors; `fs.abs` and `env.cwd` only
+            // `fs.IoError` (an unreadable current directory); the
+            // predicates and pure path helpers never throw. Members of
+            // still-open modules are native and throw nothing until
+            // their signatures close during M4.
             let mut set = self.args(args);
 
-            if self.std_module_of(recv).as_deref() == Some("proc") {
-                match name {
-                    "run" | "shell" => {
-                        set.tags.insert(ErrorTag::Opaque(PROC_NON_ZERO_EXIT));
-                        set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
-                    }
-                    "tryRun" => {
-                        set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
-                    }
-                    _ => {}
+            match (self.std_module_of(recv).as_deref(), name) {
+                (Some("proc"), "run" | "shell") => {
+                    set.tags.insert(ErrorTag::Opaque(PROC_NON_ZERO_EXIT));
+                    set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
                 }
+                (Some("proc"), "tryRun") => {
+                    set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
+                }
+                (
+                    Some("fs"),
+                    "read" | "write" | "append" | "ls" | "glob" | "walk" | "mkdir" | "mkdirAll"
+                    | "rm" | "rmAll" | "cp" | "mv",
+                )
+                | (Some("env"), "cd") => {
+                    set.tags.insert(ErrorTag::Opaque(FS_NOT_FOUND));
+                    set.tags.insert(ErrorTag::Opaque(FS_DENIED));
+                    set.tags.insert(ErrorTag::Opaque(FS_IO_ERROR));
+                }
+                (Some("fs"), "abs") | (Some("env"), "cwd") => {
+                    set.tags.insert(ErrorTag::Opaque(FS_IO_ERROR));
+                }
+                _ => {}
             }
 
             return set;
@@ -464,8 +481,8 @@ impl<'a> Collector<'a> {
     /// - panic arms (`panics.X`, recorded in `catch_arm_panics`, which
     ///   this pass never reads) subtract nothing: panics are not in
     ///   error-sets (`docs/spec/04-errors.md`);
-    /// - dotted names in namespaces that have not landed (`fs.`,
-    ///   `json.` — M4) and unresolved arm names subtract nothing.
+    /// - dotted names in namespaces that have not landed (`json.` —
+    ///   M4) and unresolved arm names subtract nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set

@@ -12,6 +12,9 @@ ariadne = "0.5"
 # the 1.x line, linear-time engine, same syntax the spec promises for
 # `std::re`.
 regex = "1.13"
+# `fs.glob` (`docs/spec/05-stdlib.md`, BRS-33): the rust-lang glob
+# crate, pinned to the 0.3 line — dependency-free and boring.
+glob = "0.3"
 
 brasa_arena = { path = "crates/brasa_arena" }
 brasa_source = { path = "crates/brasa_source" }

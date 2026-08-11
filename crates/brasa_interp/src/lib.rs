@@ -16,6 +16,7 @@
 //! panic additionally carries the call chain).
 
 mod builtins;
+pub mod fs_glue;
 mod interp;
 pub mod proc_env;
 mod value;

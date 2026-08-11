@@ -81,9 +81,9 @@ pub enum ErrorTag {
     /// A thrown primitive value (`throw "boom"`).
     Primitive(Primitive),
     /// A stdlib-native error, by its canonical qualified name from
-    /// `brasa_resolver::NATIVE_ERRORS` (`string.ParseError`; the `fs`,
-    /// `proc`, and `json` errors join in M4). Nominal like the other
-    /// tags: the name IS the identity.
+    /// `brasa_resolver::NATIVE_ERRORS` (`string.ParseError`, the
+    /// `proc` and `fs` errors; `json` joins later in M4). Nominal like
+    /// the other tags: the name IS the identity.
     Opaque(&'static str),
 }
 

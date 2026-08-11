@@ -391,7 +391,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
             .unwrap_or_else(|| path.clone()),
     };
 
-    if is_std && matches!(module.as_str(), "math" | "proc" | "env") {
+    if is_std && matches!(module.as_str(), "math" | "proc" | "env" | "fs") {
         if let Some(builtin) = builtin_id(&format!("{module}.{name}")) {
             for &arg in args {
                 compile_expr(f, arg);

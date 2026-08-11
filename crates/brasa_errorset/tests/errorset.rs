@@ -260,10 +260,10 @@ end
 errorset_test!(
     unknown_throw_opens_the_set,
     r#"
-import std::fs
+import std::io
 
-def readAny(path: string): string
-  let data = fs.read(path)
+def readAny(): string
+  let data = io.readAll()
   throw data
 end
 "#
@@ -1066,6 +1066,56 @@ import std::proc
 def calm(): int
   proc.tryRun(["true"]).code catch (e)
     proc.NonZeroExit => -1
+  end
+end
+"#
+);
+
+errorset_test!(
+    fs_members_and_env_cd_tag_the_set,
+    r#"
+import std::fs
+import std::env
+
+def load(path: string): string
+  fs.read(path)
+end
+
+def loaded(path: string): string
+  fs.read(path) catch (e)
+    fs.NotFound => "missing"
+    fs.Denied => "denied"
+    fs.IoError => e
+  end
+end
+
+def rebuilt(path: string): string
+  fs.join(fs.dir(path), fs.base(path)) + fs.ext(path)
+end
+
+def checks(path: string): bool
+  fs.exists?(path)
+end
+
+def resolved(path: string): string
+  fs.abs(path)
+end
+
+def hop(path: string): string
+  env.cd(path)
+  env.cwd()
+end
+"#
+);
+
+errorset_error_test!(
+    e001_unreachable_fs_arm,
+    r#"
+import std::fs
+
+def stem(path: string): string
+  fs.base(path) catch (e)
+    fs.NotFound => "unused"
   end
 end
 "#

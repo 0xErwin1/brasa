@@ -1538,3 +1538,222 @@ fn env_args_are_the_script_arguments() {
     assert_eq!(outcome, Outcome::Success);
     assert_eq!(stdout, "[]\n");
 }
+
+// --- std::fs + path helpers + env.cwd/env.cd (BRS-33) ------------------
+
+/// A fresh unique temp directory for one fs parity test. Not cleaned
+/// automatically: each test removes it best-effort at the end.
+fn fs_temp_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("brasa-fs-parity-{tag}-{}", std::process::id()));
+
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir is creatable");
+    dir
+}
+
+#[test]
+fn fs_write_read_append_and_predicates() {
+    let tmp = fs_temp_dir("rw");
+    let t = tmp.display();
+
+    std::fs::write(tmp.join("bin.dat"), [0xff_u8, 0xfe]).expect("fixture written");
+
+    // Parity runs the program three times (walker, VM, hot-GC VM);
+    // `write` truncates, so the script is naturally re-runnable.
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+let file = "{t}/data.txt"
+fs.write(file, "hello")
+fs.append(file, " world")
+puts fs.read(file)
+puts fs.exists?(file)
+puts fs.isFile?(file)
+puts fs.isDir?(file)
+puts fs.isDir?("{t}")
+puts fs.exists?("{t}/missing")
+let bad = fs.read("{t}/bin.dat") catch (e)
+  fs.IoError => "bad utf8"
+end
+puts bad
+let gone = fs.read("{t}/missing") catch (e)
+  fs.NotFound => "gone"
+end
+puts gone
+"##
+        ),
+        "hello world\ntrue\ntrue\nfalse\ntrue\nfalse\nbad utf8\ngone\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn fs_ls_glob_and_walk_are_sorted() {
+    let tmp = fs_temp_dir("list");
+    let t = tmp.display();
+
+    std::fs::write(tmp.join("b.txt"), "b").expect("fixture written");
+    std::fs::write(tmp.join("a.txt"), "a").expect("fixture written");
+    std::fs::write(tmp.join("c.md"), "c").expect("fixture written");
+    std::fs::create_dir_all(tmp.join("sub/deep")).expect("fixture dirs");
+    std::fs::write(tmp.join("sub/d.txt"), "d").expect("fixture written");
+    std::fs::write(tmp.join("sub/deep/e.txt"), "e").expect("fixture written");
+
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+puts fs.ls("{t}")
+puts fs.glob("{t}/*.txt")
+puts fs.walk("{t}")
+let bad = fs.glob("[") catch (e)
+  fs.IoError => ["bad pattern"]
+end
+puts bad
+"##
+        ),
+        &format!(
+            "[\"a.txt\", \"b.txt\", \"c.md\", \"sub\"]\n\
+             [\"{t}/a.txt\", \"{t}/b.txt\"]\n\
+             [\"{t}/a.txt\", \"{t}/b.txt\", \"{t}/c.md\", \"{t}/sub/d.txt\", \"{t}/sub/deep/e.txt\"]\n\
+             [\"bad pattern\"]\n"
+        ),
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn fs_mkdir_rm_cp_and_mv_round_trip() {
+    let tmp = fs_temp_dir("tree");
+    let t = tmp.display();
+
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+let work = "{t}/work"
+if fs.exists?(work)
+  fs.rmAll(work)
+end
+fs.mkdirAll(work + "/a/b")
+fs.mkdir(work + "/solo")
+fs.mkdir(work + "/solo") catch (e)
+  fs.IoError => puts "already there"
+end
+fs.write(work + "/a/f.txt", "payload")
+fs.cp(work + "/a/f.txt", work + "/a/g.txt")
+fs.mv(work + "/a/g.txt", work + "/a/b/h.txt")
+puts fs.read(work + "/a/b/h.txt")
+puts fs.exists?(work + "/a/g.txt")
+fs.rm(work + "/a/b/h.txt")
+fs.rm(work + "/a/b")
+puts fs.exists?(work + "/a/b")
+fs.rmAll(work)
+puts fs.exists?(work)
+"##
+        ),
+        "already there\npayload\nfalse\nfalse\nfalse\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn fs_path_helpers_are_pure_and_lexical() {
+    assert_success(
+        r##"
+import std::fs
+puts fs.join("a", "b")
+puts fs.join("a/", "b")
+puts fs.join("a", "/etc")
+puts fs.base("a/b/c.txt")
+puts fs.base("a/b/")
+puts fs.base("/")
+puts fs.dir("a/b/c.txt")
+puts fs.dir("a/b/")
+puts fs.dir("a")
+puts fs.ext("x.tar.gz")
+puts fs.ext(".bashrc")
+puts fs.ext("noext")
+puts fs.abs("/x/./y/../z")
+puts fs.abs("/../up")
+"##,
+        "a/b\na/b\n/etc\nc.txt\nb\n\na/b\na\n\ngz\n\n\n/x/z\n/up\n",
+    );
+}
+
+#[test]
+fn env_cwd_cd_and_relative_abs_agree() {
+    let tmp = fs_temp_dir("cwd");
+    // `getcwd` reports a symlink-free path, so the embedded expectation
+    // must be canonical too.
+    let canonical = std::fs::canonicalize(&tmp).expect("temp dir canonicalizes");
+    let t = canonical.display();
+
+    // `env.cd` moves the real process cwd; the script restores it, and
+    // no other test in this binary depends on relative paths.
+    assert_success(
+        &format!(
+            r##"
+import std::env
+import std::fs
+let orig = env.cwd()
+env.cd("{t}")
+puts env.cwd() == "{t}"
+puts fs.abs("rel.txt") == "{t}/rel.txt"
+env.cd(orig)
+puts env.cwd() == orig
+env.cd("{t}/missing") catch (e)
+  fs.NotFound => puts "cd missing"
+end
+"##
+        ),
+        "true\ntrue\ntrue\ncd missing\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+#[cfg(unix)]
+fn fs_denied_maps_permission_errors() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = fs_temp_dir("denied");
+    let locked = tmp.join("locked");
+    std::fs::create_dir(&locked).expect("locked dir created");
+    std::fs::write(locked.join("secret.txt"), "s").expect("fixture written");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
+        .expect("permissions set");
+
+    // Root (some sandboxes) ignores mode bits; probe first and skip
+    // honestly instead of asserting a Denied that cannot happen.
+    let denied = matches!(
+        std::fs::read(locked.join("secret.txt")),
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied
+    );
+
+    if denied {
+        let t = tmp.display();
+        assert_success(
+            &format!(
+                r##"
+import std::fs
+let blocked = fs.read("{t}/locked/secret.txt") catch (e)
+  fs.Denied => "denied"
+end
+puts blocked
+"##
+            ),
+            "denied\n",
+        );
+    } else {
+        eprintln!("skipping the fs.Denied assertion: this user bypasses mode 000");
+    }
+
+    let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700));
+    let _ = std::fs::remove_dir_all(&tmp);
+}

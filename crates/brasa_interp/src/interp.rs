@@ -1331,8 +1331,9 @@ impl<'a> Interp<'a> {
     // --- modules -------------------------------------------------------
 
     /// Member calls on module handles. `std::math` (M1), `std::proc`,
-    /// and `std::env` (M4, BRS-32) execute; every other module reports
-    /// a clean runtime error until its signatures close during M4.
+    /// `std::env` (M4, BRS-32), and `std::fs` (M4, BRS-33) execute;
+    /// every other module reports a clean runtime error until its
+    /// signatures close during M4.
     fn module_call(&mut self, item: ItemId, name: &str, args: Vec<Value>) -> EvalResult {
         let Item::Import(import) = self.hir.item(item) else {
             return Err(self.fatal("brasa: module handle is not an import"));
@@ -1351,6 +1352,7 @@ impl<'a> Interp<'a> {
                 "math" => return self.math_call(name, args),
                 "proc" => return self.proc_call(name, args),
                 "env" => return self.env_call(name, args),
+                "fs" => return self.fs_call(name, args),
                 _ => {}
             }
         }

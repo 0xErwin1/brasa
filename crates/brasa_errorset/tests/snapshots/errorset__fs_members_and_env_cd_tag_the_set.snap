@@ -1,0 +1,11 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  load -> {fs.Denied, fs.IoError, fs.NotFound}
+  loaded -> {}
+  rebuilt -> {}
+  checks -> {}
+  resolved -> {fs.IoError}
+  hop -> {fs.Denied, fs.IoError, fs.NotFound}

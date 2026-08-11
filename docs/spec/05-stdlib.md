@@ -66,12 +66,64 @@ same methods received by string. Syntax: Rust's `regex` crate syntax
 
 ## `std::fs`
 
-- `read(path): string`, `readBytes`, `write`, `append`.
+- `read(path): string`, `write`, `append`.
 - `exists?`, `isDir?`, `isFile?`.
 - `ls(path): Vector<string>`, `glob(pattern): Vector<string>`, `walk(path)`.
 - `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`.
 - `path` helpers: `join`, `base`, `dir`, `ext`, `abs`.
 - Errors: `fs.NotFound`, `fs.Denied`, `fs.IoError`.
+
+Signatures closed in M4 (BRS-33):
+
+- **Error mapping**: OS failures map by `ErrorKind` — not-found raises
+  `fs.NotFound`, permission-denied raises `fs.Denied`, and everything
+  else raises `fs.IoError` carrying the OS message. Every
+  filesystem-touching member (`read`, `write`, `append`, `ls`, `glob`,
+  `walk`, `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`) can raise
+  all three.
+- `read(path): string` requires valid UTF-8 and raises `fs.IoError`
+  otherwise — silently replacing bytes would corrupt data on a
+  write-back. The sketched `readBytes` is deferred until a real
+  consumer appears (it needs a byte-vector story on the write side
+  too).
+- `write(path, contents)` truncates-or-creates; `append(path,
+  contents)` creates the file when missing, like `>>` in a shell.
+  Neither creates parent directories — that is `mkdirAll`'s job.
+- The predicates `exists?`, `isFile?`, `isDir?` follow symlinks and
+  never throw: a path the OS refuses to stat (missing, denied, broken
+  link) is simply `false`.
+- `ls(path): Vector<string>` returns entry NAMES (not paths), sorted
+  bytewise, without `.`/`..`. `walk(path): Vector<string>` returns
+  PATHS (the argument joined with each relative path) of every
+  non-directory entry — files and symlinks — recursively, sorted
+  bytewise; symlinks are reported as leaf entries and never followed.
+- `glob(pattern): Vector<string>` uses Rust `glob`-crate syntax (`*`,
+  `?`, `[...]`, `**`), resolves relative patterns against the current
+  directory, and returns the matched paths sorted bytewise. An invalid
+  pattern raises `fs.IoError`.
+- `mkdir` creates one directory (existing parent required, existing
+  target raises `fs.IoError`); `mkdirAll` creates the whole chain and
+  tolerates an existing target.
+- `rm` removes a file, a symlink, or an EMPTY directory; `rmAll`
+  removes a whole tree (or a single file) recursively. Both raise
+  `fs.NotFound` on a missing path — a silent `rm -f` is a one-line
+  `catch` away, defaulting to it would hide typos.
+- `cp(from, to)` copies one regular file (directory sources raise
+  `fs.IoError`); `mv(from, to)` renames, falling back to
+  copy-plus-delete for a FILE crossing filesystems (directories
+  crossing filesystems raise `fs.IoError`).
+- The `path` helpers are `fs` members (`fs.join`, ... — no separate
+  module) and are pure lexical string operations with Rust `std::path`
+  semantics, throwing nothing: `join(a, b)` is binary and an absolute
+  `b` replaces `a`; `base` is the final component (`""` for `/` and
+  empty paths, trailing slashes ignored); `dir` is the parent (`""`
+  when there is none — note `dir("a")` is `""`, not `.`); `ext` is the
+  extension without the dot (`""` when none; dotfiles like `.bashrc`
+  have no extension).
+- `abs(path)` absolutizes a relative path against the current
+  directory and lexically normalizes `.`/`..` — no symlink resolution,
+  no existence requirement. Its only error is `fs.IoError` when the
+  current directory itself is unreadable.
 
 ## `std::proc` — the bash replacement
 
@@ -153,10 +205,18 @@ Closed in M4 (BRS-32):
   non-UTF-8 names and values are decoded lossily.
 - `env.args(): Vector<string>` — the script's trailing CLI arguments.
 
-Deferred past BRS-32 (the old sketch listed these as free functions;
-they are `std::env` members when they land): `env.cwd()` / `env.cd(path)`
-close together with `std::fs` — a failed `cd` needs the `fs` error
-namespace — and `env.exit(code)` needs a clean-exit signal threaded
+Closed in M4 (BRS-33, together with `std::fs` — a failed `cd` needs
+the `fs` error namespace):
+
+- `env.cwd(): string` — the process working directory; raises
+  `fs.IoError` when it cannot be read (deleted cwd).
+- `env.cd(path)` — changes the REAL host-process working directory
+  (`fs.NotFound`/`fs.Denied`/`fs.IoError` on failure): relative paths
+  everywhere, spawned children, and `fs.abs` all follow. Single-
+  threaded scripting semantics; a virtual cwd overlay was rejected as
+  complexity without a consumer.
+
+Still deferred: `env.exit(code)` needs a clean-exit signal threaded
 through both backends and the CLI.
 
 ## `std::json`

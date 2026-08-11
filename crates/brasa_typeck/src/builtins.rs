@@ -173,9 +173,10 @@ pub struct ModuleSig {
 }
 
 /// Looks up `module.name` for the std modules whose signatures have
-/// closed (`docs/spec/05-stdlib.md`, BRS-32: `proc` and `env`).
-/// Returns `None` for members of modules that are still open — the
-/// checker stays silent on those until they close.
+/// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
+/// BRS-33: `fs` plus `env.cwd`/`env.cd`). Returns `None` for members
+/// of modules that are still open — the checker stays silent on those
+/// until they close.
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
     let msig = |required: Vec<ModuleParam>, optional: Vec<ModuleParam>, ret: Type| ModuleSig {
         required,
@@ -212,6 +213,47 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             Type::Map(Box::new(Type::String), Box::new(Type::String)),
         )),
         ("env", "args") => Some(msig(vec![], vec![], Type::vector(Type::String))),
+        ("env", "cwd") => Some(msig(vec![], vec![], Type::String)),
+        ("env", "cd") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::Unit,
+        )),
+        // `std::fs` (BRS-33): every member takes string paths. The
+        // path helpers (`join`, `base`, `dir`, `ext`, `abs`) are `fs`
+        // members per the spec's "`path` helpers" bullet.
+        ("fs", "read" | "base" | "dir" | "ext" | "abs") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::String,
+        )),
+        ("fs", "join" | "write" | "append" | "cp" | "mv") => {
+            let ret = if name == "join" {
+                Type::String
+            } else {
+                Type::Unit
+            };
+            Some(msig(
+                vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
+                vec![],
+                ret,
+            ))
+        }
+        ("fs", "exists?" | "isFile?" | "isDir?") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::Bool,
+        )),
+        ("fs", "ls" | "glob" | "walk") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::vector(Type::String),
+        )),
+        ("fs", "mkdir" | "mkdirAll" | "rm" | "rmAll") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::Unit,
+        )),
         _ => None,
     }
 }
@@ -220,7 +262,7 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
 /// closed: an unknown member on a closed module is an error, while
 /// open modules stay `Unknown`-typed until they close during M4.
 pub fn module_closed(module: &str) -> bool {
-    matches!(module, "proc" | "env")
+    matches!(module, "proc" | "env" | "fs")
 }
 
 #[cfg(test)]

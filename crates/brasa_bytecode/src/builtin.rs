@@ -137,6 +137,30 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("stdout"),
     method("stderr"),
     method("code"),
+    // M4 `std::fs` plus `env.cwd`/`env.cd` (BRS-33): appended, never
+    // reordered.
+    free("fs.read"),
+    free("fs.write"),
+    free("fs.append"),
+    free("fs.exists?"),
+    free("fs.isFile?"),
+    free("fs.isDir?"),
+    free("fs.ls"),
+    free("fs.glob"),
+    free("fs.walk"),
+    free("fs.mkdir"),
+    free("fs.mkdirAll"),
+    free("fs.rm"),
+    free("fs.rmAll"),
+    free("fs.cp"),
+    free("fs.mv"),
+    free("fs.join"),
+    free("fs.base"),
+    free("fs.dir"),
+    free("fs.ext"),
+    free("fs.abs"),
+    free("env.cwd"),
+    free("env.cd"),
 ];
 
 /// Looks up a builtin by its stable name.
