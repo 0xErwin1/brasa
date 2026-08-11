@@ -503,6 +503,54 @@ puts(m)
     );
 }
 
+/// A method generic over its own parameters runs as one uniform
+/// function, like every other generic: the checker solves the call
+/// site, the backends dispatch on the value. Both must agree on what
+/// comes back for each instantiation, including a method generic on a
+/// generic struct, where the struct's parameter and the method's are
+/// solved by different owners.
+#[test]
+fn method_generics_run_uniformly_on_both_backends() {
+    assert_success(
+        r##"
+struct Box
+  value: int
+
+  def wrap<T>(self, x: T): Vector<T>
+    [x]
+  end
+
+  def pair<A, B>(self, a: A, b: B): Vector<string>
+    ["#{a}", "#{b}"]
+  end
+
+  def largest<T: Comparable>(self, a: T, b: T): T
+    if a > b then a else b end
+  end
+end
+
+struct Holder<T>
+  item: T
+
+  def with<U>(self, other: U): Vector<string>
+    ["#{self.item}", "#{other}"]
+  end
+end
+
+let b = Box { value: 1 }
+puts(b.wrap(5))
+puts(b.wrap("hi"))
+puts(b.pair(1, "x"))
+puts(b.largest(3, 9))
+puts(b.largest("a", "z"))
+
+let h = Holder { item: 7 }
+puts(h.with("a"))
+"##,
+        "[5]\n[\"hi\"]\n[\"1\", \"x\"]\n9\nz\n[\"7\", \"a\"]\n",
+    );
+}
+
 /// `??` yields the carried type, so an empty literal on the fallback
 /// side takes its type from the `Option` itself, with no annotation
 /// anywhere. Both backends must produce the empty container, not a

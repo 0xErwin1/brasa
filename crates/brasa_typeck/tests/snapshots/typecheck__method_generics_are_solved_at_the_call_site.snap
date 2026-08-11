@@ -1,0 +1,73 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 b -> Box
+  i3 ints -> Vector<int>
+  i4 strings -> Vector<string>
+  i5 picked -> int
+  i6 paired -> Vector<string>
+  i7 biggest -> int
+  i8 h -> Holder<int>
+  i9 mixed -> Vector<string>
+local types
+  l0 x -> T
+  l1 a -> T
+  l2 b -> T
+  l3 a -> A
+  l4 b -> B
+  l5 a -> T
+  l6 b -> T
+  l7 other -> U
+expr types
+  e0 -> T
+  e1 -> Vector<T>
+  e2 -> T
+  e3 -> A
+  e4 -> string
+  e5 -> B
+  e6 -> string
+  e7 -> Vector<string>
+  e8 -> T
+  e9 -> T
+  e10 -> bool
+  e11 -> T
+  e12 -> T
+  e13 -> Holder<T>
+  e14 -> T
+  e15 -> string
+  e16 -> U
+  e17 -> string
+  e18 -> Vector<string>
+  e19 -> int
+  e20 -> Box
+  e21 -> Box
+  e22 -> (int) -> Vector<int>
+  e23 -> int
+  e24 -> Vector<int>
+  e25 -> Box
+  e26 -> (string) -> Vector<string>
+  e27 -> string
+  e28 -> Vector<string>
+  e29 -> Box
+  e30 -> (int, int) -> int
+  e31 -> int
+  e32 -> int
+  e33 -> int
+  e34 -> Box
+  e35 -> (int, string) -> Vector<string>
+  e36 -> int
+  e37 -> string
+  e38 -> Vector<string>
+  e39 -> Box
+  e40 -> (int, int) -> int
+  e41 -> int
+  e42 -> int
+  e43 -> int
+  e44 -> int
+  e45 -> Holder<int>
+  e46 -> Holder<int>
+  e47 -> (string) -> Vector<string>
+  e48 -> string
+  e49 -> Vector<string>

@@ -305,6 +305,87 @@ v[0] = "x"
 "#
 );
 
+// A method's OWN type parameters are solved from the call's arguments,
+// exactly like a generic free function's. The struct's parameters and
+// the method's are solved by different owners, so a generic method on a
+// generic struct has both live at once.
+typecheck_test!(
+    method_generics_are_solved_at_the_call_site,
+    r##"
+struct Box
+  value: int
+
+  def wrap<T>(self, x: T): Vector<T>
+    [x]
+  end
+
+  def pick<T>(self, a: T, b: T): T
+    a
+  end
+
+  def pair<A, B>(self, a: A, b: B): Vector<string>
+    ["#{a}", "#{b}"]
+  end
+
+  def largest<T: Comparable>(self, a: T, b: T): T
+    if a > b then a else b end
+  end
+end
+
+struct Holder<T>
+  item: T
+
+  def with<U>(self, other: U): Vector<string>
+    ["#{self.item}", "#{other}"]
+  end
+end
+
+let b = Box { value: 1 }
+let ints = b.wrap(5)
+let strings = b.wrap("hi")
+let picked = b.pick(1, 2)
+let paired = b.pair(1, "x")
+let biggest = b.largest(3, 9)
+
+let h = Holder { item: 7 }
+let mixed = h.with("a")
+"##
+);
+
+// The failure modes match the free-function ones: a parameter no
+// argument determines is T026, a second argument conflicting with the
+// first solution is a plain mismatch against the solved type, and an
+// unsatisfied constraint is T027.
+typecheck_error_test!(
+    method_generics_report_unsolved_conflicting_and_unconstrained,
+    r#"
+struct Thing
+  n: int
+end
+
+struct Box
+  value: int
+
+  def make<T>(self): Vector<T>
+    []
+  end
+
+  def pick<T>(self, a: T, b: T): T
+    a
+  end
+
+  def largest<T: Comparable>(self, a: T, b: T): T
+    if a > b then a else b end
+  end
+end
+
+let b = Box { value: 1 }
+let unsolved = b.make()
+let conflicting = b.pick(1, "two")
+let unordered = b.largest(Thing { n: 1 }, Thing { n: 2 })
+"#
+);
+
 // `??` produces the carried type, so the scrutinee IS the context: an
 // empty literal on the fallback side infers from the `Option` without
 // needing an annotation anywhere.

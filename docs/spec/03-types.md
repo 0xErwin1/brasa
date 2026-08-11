@@ -43,7 +43,10 @@ index expression: there is no `p.0`.
   (`nums.map(|x| ...)` knows `x: int`); without context, they are annotated.
 - Generic type arguments are inferred at the call site
   (`first([1,2])` infers `T = int`); there is no syntax to pass them
-  explicitly in v1.
+  explicitly in v1. This covers a method's own type parameters as well
+  as a free function's: a struct's parameters are fixed by the receiver,
+  a method's by its arguments, and a generic method on a generic struct
+  solves both at once.
 - `??` supplies its own context: absent an expected type from outside,
   the fallback is checked against the type the `Option` carries, so
   `o ?? []` on an `Option<Vector<int>>` needs no annotation. The type is

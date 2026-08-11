@@ -51,6 +51,11 @@ enum Member {
     Sig(MethodSig),
     /// A struct field or method, as a plain value type.
     Value(Type),
+    /// A struct method carrying type parameters of its own. The struct's
+    /// arguments are already substituted in, but those parameters are
+    /// still rigid: only the call site's arguments can solve them, the
+    /// same way a generic free function is solved.
+    GenericMethod { sig: Type, owner: DefRef },
     /// A member the checker cannot see yet: stdlib module members close
     /// in M4, and flexible receivers stay silent.
     Deferred,
@@ -854,6 +859,36 @@ impl<'a> Checker<'a> {
             return Type::Unknown;
         };
 
+        self.solve_generic_call(
+            span,
+            callee,
+            &params,
+            &ret,
+            DefRef::Item(item),
+            &func.generics,
+            &func.name,
+            args,
+        )
+    }
+
+    /// Solves one call's type parameters from its arguments and returns
+    /// the substituted result. Shared by generic free functions and by
+    /// struct methods with parameters of their own: both leave rigid
+    /// `Generic` types in the signature that only the arguments can
+    /// fill, and both are dispatched uniformly at runtime, so the whole
+    /// difference between them is which [`DefRef`] owns the parameters.
+    #[allow(clippy::too_many_arguments)]
+    fn solve_generic_call(
+        &mut self,
+        span: Span,
+        callee: ExprId,
+        params: &[Type],
+        ret: &Type,
+        owner: DefRef,
+        generics: &'a [GenericParam],
+        owner_name: &str,
+        args: &[ExprId],
+    ) -> Type {
         if args.len() != params.len() {
             self.error(err_at(
                 codes::T_WRONG_ARG_COUNT,
@@ -867,7 +902,6 @@ impl<'a> Checker<'a> {
             ));
         }
 
-        let owner = DefRef::Item(item);
         let mut map: HashMap<(DefRef, usize), Type> = HashMap::new();
         let mut poisoned: HashSet<(DefRef, usize)> = HashSet::new();
 
@@ -887,11 +921,11 @@ impl<'a> Checker<'a> {
             }
         }
 
-        self.finish_generic_solution(span, owner, &func.generics, &func.name, &mut map, &poisoned);
-        self.check_constraints(span, owner, &func.generics, &map);
+        self.finish_generic_solution(span, owner, generics, owner_name, &mut map, &poisoned);
+        self.check_constraints(span, owner, generics, &map);
 
         let params: Vec<Type> = params.iter().map(|p| substitute(p, &map)).collect();
-        let ret = substitute(&ret, &map);
+        let ret = substitute(ret, &map);
         self.tables
             .expr_types
             .insert(callee, Type::func(params, ret.clone()));
@@ -991,6 +1025,38 @@ impl<'a> Checker<'a> {
                     },
                 );
                 *ret
+            }
+            Member::GenericMethod {
+                sig: Type::Fn { params, ret },
+                owner,
+            } => {
+                let Some(method) = self.method_def(owner) else {
+                    for &arg in args {
+                        self.check_expr(arg, None);
+                    }
+                    return Type::Unknown;
+                };
+
+                self.solve_generic_call(
+                    span,
+                    callee,
+                    &params,
+                    &ret,
+                    owner,
+                    &method.generics,
+                    &method.name,
+                    args,
+                )
+            }
+            // A generic method's signature is a function type by
+            // construction, so this arm is unreachable; falling back to
+            // the plain-value path keeps it honest without a panic.
+            Member::GenericMethod { sig, .. } => {
+                self.tables.expr_types.insert(callee, sig);
+                for &arg in args {
+                    self.check_expr(arg, None);
+                }
+                Type::Unknown
             }
             Member::Value(other) => {
                 self.tables.expr_types.insert(callee, other.clone());
@@ -1311,6 +1377,11 @@ impl<'a> Checker<'a> {
                 Type::func(sig.params, ret)
             }
             Member::Value(ty) => ty,
+            // Read as a value rather than called, a generic method's
+            // parameters have nothing to solve them: there is no
+            // turbofish, so the signature keeps its rigid `Generic`
+            // types and only a direct call can instantiate it.
+            Member::GenericMethod { sig, .. } => sig,
             Member::Deferred => Type::Unknown,
             Member::Missing => {
                 let span = self.hir.span_of_expr(id);
@@ -1381,9 +1452,18 @@ impl<'a> Checker<'a> {
             let ty = self.conv(field.ty);
             return Member::Value(substitute(&ty, &map));
         }
-        if let Some(method) = def.methods.iter().find(|m| m.name == name) {
+        if let Some((index, method)) = def.methods.iter().enumerate().find(|(_, m)| m.name == name)
+        {
             let sig = self.func_sig(method);
-            return Member::Value(substitute(&sig, &map));
+            let sig = substitute(&sig, &map);
+
+            if method.generics.is_empty() {
+                return Member::Value(sig);
+            }
+            return Member::GenericMethod {
+                sig,
+                owner: DefRef::Method { owner: item, index },
+            };
         }
         if name == "toString" {
             // The universal derived `toString`; a declared method of the
@@ -1478,6 +1558,17 @@ impl<'a> Checker<'a> {
     }
 
     // --- generics and constraints --------------------------------------
+
+    /// The `FuncDef` a method [`DefRef`] addresses.
+    fn method_def(&self, owner: DefRef) -> Option<&'a FuncDef> {
+        let DefRef::Method { owner, index } = owner else {
+            return None;
+        };
+        match self.hir.item(owner) {
+            Item::StructDef(def) => def.methods.get(index),
+            _ => None,
+        }
+    }
 
     /// The declaration of one generic parameter, resolved through its
     /// owner (a struct method resolves via the owning struct's method
@@ -1692,8 +1783,16 @@ impl<'a> Checker<'a> {
         match found {
             Member::Sig(sig) => unify(&required, &fn_of_sig(sig)).is_some(),
             Member::Value(found_ty @ Type::Fn { .. }) => unify(&required, &found_ty).is_some(),
+            // An interface member is a fixed signature, so a method
+            // generic over its own parameters can only satisfy one by
+            // unifying as written — the same comparison a non-generic
+            // method gets.
+            Member::GenericMethod {
+                sig: sig @ Type::Fn { .. },
+                ..
+            } => unify(&required, &sig).is_some(),
             Member::Deferred => true,
-            Member::Value(_) | Member::Missing => false,
+            Member::Value(_) | Member::GenericMethod { .. } | Member::Missing => false,
         }
     }
 

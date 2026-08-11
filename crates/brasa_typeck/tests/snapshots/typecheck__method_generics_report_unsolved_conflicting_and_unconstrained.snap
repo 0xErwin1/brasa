@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T026] Error: cannot infer type parameter `T` of `make`
+    ╭─[ method_generics_report_unsolved_conflicting_and_unconstrained.brs:23:16 ]
+    │
+ 23 │ let unsolved = b.make()
+    │                ────┬────  
+    │                    ╰────── no argument determines it
+────╯
+[T001] Error: mismatched types: expected `int`, found `string`
+    ╭─[ method_generics_report_unsolved_conflicting_and_unconstrained.brs:24:29 ]
+    │
+ 24 │ let conflicting = b.pick(1, "two")
+    │                             ───┬──  
+    │                                ╰──── expected `int`
+────╯
+[T027] Error: `Thing` does not satisfy `Comparable`
+    ╭─[ method_generics_report_unsolved_conflicting_and_unconstrained.brs:25:17 ]
+    │
+ 25 │ let unordered = b.largest(Thing { n: 1 }, Thing { n: 2 })
+    │                 ─────────────────────┬────────────────────  
+    │                                      ╰────────────────────── constraint not satisfied
+────╯
