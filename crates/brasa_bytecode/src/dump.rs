@@ -90,8 +90,8 @@ fn dump_globals(module: &Module, out: &mut String) {
 fn dump_function(module: &Module, index: usize, func: &Function, out: &mut String) {
     let _ = writeln!(
         out,
-        "== fn{index} {} arity={} captures={} locals={} ==",
-        func.name, func.arity, func.captures, func.locals
+        "== fn{index} {} arity={} captures={} locals={} max_stack={} ==",
+        func.name, func.arity, func.captures, func.locals, func.max_stack
     );
 
     for (ix, op) in func.chunk.ops().iter().enumerate() {
@@ -129,6 +129,7 @@ fn dump_handlers(chunk: &Chunk, out: &mut String) {
 fn render_op(module: &Module, op: &Op) -> (String, Option<String>) {
     let func_name = |f: crate::FuncId| module.functions.get(f.0 as usize).map(|f| f.name.clone());
     let const_text = |c: crate::ConstId| render_constant(module.constants.get(c));
+    let builtin_name = |b: crate::BuiltinId| crate::builtin_def(b).map(|def| def.name.to_string());
 
     match *op {
         Op::Const(c) => (format!("const c{}", c.0), Some(const_text(c))),
@@ -189,9 +190,12 @@ fn render_op(module: &Module, op: &Op) -> (String, Option<String>) {
         Op::SetIndex => ("set_index".to_string(), None),
         Op::Call { func, argc } => (format!("call fn{}, {argc}", func.0), func_name(func)),
         Op::CallValue { argc } => (format!("call_value {argc}"), None),
-        Op::CallBuiltin { builtin, argc } => (format!("call_builtin b{}, {argc}", builtin.0), None),
+        Op::CallBuiltin { builtin, argc } => (
+            format!("call_builtin b{}, {argc}", builtin.0),
+            builtin_name(builtin),
+        ),
         Op::BindMethod(f) => (format!("bind_method fn{}", f.0), func_name(f)),
-        Op::BindBuiltin(b) => (format!("bind_builtin b{}", b.0), None),
+        Op::BindBuiltin(b) => (format!("bind_builtin b{}", b.0), builtin_name(b)),
         Op::Ret => ("ret".to_string(), None),
         Op::MakeVector(n) => (format!("make_vector {n}"), None),
         Op::MakeMap(n) => (format!("make_map {n}"), None),

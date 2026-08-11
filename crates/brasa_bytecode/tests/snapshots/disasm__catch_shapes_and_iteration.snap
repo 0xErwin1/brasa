@@ -13,7 +13,7 @@ expression: "brasa_bytecode::dump::dump(&module)"
   Circle/1
   Dot/0
 
-== fn0 <toplevel> arity=0 captures=0 locals=1 ==
+== fn0 <toplevel> arity=0 captures=0 locals=1 max_stack=4 ==
      0  call fn1, 0                 ; risky
      1  jump 15
      2  load_unit
@@ -45,7 +45,7 @@ expression: "brasa_bytecode::dump::dump(&module)"
   handlers:
     0..1 -> 3 depth=0
 
-== fn1 risky arity=0 captures=0 locals=0 ==
+== fn1 risky arity=0 captures=0 locals=0 max_stack=4 ==
      0  const c2                    ; int 0
      1  make_struct s0              ; NetError
      2  throw

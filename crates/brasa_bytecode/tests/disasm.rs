@@ -89,6 +89,7 @@ fn arithmetic_and_calls() {
                 arity: 0,
                 captures: 0,
                 locals: 0,
+                max_stack: 4,
                 chunk: toplevel,
             },
             Function {
@@ -96,6 +97,7 @@ fn arithmetic_and_calls() {
                 arity: 1,
                 captures: 0,
                 locals: 1,
+                max_stack: 4,
                 chunk: double,
             },
             Function {
@@ -103,6 +105,7 @@ fn arithmetic_and_calls() {
                 arity: 0,
                 captures: 0,
                 locals: 0,
+                max_stack: 4,
                 chunk: main,
             },
         ],
@@ -201,6 +204,7 @@ fn catch_shapes_and_iteration() {
                 arity: 0,
                 captures: 0,
                 locals: 1,
+                max_stack: 4,
                 chunk: toplevel,
             },
             Function {
@@ -208,6 +212,7 @@ fn catch_shapes_and_iteration() {
                 arity: 0,
                 captures: 0,
                 locals: 0,
+                max_stack: 4,
                 chunk: risky,
             },
         ],

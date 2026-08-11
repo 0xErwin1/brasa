@@ -70,8 +70,9 @@ base + 0 .. argc              parameters (methods: self is slot 0)
   each function's `LocalId`s to dense frame slots (shadowing needs no
   runtime support — distinct `LocalId`s get distinct slots).
 - Each `Function` records `arity`, `captures`, and `locals` (total slot
-  count). BRS-27 also computes the maximum operand depth so the VM can
-  reserve stack space on entry without checking per push.
+  count). BRS-27 also computes the maximum operand depth and records it
+  as the function's `max_stack`, so the VM can reserve stack space on
+  entry without checking per push.
 - Call depth is guarded by a configurable limit (CLI default 4096, as in
   M1); exceeding it raises `panics.StackOverflow`, never a Rust stack
   overflow. The VM loop is iterative, so Rust stack depth is constant.
@@ -291,7 +292,7 @@ All targets are absolute instruction indices.
 |----|----------|-------|-----------|
 | `call` | `f, argc` | `args → r` | Direct call to function-table entry `f` (top-level functions and struct methods; receiver is arg 0) |
 | `call_value` | `argc` | `callee args → r` | Indirect call: function value, closure, bound method, or bound builtin |
-| `call_builtin` | `b, argc` | `[recv] args → r` | Native builtin (`puts`, `push`, `len`, `std::math`, …). The builtin registry is a stdlib concern (BRS-28/M4); bytecode only carries the opaque index |
+| `call_builtin` | `b, argc` | `[recv] args → r` | Native builtin (`puts`, `push`, `len`, `std::math`, …). `argc` counts every pushed operand, the receiver included when the builtin takes one. The builtin registry is a stdlib concern (BRS-28/M4); bytecode only carries the opaque index (the shared `name → id` table lives in `crates/brasa_bytecode`) |
 | `bind_method` | `f` | `recv → bm` | Method accessed without calling (`p.dist` as a value) |
 | `bind_builtin` | `b` | `recv → bb` | Builtin method as a value (`v.push` as a value) |
 | `ret` | | `r →` | Pop the result, pop the frame, push the result in the caller |
@@ -359,6 +360,7 @@ module's constants.
 | `arity` | Parameter count (methods count `self`) |
 | `captures` | Capture slot count (0 for non-lambdas) |
 | `locals` | Total frame slot count, params and captures included |
+| `max_stack` | Maximum operand-stack depth above the locals boundary, computed by BRS-27; the VM reserves `locals + max_stack` slots on frame entry |
 | `chunk` | The code |
 
 ### Shapes and globals

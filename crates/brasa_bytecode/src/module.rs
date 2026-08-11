@@ -36,6 +36,11 @@ pub struct Function {
     pub captures: u16,
     /// Total frame slot count, parameters and captures included.
     pub locals: u16,
+    /// Maximum operand-stack depth above the locals boundary, computed
+    /// by the code generator so the VM can reserve stack space on frame
+    /// entry without per-push checks (`docs/spec/07-bytecode.md`,
+    /// function table).
+    pub max_stack: u16,
     pub chunk: Chunk,
 }
 

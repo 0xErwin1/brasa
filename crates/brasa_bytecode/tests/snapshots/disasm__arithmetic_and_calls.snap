@@ -11,7 +11,7 @@ expression: "brasa_bytecode::dump::dump(&module)"
 == globals ==
   g0  total
 
-== fn0 <toplevel> arity=0 captures=0 locals=0 ==
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=4 ==
      0  const c0                    ; int 1
      1  const c1                    ; int 2
      2  add_int
@@ -21,18 +21,18 @@ expression: "brasa_bytecode::dump::dump(&module)"
      6  pop
      7  const c3                    ; str "hello"
      8  to_string
-     9  call_builtin b0, 1
+     9  call_builtin b0, 1          ; puts
     10  pop
     11  load_unit
     12  ret
 
-== fn1 double arity=1 captures=0 locals=1 ==
+== fn1 double arity=1 captures=0 locals=1 max_stack=4 ==
      0  load_local 0
      1  const c1                    ; int 2
      2  mul_int
      3  ret
 
-== fn2 main arity=0 captures=0 locals=0 ==
+== fn2 main arity=0 captures=0 locals=0 max_stack=4 ==
      0  load_global g0              ; total
      1  call fn1, 1                 ; double
      2  dup

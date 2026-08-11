@@ -9,12 +9,14 @@
 //! It deliberately contains NO code generation (BRS-27) and NO
 //! execution (BRS-28): only the shared vocabulary those units target.
 
+pub mod builtin;
 pub mod chunk;
 pub mod constant;
 pub mod dump;
 pub mod module;
 pub mod op;
 
+pub use builtin::{BUILTINS, BuiltinDef, builtin_def, builtin_id};
 pub use chunk::{Chunk, Handler};
 pub use constant::{ConstPool, Constant};
 pub use module::{EnumShape, Function, Module, StructShape, Variant};
