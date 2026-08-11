@@ -1,0 +1,155 @@
+#!/usr/bin/env brasa
+# Release readiness for the current repository: which conventional-commit
+# types are waiting since the last tag, which of them are breaking,
+# whether the target tag is still free, and whether the worktree is clean.
+#
+#   brasa gitreport.brs           # defaults to the v0.1.0 tag
+#   brasa gitreport.brs v0.2.0
+
+import std::env
+import std::fs
+import std::io
+import std::proc
+
+struct Tally
+  key: string
+  hits: int
+end
+
+let subjectPattern = """^([a-z]+)(\([^)]*\))?(!)?: """
+
+def refuse(reason: string): Option<string>
+  io.eprint("#{reason}\n")
+
+  None
+end
+
+# The repository root, or `None` after explaining why there is none. Both
+# failures are ordinary catchable errors: a missing binary is
+# `proc.SpawnError`, a directory outside any repository makes git exit
+# non-zero, which `proc.run` turns into `proc.NonZeroExit`.
+def repoRoot(): Option<string>
+  Some(proc.run(["git", "rev-parse", "--show-toplevel"]).stdout.trim()) catch (e)
+    proc.SpawnError => refuse("git is not installed")
+    proc.NonZeroExit => refuse("not inside a git repository")
+  end
+end
+
+# `git describe` exits non-zero when no tag is reachable, which is an
+# expected answer rather than a failure, so this is `tryRun`.
+def lastTag(): Option<string>
+  let out = proc.tryRun(["git", "describe", "--tags", "--abbrev=0"])
+
+  if out.code == 0
+    Some(out.stdout.trim())
+  else
+    None
+  end
+end
+
+def tagExists?(tag: string): bool
+  proc.tryRun(["git", "rev-parse", "--verify", "--quiet", "refs/tags/#{tag}"]).code == 0
+end
+
+def subjects(tag: Option<string>): Vector<string>
+  let args = ["git", "log", "--pretty=%s"]
+  let range = tag ?? ""
+
+  if range != ""
+    args.push("#{range}..HEAD")
+  end
+
+  proc.run(args).stdout.lines()
+end
+
+def bump(counts: Map<string, int>, key: string)
+  counts.insert(key, (counts[key] ?? 0) + 1)
+end
+
+def ranked(counts: Map<string, int>): Vector<Tally>
+  let rows: Vector<Tally> = []
+
+  for (key, hits) in counts.entries()
+    rows.push(Tally { key: key, hits: hits })
+  end
+
+  rows.sortBy(|r| r.key).sortBy(|r| -r.hits)
+end
+
+def pad(n: int, width: int): string
+  "#{n}".padStart(width, " ")
+end
+
+def dirtyPaths(): int
+  proc.run(["git", "status", "--porcelain"]).stdout.lines().filter(|l| l.trim() != "").len()
+end
+
+def main()
+  let target = env.args().first() ?? "v0.1.0"
+
+  let root = repoRoot() ?? ""
+
+  if root == ""
+    return
+  end
+
+  puts "release report for #{fs.base(root)}"
+
+  let tag = lastTag()
+
+  puts "range: #{tag ?? "whole history (no tag yet)"}"
+  puts "target tag #{target}: #{if tagExists?(target) then "already exists" else "free" end}"
+
+  let types: Map<string, int> = {}
+  let breaking: Vector<string> = []
+
+  let mut total = 0
+  let mut conventional = 0
+
+  for subject in subjects(tag)
+    if subject.trim() == ""
+      continue
+    end
+
+    total += 1
+
+    let caps: Vector<string> = subject.captures(subjectPattern) ?? []
+
+    if caps.len() == 0
+      continue
+    end
+
+    conventional += 1
+    bump(types, caps[1])
+
+    if caps[3] == "!"
+      breaking.push(subject)
+    end
+  end
+
+  puts ""
+  puts "commits: #{total} (#{conventional} conventional, #{total - conventional} free-form)"
+
+  puts ""
+  puts "by type:"
+
+  for row in ranked(types)
+    puts "  #{pad(row.hits, 3)}  #{row.key}"
+  end
+
+  puts ""
+
+  if breaking.len() == 0
+    puts "no breaking changes"
+  else
+    puts "breaking changes:"
+    for subject in breaking
+      puts "  #{subject}"
+    end
+  end
+
+  let dirty = dirtyPaths()
+
+  puts ""
+  puts "worktree: #{if dirty == 0 then "clean" else "#{dirty} uncommitted path(s)" end}"
+end
