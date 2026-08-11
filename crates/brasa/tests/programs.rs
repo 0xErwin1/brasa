@@ -1,15 +1,23 @@
-//! Golden `.brs` program suite for the M1 tree-walker (BRS-20).
+//! Golden `.brs` program suite for the M1 tree-walker (BRS-20) and,
+//! since M3, the bytecode VM backend (BRS-28).
 //!
 //! Success programs under `tests/programs/` pin their exact stdout in a
 //! sibling `.out` file; failure programs assert the exit code and
 //! stderr substrings. The runnable repository examples are pinned here
 //! too, so a semantic regression in any layer shows up as a diff.
+//! Every golden and example runs on BOTH backends against the same
+//! pinned expectations, so the VM must match the walker byte for byte.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-fn run(path: &PathBuf) -> Output {
+/// The two execution backends behind `--backend`; every golden runs on
+/// both against the same pinned output.
+const BACKENDS: &[&str] = &["walker", "vm"];
+
+fn run_with_backend(path: &PathBuf, backend: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_brasa"))
+        .arg(format!("--backend={backend}"))
         .arg(path)
         .output()
         .expect("failed to run brasa")
@@ -27,28 +35,57 @@ fn example_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Runs a golden program and compares its stdout byte-for-byte against
-/// the sibling `.out` file; the run must succeed with empty stderr.
+/// Runs a golden program on every backend and compares its stdout
+/// byte-for-byte against the sibling `.out` file; each run must
+/// succeed with empty stderr.
 fn assert_golden(name: &str) {
-    let output = run(&program_path(&format!("{name}.brs")));
     let expected = std::fs::read_to_string(program_path(&format!("{name}.out")))
         .expect("missing expected-output file");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
-    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    for backend in BACKENDS {
+        let output = run_with_backend(&program_path(&format!("{name}.brs")), backend);
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "[{backend}] expected empty stderr, got: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "[{backend}] stdout mismatch"
+        );
+    }
 }
 
-/// Runs an example and compares its stdout against the expectation
-/// pinned inline; the run must succeed with empty stderr.
+/// Runs an example on every backend and compares its stdout against
+/// the expectation pinned inline; each run must succeed with empty
+/// stderr.
 fn assert_example(name: &str, expected: &str) {
-    let output = run(&example_path(name));
+    for backend in BACKENDS {
+        let output = run_with_backend(&example_path(name), backend);
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
-    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "[{backend}] expected empty stderr, got: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "[{backend}] stdout mismatch"
+        );
+    }
 }
 
 #[test]
@@ -73,31 +110,35 @@ fn golden_errors() {
 
 #[test]
 fn uncaught_throw_exits_70_with_the_error_message() {
-    let output = run(&program_path("throw_uncaught.brs"));
+    for backend in BACKENDS {
+        let output = run_with_backend(&program_path("throw_uncaught.brs"), backend);
 
-    assert_eq!(output.status.code(), Some(70));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
+        assert_eq!(output.status.code(), Some(70), "[{backend}]");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("error:"), "stderr: {stderr}");
-    assert!(stderr.contains("BoomError"), "stderr: {stderr}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("error:"), "[{backend}] stderr: {stderr}");
+        assert!(stderr.contains("BoomError"), "[{backend}] stderr: {stderr}");
+    }
 }
 
 #[test]
 fn uncaught_panic_exits_70_with_type_and_call_chain() {
-    let output = run(&program_path("panic_uncaught.brs"));
+    for backend in BACKENDS {
+        let output = run_with_backend(&program_path("panic_uncaught.brs"), backend);
 
-    assert_eq!(output.status.code(), Some(70));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
+        assert_eq!(output.status.code(), Some(70), "[{backend}]");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("panic"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("panics.IndexOutOfBounds"),
-        "stderr: {stderr}"
-    );
-    assert!(stderr.contains("in inner"), "stderr: {stderr}");
-    assert!(stderr.contains("in outer"), "stderr: {stderr}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("panic"), "[{backend}] stderr: {stderr}");
+        assert!(
+            stderr.contains("panics.IndexOutOfBounds"),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(stderr.contains("in inner"), "[{backend}] stderr: {stderr}");
+        assert!(stderr.contains("in outer"), "[{backend}] stderr: {stderr}");
+    }
 }
 
 #[test]

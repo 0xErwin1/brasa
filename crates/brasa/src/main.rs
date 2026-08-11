@@ -40,9 +40,30 @@ struct Cli {
     #[arg(long)]
     dump_bytecode: bool,
 
+    /// Execution backend: the reference tree-walker or the bytecode VM.
+    /// The default stays `walker` until the M3 parity acceptance flips
+    /// it (BRS-30).
+    #[arg(long, value_enum, default_value_t = Backend::Walker)]
+    backend: Backend,
+
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Backend {
+    Walker,
+    Vm,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Backend::Walker => "walker",
+            Backend::Vm => "vm",
+        })
+    }
 }
 
 fn main() -> ExitCode {
@@ -172,13 +193,24 @@ fn main() -> ExitCode {
     }
 
     let mut stdout = std::io::stdout();
-    let outcome = brasa_interp::run(
-        &lowered.hir,
-        &lowered.roots,
-        &resolved.resolutions,
-        &checked.types,
-        &mut stdout,
-    );
+    let outcome = match cli.backend {
+        Backend::Walker => brasa_interp::run(
+            &lowered.hir,
+            &lowered.roots,
+            &resolved.resolutions,
+            &checked.types,
+            &mut stdout,
+        ),
+        Backend::Vm => {
+            let module = brasa_codegen::compile(
+                &lowered.hir,
+                &lowered.roots,
+                &resolved.resolutions,
+                &checked.types,
+            );
+            brasa_vm::run(&module, &mut stdout)
+        }
+    };
     let flushed = stdout.flush();
 
     // The outcome is reported before any flush handling: a script

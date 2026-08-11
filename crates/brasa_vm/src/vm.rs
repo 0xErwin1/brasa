@@ -1,0 +1,1103 @@
+//! The dispatch loop: frames, calls, and handler-table unwinding.
+//!
+//! Execution model (`docs/spec/07-bytecode.md`): one contiguous value
+//! stack shared by all frames; a frame is `{func, ip, base}` plus the
+//! return-truncation point (`base` minus the callee slot for
+//! `call_value`). The loop is iterative — compiled calls push frames,
+//! never Rust frames — and the call-depth guard raises
+//! `panics.StackOverflow` exactly like the walker.
+//!
+//! Unwinding on `throw` or a faulting instruction: search the current
+//! frame's handler entries for the faulting `ip`; on a match truncate
+//! the operand stack to the entry's depth (relative to the locals
+//! boundary), push the caught-signal value, and jump to the dispatch
+//! target; otherwise pop the frame and retry at the caller's call-site
+//! `ip`. Fatal and broken-pipe signals unwind everything
+//! unconditionally. Panic stacktraces are snapshotted at raise time —
+//! all frames are still active then, so this matches the spec's
+//! record-while-popping wording and the walker's behavior.
+
+use std::collections::HashSet;
+use std::io::Write;
+use std::rc::Rc;
+
+use brasa_bytecode::{
+    BuiltinId, CodeIx, Constant, EnumShape, FuncId, Function, Module, Op, StructShape, builtin_def,
+};
+use brasa_interp::Outcome;
+
+use crate::value::{
+    BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, StructValue,
+    Value, value_cmp, value_eq,
+};
+
+pub(crate) const INDEX_OUT_OF_BOUNDS: &str = "panics.IndexOutOfBounds";
+pub(crate) const DIVISION_BY_ZERO: &str = "panics.DivisionByZero";
+pub(crate) const INTEGER_OVERFLOW: &str = "panics.IntegerOverflow";
+pub(crate) const ASSERTION_FAILED: &str = "panics.AssertionFailed";
+pub(crate) const STACK_OVERFLOW: &str = "panics.StackOverflow";
+
+/// Non-local control flow, mirroring the walker's signal classes.
+/// `Return`/`Break`/`Continue` do not exist here: they compile away.
+#[derive(Debug)]
+pub(crate) enum Signal {
+    Error(Value),
+    Panic(PanicValue),
+    Fatal(String),
+    BrokenPipe,
+}
+
+pub(crate) type VmResult<T = Value> = Result<T, Signal>;
+
+/// One call frame. `ip` is pre-advanced: it always points at the next
+/// instruction, so the faulting/call-site index is uniformly `ip - 1`.
+struct Frame {
+    func: FuncId,
+    ip: usize,
+    /// Value-stack index of slot 0.
+    base: usize,
+    /// Truncation point on return: `base`, or `base - 1` for
+    /// `call_value` (the callee slot is replaced by the result).
+    ret_base: usize,
+}
+
+pub(crate) struct Vm<'a> {
+    module: &'a Module,
+    globals: Vec<Option<Value>>,
+    stack: Vec<Value>,
+    frames: Vec<Frame>,
+    pub(crate) out: &'a mut dyn Write,
+    max_depth: usize,
+}
+
+impl<'a> Vm<'a> {
+    pub(crate) fn new(module: &'a Module, out: &'a mut dyn Write, max_depth: usize) -> Vm<'a> {
+        Vm {
+            module,
+            globals: vec![None; module.globals.len()],
+            stack: Vec::new(),
+            frames: Vec::new(),
+            out,
+            max_depth,
+        }
+    }
+
+    pub(crate) fn run(&mut self) -> Outcome {
+        let result = self.run_program();
+        self.finish(result)
+    }
+
+    fn run_program(&mut self) -> Result<(), Signal> {
+        self.enter_function(FuncId(0), 0, 0)?;
+        self.execute(1)?;
+        self.stack.clear();
+
+        if let Some(main) = self.find_main() {
+            if self.function(main).arity != 0 {
+                return Err(Signal::Fatal(
+                    "brasa: `main` must take no parameters".to_string(),
+                ));
+            }
+            self.enter_function(main, 0, 0)?;
+            self.execute(1)?;
+            self.stack.clear();
+        }
+
+        Ok(())
+    }
+
+    /// The module's `main`: the first non-method function-table entry
+    /// with that name (struct methods may share the name but are not
+    /// entry points, exactly like the walker's item scan).
+    fn find_main(&self) -> Option<FuncId> {
+        let method_ids: HashSet<u32> = self
+            .module
+            .structs
+            .iter()
+            .flat_map(|shape| shape.methods.iter().map(|f| f.0))
+            .collect();
+
+        self.module
+            .functions
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(ix, func)| func.name == "main" && !method_ids.contains(&(*ix as u32)))
+            .map(|(ix, _)| FuncId(ix as u32))
+    }
+
+    fn finish(&mut self, result: Result<(), Signal>) -> Outcome {
+        match result {
+            Ok(()) => Outcome::Success,
+            Err(Signal::Error(value)) => {
+                let tag = self.nominal_tag(&value);
+                let rendered = self
+                    .display(&value)
+                    .unwrap_or_else(|_| "<toString failed>".to_string());
+                Outcome::Error {
+                    message: format!("error: {tag}: {rendered}"),
+                }
+            }
+            Err(Signal::Panic(panic)) => {
+                let mut message = format!("panic: {}: {}", panic.name, panic.detail);
+                for frame in &panic.stack {
+                    message.push_str("\n  in ");
+                    message.push_str(frame);
+                }
+                Outcome::Panic { message }
+            }
+            Err(Signal::Fatal(message)) => Outcome::Error { message },
+            Err(Signal::BrokenPipe) => Outcome::BrokenPipe,
+        }
+    }
+
+    // --- frame plumbing ------------------------------------------------
+
+    pub(crate) fn function(&self, id: FuncId) -> &'a Function {
+        &self.module.functions[id.0 as usize]
+    }
+
+    pub(crate) fn module_struct(&self, id: brasa_bytecode::StructId) -> &'a StructShape {
+        &self.module.structs[id.0 as usize]
+    }
+
+    pub(crate) fn module_enum(&self, id: brasa_bytecode::EnumId) -> &'a EnumShape {
+        &self.module.enums[id.0 as usize]
+    }
+
+    /// Active call depth for the guard, excluding the synthetic
+    /// `<toplevel>` bottom frame — the walker never counts it.
+    fn call_depth(&self) -> usize {
+        let toplevel = usize::from(self.frames.first().is_some_and(|f| f.func == FuncId(0)));
+        self.frames.len() - toplevel
+    }
+
+    /// Active function names, innermost first, excluding `<toplevel>` —
+    /// the walker's panic-stacktrace snapshot.
+    fn capture_trace(&self) -> Vec<String> {
+        self.frames
+            .iter()
+            .rev()
+            .filter(|frame| frame.func != FuncId(0))
+            .map(|frame| self.function(frame.func).name.clone())
+            .collect()
+    }
+
+    pub(crate) fn panic(&self, name: &'static str, detail: impl Into<String>) -> Signal {
+        Signal::Panic(PanicValue {
+            name,
+            detail: detail.into(),
+            stack: self.capture_trace(),
+        })
+    }
+
+    fn fatal(message: impl Into<String>) -> Signal {
+        Signal::Fatal(message.into())
+    }
+
+    /// Pushes a frame for `func` whose arguments already sit at
+    /// `base..`: reserves `locals + max_stack`, filling the non-argument
+    /// local slots with `unit`. The depth guard runs before the push,
+    /// so the overflow panic's stacktrace is the caller chain.
+    fn enter_function(&mut self, func: FuncId, base: usize, ret_base: usize) -> Result<(), Signal> {
+        if self.call_depth() >= self.max_depth {
+            return Err(self.panic(
+                STACK_OVERFLOW,
+                format!("recursion limit ({} frames) exceeded", self.max_depth),
+            ));
+        }
+
+        let function = self.function(func);
+        let floor = base + function.locals as usize;
+        self.stack
+            .reserve(floor + function.max_stack as usize - self.stack.len());
+        self.stack.resize(floor, Value::Unit);
+
+        self.frames.push(Frame {
+            func,
+            ip: 0,
+            base,
+            ret_base,
+        });
+        Ok(())
+    }
+
+    /// Copies a closure's captured values into the capture slots
+    /// (`base + arity ..`) of the just-entered frame.
+    fn write_captures(&mut self, closure: &ClosureValue) {
+        let frame = self.frames.last().expect("captures need an active frame");
+        let start = frame.base + self.function(closure.func).arity as usize;
+        for (offset, value) in closure.captures.iter().enumerate() {
+            self.stack[start + offset] = value.clone();
+        }
+    }
+
+    // --- the dispatch loop ---------------------------------------------
+
+    /// Runs until fewer than `min_frames` frames remain: the bottom
+    /// bounded frame returned (its result is on the stack) or unwinding
+    /// crossed the boundary (the signal propagates to the caller with
+    /// the frames below intact).
+    fn execute(&mut self, min_frames: usize) -> Result<(), Signal> {
+        while self.frames.len() >= min_frames {
+            let frame = self.frames.last_mut().expect("loop condition holds");
+            let op = self.module.functions[frame.func.0 as usize].chunk.ops()[frame.ip];
+            frame.ip += 1;
+
+            if let Err(signal) = self.step(op) {
+                self.unwind(signal, min_frames)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handler-table unwinding (`docs/spec/07-bytecode.md`): errors and
+    /// panics search each frame's table at the faulting `ip`; fatal and
+    /// broken-pipe signals never match. Popping below `min_frames`
+    /// propagates the signal to the bounded caller.
+    fn unwind(&mut self, signal: Signal, min_frames: usize) -> Result<(), Signal> {
+        let catchable = matches!(signal, Signal::Error(_) | Signal::Panic(_));
+
+        loop {
+            if self.frames.len() < min_frames {
+                return Err(signal);
+            }
+
+            let frame = self.frames.last().expect("bounded above min_frames");
+            let function = self.function(frame.func);
+            let fault = CodeIx((frame.ip - 1) as u32);
+
+            if catchable && let Some(handler) = function.chunk.handler_for(fault) {
+                let floor = frame.base + function.locals as usize;
+                self.stack.truncate(floor + handler.depth as usize);
+
+                let caught = match signal {
+                    Signal::Error(value) => Caught::Error(value),
+                    Signal::Panic(panic) => Caught::Panic(panic),
+                    _ => unreachable!("only catchable signals reach a handler"),
+                };
+                self.stack.push(Value::Caught(Rc::new(caught)));
+
+                let target = handler.target.0 as usize;
+                self.frames.last_mut().expect("frame still active").ip = target;
+                return Ok(());
+            }
+
+            let frame = self.frames.pop().expect("bounded above min_frames");
+            self.stack.truncate(frame.ret_base);
+        }
+    }
+
+    // --- stack helpers -------------------------------------------------
+
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().expect("operand stack underflow")
+    }
+
+    fn pop_n(&mut self, n: usize) -> Vec<Value> {
+        self.stack.split_off(self.stack.len() - n)
+    }
+
+    fn peek(&self) -> &Value {
+        self.stack.last().expect("operand stack underflow")
+    }
+
+    fn pop_int(&mut self) -> VmResult<i64> {
+        match self.pop() {
+            Value::Int(v) => Ok(v),
+            _ => Err(Self::fatal("brasa: expected an int")),
+        }
+    }
+
+    fn pop_bool(&mut self) -> VmResult<bool> {
+        match self.pop() {
+            Value::Bool(v) => Ok(v),
+            _ => Err(Self::fatal("brasa: condition is not a bool")),
+        }
+    }
+
+    fn jump(&mut self, target: CodeIx) {
+        self.frames.last_mut().expect("active frame").ip = target.0 as usize;
+    }
+
+    fn frame_base(&self) -> usize {
+        self.frames.last().expect("active frame").base
+    }
+
+    // --- one instruction -----------------------------------------------
+
+    fn step(&mut self, op: Op) -> Result<(), Signal> {
+        match op {
+            Op::Const(id) => {
+                let value = match self.module.constants.get(id) {
+                    Constant::Int(v) => Value::Int(*v),
+                    Constant::Float(v) => Value::Float(*v),
+                    Constant::Str(v) => Value::str(v),
+                    Constant::Char(v) => Value::Char(*v),
+                };
+                self.push(value);
+            }
+            Op::LoadUnit => self.push(Value::Unit),
+            Op::LoadTrue => self.push(Value::Bool(true)),
+            Op::LoadFalse => self.push(Value::Bool(false)),
+            Op::LoadNone => self.push(Value::NONE),
+            Op::Pop => {
+                self.pop();
+            }
+            Op::Dup => {
+                let top = self.peek().clone();
+                self.push(top);
+            }
+            Op::LoadLocal(slot) => {
+                let value = self.stack[self.frame_base() + slot.0 as usize].clone();
+                self.push(value);
+            }
+            Op::StoreLocal(slot) => {
+                let value = self.pop();
+                let base = self.frame_base();
+                self.stack[base + slot.0 as usize] = value;
+            }
+            Op::LoadGlobal(ix) => match &self.globals[ix.0 as usize] {
+                Some(value) => {
+                    let value = value.clone();
+                    self.push(value);
+                }
+                None => {
+                    let name = &self.module.globals[ix.0 as usize];
+                    return Err(Self::fatal(format!(
+                        "brasa: `{name}` used before initialization"
+                    )));
+                }
+            },
+            Op::StoreGlobal(ix) => {
+                let value = self.pop();
+                self.globals[ix.0 as usize] = Some(value);
+            }
+            Op::LoadFunc(func) => self.push(Value::Func(func)),
+
+            Op::AddInt => self.int_arith("+", i64::checked_add)?,
+            Op::SubInt => self.int_arith("-", i64::checked_sub)?,
+            Op::MulInt => self.int_arith("*", i64::checked_mul)?,
+            Op::DivInt => {
+                let b = self.pop_int()?;
+                let a = self.pop_int()?;
+                if b == 0 {
+                    return Err(self.panic(DIVISION_BY_ZERO, "division by zero"));
+                }
+                let result = a.checked_div(b).ok_or_else(|| self.overflow("/"))?;
+                self.push(Value::Int(result));
+            }
+            Op::RemInt => {
+                let b = self.pop_int()?;
+                let a = self.pop_int()?;
+                if b == 0 {
+                    return Err(self.panic(DIVISION_BY_ZERO, "remainder by zero"));
+                }
+                let result = a.checked_rem(b).ok_or_else(|| self.overflow("%"))?;
+                self.push(Value::Int(result));
+            }
+            Op::PowInt => {
+                let b = self.pop_int()?;
+                let a = self.pop_int()?;
+                if b < 0 {
+                    return Err(self.panic(ASSERTION_FAILED, "negative exponent in integer `**`"));
+                }
+                let exp = u32::try_from(b).map_err(|_| self.overflow("**"))?;
+                let result = a.checked_pow(exp).ok_or_else(|| self.overflow("**"))?;
+                self.push(Value::Int(result));
+            }
+            Op::NegInt => {
+                let a = self.pop_int()?;
+                let result = a
+                    .checked_neg()
+                    .ok_or_else(|| self.panic(INTEGER_OVERFLOW, "integer overflow in unary `-`"))?;
+                self.push(Value::Int(result));
+            }
+
+            Op::AddFloat => self.float_arith(|a, b| a + b)?,
+            Op::SubFloat => self.float_arith(|a, b| a - b)?,
+            Op::MulFloat => self.float_arith(|a, b| a * b)?,
+            Op::DivFloat => self.float_arith(|a, b| a / b)?,
+            Op::RemFloat => self.float_arith(|a, b| a % b)?,
+            Op::PowFloat => self.float_arith(f64::powf)?,
+            Op::NegFloat => match self.pop() {
+                Value::Float(v) => self.push(Value::Float(-v)),
+                _ => return Err(Self::fatal("brasa: invalid operand for unary operator")),
+            },
+
+            Op::Concat => {
+                let b = self.pop();
+                let a = self.pop();
+                match (a, b) {
+                    (Value::Str(a), Value::Str(b)) => self.push(Value::str(format!("{a}{b}"))),
+                    _ => {
+                        return Err(Self::fatal(
+                            "brasa: invalid operands for arithmetic operator",
+                        ));
+                    }
+                }
+            }
+            Op::Not => {
+                let a = self
+                    .pop_bool()
+                    .map_err(|_| Self::fatal("brasa: invalid operand for unary operator"))?;
+                self.push(Value::Bool(!a));
+            }
+
+            Op::Eq => {
+                let b = self.pop();
+                let a = self.pop();
+                self.push(Value::Bool(value_eq(&a, &b)));
+            }
+            Op::Lt => self.ordering(|o| o.is_lt())?,
+            Op::Le => self.ordering(|o| o.is_le())?,
+            Op::Gt => self.ordering(|o| o.is_gt())?,
+            Op::Ge => self.ordering(|o| o.is_ge())?,
+
+            Op::Jump(target) => self.jump(target),
+            Op::JumpIfFalse(target) => {
+                if !self.pop_bool()? {
+                    self.jump(target);
+                }
+            }
+            Op::JumpIfFalseOrPop(target) => match self.peek() {
+                Value::Bool(false) => self.jump(target),
+                Value::Bool(true) => {
+                    self.pop();
+                }
+                _ => return Err(Self::fatal("brasa: condition is not a bool")),
+            },
+            Op::JumpIfTrueOrPop(target) => match self.peek() {
+                Value::Bool(true) => self.jump(target),
+                Value::Bool(false) => {
+                    self.pop();
+                }
+                _ => return Err(Self::fatal("brasa: condition is not a bool")),
+            },
+            Op::JumpIfVariantNe { variant, target } => {
+                let Value::Enum(e) = self.peek() else {
+                    unreachable!("jump_if_variant_ne peeks an enum value");
+                };
+                if e.variant != variant as usize {
+                    self.jump(target);
+                }
+            }
+            Op::JumpIfNone(target) => {
+                let Value::Option(inner) = self.peek() else {
+                    unreachable!("jump_if_none peeks an Option");
+                };
+                if inner.is_none() {
+                    self.jump(target);
+                }
+            }
+
+            Op::WrapSome => {
+                let value = self.pop();
+                self.push(Value::some(value));
+            }
+            Op::WrapSomeDynamic => {
+                let value = self.pop();
+                match value {
+                    Value::Option(_) => self.push(value),
+                    other => self.push(Value::some(other)),
+                }
+            }
+            Op::UnwrapSome => {
+                let Value::Option(Some(inner)) = self.pop() else {
+                    unreachable!("unwrap_some is always guarded by jump_if_none");
+                };
+                self.push((*inner).clone());
+            }
+            Op::TupleField(ix) => {
+                let Value::Tuple(items) = self.pop() else {
+                    unreachable!("tuple_field reads a tuple");
+                };
+                self.push(items[ix as usize].clone());
+            }
+            Op::EnumField(ix) => {
+                let Value::Enum(e) = self.pop() else {
+                    unreachable!("enum_field reads an enum payload");
+                };
+                self.push(e.fields[ix as usize].clone());
+            }
+            Op::GetField(ix) => {
+                let Value::Struct(s) = self.pop() else {
+                    unreachable!("get_field reads a struct");
+                };
+                let value = s.fields.borrow()[ix as usize].clone();
+                self.push(value);
+            }
+            Op::SetField(ix) => {
+                let value = self.pop();
+                let Value::Struct(s) = self.pop() else {
+                    unreachable!("set_field writes a struct");
+                };
+                s.fields.borrow_mut()[ix as usize] = value;
+            }
+            Op::GetIndex => {
+                let index = self.pop();
+                let recv = self.pop();
+                let value = self.get_index(&recv, &index)?;
+                self.push(value);
+            }
+            Op::SetIndex => {
+                let value = self.pop();
+                let index = self.pop();
+                let recv = self.pop();
+                self.set_index(&recv, index, value)?;
+            }
+
+            Op::Call { func, argc } => {
+                let base = self.stack.len() - argc as usize;
+                self.enter_function(func, base, base)?;
+            }
+            Op::CallValue { argc } => self.call_value_op(argc as usize)?,
+            Op::CallBuiltin { builtin, argc } => {
+                let result = self.dispatch_builtin(builtin, argc as usize)?;
+                self.push(result);
+            }
+            Op::BindMethod(func) => {
+                let recv = self.pop();
+                self.push(Value::BoundMethod(Rc::new(BoundMethod { recv, func })));
+            }
+            Op::BindBuiltin(builtin) => {
+                let recv = self.pop();
+                self.push(Value::BoundBuiltin(Rc::new(BoundBuiltin { recv, builtin })));
+            }
+            Op::Ret => {
+                let result = self.pop();
+                let frame = self.frames.pop().expect("ret needs an active frame");
+                self.stack.truncate(frame.ret_base);
+                self.push(result);
+            }
+
+            Op::MakeVector(n) => {
+                let items = self.pop_n(n as usize);
+                self.push(Value::vector(items));
+            }
+            Op::MakeMap(n) => {
+                let flat = self.pop_n(2 * n as usize);
+                let mut entries: Vec<(Value, Value)> = Vec::with_capacity(n as usize);
+                let mut flat = flat.into_iter();
+                while let (Some(key), Some(value)) = (flat.next(), flat.next()) {
+                    match entries.iter_mut().find(|(k, _)| value_eq(k, &key)) {
+                        Some(entry) => entry.1 = value,
+                        None => entries.push((key, value)),
+                    }
+                }
+                self.push(Value::Map(Rc::new(std::cell::RefCell::new(entries))));
+            }
+            Op::MakeTuple(n) => {
+                let items = self.pop_n(n as usize);
+                self.push(Value::Tuple(Rc::from(items)));
+            }
+            Op::MakeSetFromVector => {
+                let Value::Vector(items) = self.pop() else {
+                    return Err(Self::fatal("brasa: `Set` takes exactly 1 Vector argument"));
+                };
+                let items = items.borrow();
+                let mut set: Vec<Value> = Vec::new();
+                for item in items.iter() {
+                    if !set.iter().any(|existing| value_eq(existing, item)) {
+                        set.push(item.clone());
+                    }
+                }
+                self.push(Value::Set(Rc::new(std::cell::RefCell::new(set))));
+            }
+            Op::MakeStruct(shape) => {
+                let field_count = self.module.structs[shape.0 as usize].fields.len();
+                let fields = self.pop_n(field_count);
+                self.push(Value::Struct(Rc::new(StructValue {
+                    shape,
+                    fields: std::cell::RefCell::new(fields),
+                })));
+            }
+            Op::MakeEnum {
+                enum_id,
+                variant,
+                argc,
+            } => {
+                let fields = self.pop_n(argc as usize);
+                self.push(Value::Enum(Rc::new(EnumValue {
+                    shape: enum_id,
+                    variant: variant as usize,
+                    fields,
+                })));
+            }
+            Op::MakeClosure { func, captures } => {
+                let captures = self.pop_n(captures as usize);
+                self.push(Value::Closure(Rc::new(ClosureValue { func, captures })));
+            }
+            Op::MakeRange { inclusive } => {
+                let hi = self.pop_int()?;
+                let lo = self.pop_int()?;
+                self.push(Value::Range { lo, hi, inclusive });
+            }
+
+            Op::ToString => {
+                let value = self.pop();
+                let text = self.display(&value)?;
+                self.push(Value::str(text));
+            }
+            Op::IterNew => {
+                let value = self.pop();
+                let state = self.iter_new(&value)?;
+                self.push(Value::Iter(Rc::new(std::cell::RefCell::new(state))));
+            }
+            Op::IterNext(target) => {
+                let Value::Iter(iter) = self.peek() else {
+                    unreachable!("iter_next peeks the loop iterator");
+                };
+                let next = iter.borrow_mut().next();
+                match next {
+                    Some(item) => self.push(item),
+                    None => {
+                        self.pop();
+                        self.jump(target);
+                    }
+                }
+            }
+
+            Op::Throw => {
+                let value = self.pop();
+                return Err(Signal::Error(value));
+            }
+            Op::JumpIfPanic(target) => {
+                let Value::Caught(caught) = self.peek() else {
+                    unreachable!("jump_if_panic peeks the caught signal");
+                };
+                if matches!(**caught, Caught::Panic(_)) {
+                    self.jump(target);
+                }
+            }
+            Op::JumpIfTagNe { tag, target } => {
+                let Constant::Str(tag) = self.module.constants.get(tag) else {
+                    unreachable!("jump_if_tag_ne carries a string constant");
+                };
+                let Value::Caught(caught) = self.peek() else {
+                    unreachable!("jump_if_tag_ne peeks the caught signal");
+                };
+                let signal_tag = match &**caught {
+                    Caught::Error(value) => self.nominal_tag(value),
+                    Caught::Panic(panic) => panic.name.to_string(),
+                };
+                if signal_tag != *tag {
+                    self.jump(target);
+                }
+            }
+            Op::CaughtValue => {
+                let Value::Caught(caught) = self.peek() else {
+                    unreachable!("caught_value peeks the caught signal");
+                };
+                let bound = match &**caught {
+                    Caught::Error(value) => value.clone(),
+                    // `_` never selects a panic; a panic binding is
+                    // always `caught_detail`, but mirror the walker's
+                    // detail-string binding for safety.
+                    Caught::Panic(panic) => Value::str(&panic.detail),
+                };
+                self.push(bound);
+            }
+            Op::CaughtDetail => {
+                let Value::Caught(caught) = self.peek() else {
+                    unreachable!("caught_detail peeks the caught signal");
+                };
+                let bound = match &**caught {
+                    Caught::Error(Value::NativeError { message, .. }) => {
+                        Value::Str(message.clone())
+                    }
+                    Caught::Error(value) => value.clone(),
+                    Caught::Panic(panic) => Value::str(&panic.detail),
+                };
+                self.push(bound);
+            }
+            Op::Rethrow => {
+                let Value::Caught(caught) = self.pop() else {
+                    unreachable!("rethrow pops the caught signal");
+                };
+                return Err(match Rc::try_unwrap(caught) {
+                    Ok(Caught::Error(value)) => Signal::Error(value),
+                    Ok(Caught::Panic(panic)) => Signal::Panic(panic),
+                    Err(shared) => match &*shared {
+                        Caught::Error(value) => Signal::Error(value.clone()),
+                        Caught::Panic(panic) => Signal::Panic(panic.clone()),
+                    },
+                });
+            }
+        }
+        Ok(())
+    }
+
+    // --- operator helpers ----------------------------------------------
+
+    fn overflow(&self, op: &str) -> Signal {
+        self.panic(INTEGER_OVERFLOW, format!("integer overflow in `{op}`"))
+    }
+
+    fn int_arith(&mut self, symbol: &str, f: fn(i64, i64) -> Option<i64>) -> Result<(), Signal> {
+        let b = self.pop_int().map_err(Self::bad_arith)?;
+        let a = self.pop_int().map_err(Self::bad_arith)?;
+        let result = f(a, b).ok_or_else(|| self.overflow(symbol))?;
+        self.push(Value::Int(result));
+        Ok(())
+    }
+
+    fn float_arith(&mut self, f: fn(f64, f64) -> f64) -> Result<(), Signal> {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Float(a), Value::Float(b)) => {
+                self.push(Value::Float(f(a, b)));
+                Ok(())
+            }
+            _ => Err(Self::fatal(
+                "brasa: invalid operands for arithmetic operator",
+            )),
+        }
+    }
+
+    fn bad_arith(_: Signal) -> Signal {
+        Self::fatal("brasa: invalid operands for arithmetic operator")
+    }
+
+    /// Primitive ordering, plus the walker's dynamic struct-`cmp`
+    /// fallback (`eval_ordering`). The checker only lets
+    /// `int`/`float`/`string`/`char` satisfy `Comparable` today, so the
+    /// struct branch is unreachable in checked programs — mirrored
+    /// anyway so the two backends share one dynamic contract.
+    fn ordering(&mut self, f: fn(std::cmp::Ordering) -> bool) -> Result<(), Signal> {
+        let b = self.pop();
+        let a = self.pop();
+
+        let result = match value_cmp(&a, &b) {
+            Some(ordering) => f(ordering),
+            None => match (&a, &b) {
+                // IEEE: comparisons involving NaN are all false.
+                (Value::Float(_), Value::Float(_)) => false,
+                (Value::Struct(_), Value::Struct(_)) => {
+                    let cmp = self.call_struct_by_name(a.clone(), "cmp", vec![b.clone()])?;
+                    match cmp {
+                        Value::Int(v) => f(v.cmp(&0)),
+                        _ => return Err(Self::fatal("brasa: `cmp` must return an int")),
+                    }
+                }
+                _ => return Err(Self::fatal("brasa: operands are not comparable")),
+            },
+        };
+        self.push(Value::Bool(result));
+        Ok(())
+    }
+
+    /// Runtime member dispatch on a struct receiver, mirroring the
+    /// walker's `call_method_by_name`: declared methods first, then
+    /// fields holding callables, then the universal `toString`.
+    fn call_struct_by_name(&mut self, recv: Value, name: &str, args: Vec<Value>) -> VmResult {
+        let Value::Struct(s) = &recv else {
+            unreachable!("struct dispatch needs a struct receiver");
+        };
+        let shape = self.module_struct(s.shape);
+
+        if let Some(&func) = shape
+            .methods
+            .iter()
+            .find(|&&method| self.function(method).name == name)
+        {
+            let mut with_recv = Vec::with_capacity(args.len() + 1);
+            with_recv.push(recv.clone());
+            with_recv.extend(args);
+            return self.call_function(func, with_recv);
+        }
+
+        if let Some(ix) = shape.fields.iter().position(|field| field == name) {
+            let field = s.fields.borrow()[ix].clone();
+            return self.call_callable(field, args);
+        }
+
+        if name == "toString" {
+            let text = self.display(&recv)?;
+            return Ok(Value::str(text));
+        }
+
+        Err(Self::fatal(format!("brasa: unknown member `{name}`")))
+    }
+
+    fn get_index(&self, recv: &Value, index: &Value) -> VmResult {
+        match (recv, index) {
+            (Value::Vector(items), Value::Int(i)) => {
+                let items = items.borrow();
+                let len = items.len();
+                if *i < 0 || *i as usize >= len {
+                    return Err(self.panic(
+                        INDEX_OUT_OF_BOUNDS,
+                        format!("index {i} out of range (len {len})"),
+                    ));
+                }
+                Ok(items[*i as usize].clone())
+            }
+            (Value::Map(entries), key) => Ok(entries
+                .borrow()
+                .iter()
+                .find(|(k, _)| value_eq(k, key))
+                .map(|(_, v)| Value::some(v.clone()))
+                .unwrap_or(Value::NONE)),
+            _ => Err(Self::fatal("brasa: value does not support indexing")),
+        }
+    }
+
+    fn set_index(&self, recv: &Value, index: Value, value: Value) -> Result<(), Signal> {
+        match recv {
+            Value::Vector(items) => {
+                let Value::Int(i) = index else {
+                    return Err(Self::fatal("brasa: vector index must be an int"));
+                };
+                let mut items = items.borrow_mut();
+                let len = items.len();
+                if i < 0 || i as usize >= len {
+                    return Err(self.panic(
+                        INDEX_OUT_OF_BOUNDS,
+                        format!("index {i} out of range (len {len})"),
+                    ));
+                }
+                items[i as usize] = value;
+                Ok(())
+            }
+            Value::Map(entries) => {
+                let mut entries = entries.borrow_mut();
+                match entries.iter_mut().find(|(k, _)| value_eq(k, &index)) {
+                    Some(entry) => entry.1 = value,
+                    None => entries.push((index, value)),
+                }
+                Ok(())
+            }
+            _ => Err(Self::fatal(
+                "brasa: value does not support index assignment",
+            )),
+        }
+    }
+
+    /// Snapshot iteration at loop entry for collections (M1 decision);
+    /// ranges stay lazy.
+    fn iter_new(&self, value: &Value) -> VmResult<IterState> {
+        match value {
+            Value::Range { lo, hi, inclusive } => Ok(IterState::Range {
+                next: *lo,
+                hi: *hi,
+                inclusive: *inclusive,
+                done: false,
+            }),
+            Value::Vector(items) => Ok(IterState::Items {
+                items: items.borrow().clone(),
+                ix: 0,
+            }),
+            Value::Map(entries) => Ok(IterState::Items {
+                items: entries
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| Value::Tuple(Rc::from(vec![k.clone(), v.clone()])))
+                    .collect(),
+                ix: 0,
+            }),
+            Value::Set(items) => Ok(IterState::Items {
+                items: items.borrow().clone(),
+                ix: 0,
+            }),
+            Value::Str(s) => Ok(IterState::Items {
+                items: s.chars().map(Value::Char).collect(),
+                ix: 0,
+            }),
+            _ => Err(Self::fatal(
+                "brasa: `for` iterates `Vector`, `Map`, `Set`, ranges, and `string`",
+            )),
+        }
+    }
+
+    // --- calls ---------------------------------------------------------
+
+    /// `call_value argc`: the callee sits directly below the arguments
+    /// and is replaced by the result on return.
+    fn call_value_op(&mut self, argc: usize) -> Result<(), Signal> {
+        let callee_ix = self.stack.len() - argc - 1;
+        let callee = self.stack[callee_ix].clone();
+
+        match callee {
+            Value::Func(func) => {
+                let function = self.function(func);
+                if function.arity as usize != argc {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {} argument(s), found {argc}",
+                        function.name, function.arity
+                    )));
+                }
+                self.enter_function(func, callee_ix + 1, callee_ix)
+            }
+            Value::Closure(closure) => {
+                let function = self.function(closure.func);
+                if function.arity as usize != argc {
+                    return Err(Self::fatal(format!(
+                        "brasa: lambda takes {} argument(s), found {argc}",
+                        function.arity
+                    )));
+                }
+                self.enter_function(closure.func, callee_ix + 1, callee_ix)?;
+                self.write_captures(&closure);
+                Ok(())
+            }
+            Value::BoundMethod(bound) => {
+                let function = self.function(bound.func);
+                let expected = function.arity as usize - 1;
+                if expected != argc {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {expected} argument(s), found {argc}",
+                        function.name
+                    )));
+                }
+                // The receiver becomes slot 0, below the arguments.
+                self.stack.insert(callee_ix + 1, bound.recv.clone());
+                self.enter_function(bound.func, callee_ix + 1, callee_ix)
+            }
+            Value::BoundBuiltin(bound) => {
+                let mut args = self.pop_n(argc);
+                self.pop();
+                args.insert(0, bound.recv.clone());
+                let result = self.builtin_with_args(bound.builtin, args)?;
+                self.push(result);
+                Ok(())
+            }
+            _ => Err(Self::fatal("brasa: value is not callable")),
+        }
+    }
+
+    /// Calls a callable value from native code (builtin HOFs, user
+    /// `toString` during rendering) with a nested bounded loop: the
+    /// walker recurses in Rust at exactly these points, and the shared
+    /// call-depth guard bounds both.
+    pub(crate) fn call_callable(&mut self, callee: Value, args: Vec<Value>) -> VmResult {
+        match callee {
+            Value::Func(func) => {
+                let function = self.function(func);
+                if function.arity as usize != args.len() {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {} argument(s), found {}",
+                        function.name,
+                        function.arity,
+                        args.len()
+                    )));
+                }
+                self.call_frames(func, None, args)
+            }
+            Value::Closure(closure) => {
+                let function = self.function(closure.func);
+                if function.arity as usize != args.len() {
+                    return Err(Self::fatal(format!(
+                        "brasa: lambda takes {} argument(s), found {}",
+                        function.arity,
+                        args.len()
+                    )));
+                }
+                self.call_frames(closure.func, Some(&closure), args)
+            }
+            Value::BoundMethod(bound) => {
+                let function = self.function(bound.func);
+                let expected = function.arity as usize - 1;
+                if expected != args.len() {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {expected} argument(s), found {}",
+                        function.name,
+                        args.len()
+                    )));
+                }
+                let mut with_recv = Vec::with_capacity(args.len() + 1);
+                with_recv.push(bound.recv.clone());
+                with_recv.extend(args);
+                self.call_frames(bound.func, None, with_recv)
+            }
+            Value::BoundBuiltin(bound) => {
+                let mut with_recv = Vec::with_capacity(args.len() + 1);
+                with_recv.push(bound.recv.clone());
+                with_recv.extend(args);
+                self.builtin_with_args(bound.builtin, with_recv)
+            }
+            _ => Err(Self::fatal("brasa: value is not callable")),
+        }
+    }
+
+    /// Calls a compiled function reentrantly: `main`-loop mechanics on
+    /// a bounded frame, returning the popped result.
+    pub(crate) fn call_function(&mut self, func: FuncId, args: Vec<Value>) -> VmResult {
+        self.call_frames(func, None, args)
+    }
+
+    fn call_frames(
+        &mut self,
+        func: FuncId,
+        closure: Option<&ClosureValue>,
+        args: Vec<Value>,
+    ) -> VmResult {
+        let ret_base = self.stack.len();
+        self.stack.extend(args);
+
+        if let Err(signal) = self.enter_function(func, ret_base, ret_base) {
+            self.stack.truncate(ret_base);
+            return Err(signal);
+        }
+        if let Some(closure) = closure {
+            self.write_captures(closure);
+        }
+
+        self.execute(self.frames.len())?;
+        Ok(self.pop())
+    }
+
+    /// `call_builtin b argc`: pops every operand (receiver included
+    /// when the builtin takes one) and returns the single result.
+    fn dispatch_builtin(&mut self, builtin: BuiltinId, argc: usize) -> VmResult {
+        let args = self.pop_n(argc);
+        self.builtin_with_args(builtin, args)
+    }
+
+    pub(crate) fn builtin_with_args(&mut self, builtin: BuiltinId, args: Vec<Value>) -> VmResult {
+        let def = builtin_def(builtin).expect("compiled builtin ids are registered");
+
+        if def.has_receiver {
+            let mut args = args.into_iter();
+            let recv = args.next().expect("method builtins carry a receiver");
+            self.method_builtin(def.name, recv, args.collect())
+        } else {
+            self.free_builtin(def.name, args)
+        }
+    }
+
+    // --- nominal tags --------------------------------------------------
+
+    /// The nominal type tag `catch` matches against: the declared name
+    /// for structs and enums, the type name otherwise.
+    pub(crate) fn nominal_tag(&self, value: &Value) -> String {
+        match value {
+            Value::Int(_) => "int".to_string(),
+            Value::Float(_) => "float".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::Char(_) => "char".to_string(),
+            Value::Unit => "unit".to_string(),
+            Value::Str(_) => "string".to_string(),
+            Value::Range { .. } => "Range".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
+            Value::Vector(_) => "Vector".to_string(),
+            Value::Map(_) => "Map".to_string(),
+            Value::Set(_) => "Set".to_string(),
+            Value::Option(_) => "Option".to_string(),
+            Value::Struct(s) => self.module.structs[s.shape.0 as usize].name.clone(),
+            Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
+            Value::NativeError { name, .. } => name.to_string(),
+            Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
+                "function".to_string()
+            }
+            Value::Caught(_) | Value::Iter(_) => {
+                unreachable!("internal values never reach nominal_tag")
+            }
+        }
+    }
+}

@@ -88,6 +88,7 @@ dependencies = [
  "brasa_resolver",
  "brasa_source",
  "brasa_typeck",
+ "brasa_vm",
  "clap",
 ]
 
@@ -229,6 +230,20 @@ dependencies = [
  "brasa_resolver",
  "brasa_source",
  "insta",
+]
+
+[[package]]
+name = "brasa_vm"
+version = "0.1.0"
+dependencies = [
+ "brasa_bytecode",
+ "brasa_codegen",
+ "brasa_hir",
+ "brasa_interp",
+ "brasa_parser",
+ "brasa_resolver",
+ "brasa_source",
+ "brasa_typeck",
 ]
 
 [[package]]
