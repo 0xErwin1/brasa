@@ -1,16 +1,24 @@
 //! Derived `toString` rendering, ported from the walker
 //! (`brasa_interp::interp`): structs as `Point { x: 1.0, y: 2.0 }`,
 //! enums as `Circle(1.0)` or bare `Dot`, floats always with a decimal
-//! point, recursion capped at depth 100. A user struct `toString`
-//! override (recorded on the shape) replaces the derived rendering
-//! everywhere, including nested positions.
+//! point, and cyclic values rendered as [`CYCLE_MARKER`]. A user struct
+//! `toString` override (recorded on the shape) replaces the derived
+//! rendering everywhere, including nested positions.
 
+use crate::heap::GcRef;
 use crate::value::Value;
 use crate::vm::{Signal, Vm, VmResult};
 
-/// Maximum nested `toString` depth, an insurance policy against cyclic
-/// heap values during rendering.
-const MAX_DISPLAY_DEPTH: usize = 100;
+/// Maximum nesting `toString` renders. Cyclic values are detected
+/// exactly ([`Vm::render_cell`]) and never reach this; it only bounds
+/// the host stack for absurdly deep ACYCLIC values, and says so.
+const MAX_DISPLAY_DEPTH: usize = 10_000;
+
+/// What `toString` renders in place of a value already being rendered
+/// further up the current path. Reads as a marker rather than as data,
+/// like the other non-representable renderings (`<lambda>`,
+/// `<bound method>`).
+const CYCLE_MARKER: &str = "<cycle>";
 
 impl<'a> Vm<'a> {
     /// Renders a value the way `puts`, `print`, interpolation, and
@@ -18,14 +26,43 @@ impl<'a> Vm<'a> {
     /// inside containers strings print double-quoted (escaped) and
     /// chars single-quoted.
     pub(crate) fn display(&mut self, value: &Value) -> VmResult<String> {
-        self.render(value, false, 0)
+        self.render(value, false, 0, &mut Vec::new())
     }
 
-    fn render(&mut self, value: &Value, quoted: bool, depth: usize) -> VmResult<String> {
+    /// Renders one arena cell (`docs/spec/07-bytecode.md`: every
+    /// reference cycle passes through a Vector, Map, Set, or Struct),
+    /// emitting [`CYCLE_MARKER`] instead of recursing when the cell is
+    /// already being rendered further up the current path. The path is
+    /// popped on the way out, so a value that merely appears twice as a
+    /// sibling still renders in full.
+    fn render_cell(
+        &mut self,
+        cell: GcRef,
+        path: &mut Vec<GcRef>,
+        render: impl FnOnce(&mut Self, &mut Vec<GcRef>) -> VmResult<String>,
+    ) -> VmResult<String> {
+        if path.contains(&cell) {
+            return Ok(CYCLE_MARKER.to_string());
+        }
+
+        path.push(cell);
+        let rendered = render(self, path);
+        path.pop();
+
+        rendered
+    }
+
+    fn render(
+        &mut self,
+        value: &Value,
+        quoted: bool,
+        depth: usize,
+        path: &mut Vec<GcRef>,
+    ) -> VmResult<String> {
         if depth > MAX_DISPLAY_DEPTH {
-            return Err(Signal::Fatal(
-                "brasa: toString recursion too deep (cyclic value?)".to_string(),
-            ));
+            return Err(Signal::Fatal(format!(
+                "brasa: toString nesting deeper than {MAX_DISPLAY_DEPTH} levels"
+            )));
         }
 
         match value {
@@ -52,35 +89,41 @@ impl<'a> Vm<'a> {
                 Ok(format!("{lo}{op}{hi}"))
             }
             Value::Tuple(items) => {
-                let parts = self.render_all(items, depth)?;
+                let parts = self.render_all(items, depth, path)?;
                 Ok(render_tuple(&parts))
             }
-            Value::Vector(items) => {
-                let items = self.heap.vector(*items).borrow().clone();
-                let parts = self.render_all(&items, depth)?;
-                Ok(format!("[{}]", parts.join(", ")))
+            Value::Vector(cell) => {
+                let (cell, items) = (*cell, self.heap.vector(*cell).borrow().clone());
+                self.render_cell(cell, path, |this, path| {
+                    let parts = this.render_all(&items, depth, path)?;
+                    Ok(format!("[{}]", parts.join(", ")))
+                })
             }
-            Value::Set(items) => {
-                let items = self.heap.set(*items).borrow().items().to_vec();
-                let parts = self.render_all(&items, depth)?;
-                Ok(format!("Set([{}])", parts.join(", ")))
+            Value::Set(cell) => {
+                let (cell, items) = (*cell, self.heap.set(*cell).borrow().items().to_vec());
+                self.render_cell(cell, path, |this, path| {
+                    let parts = this.render_all(&items, depth, path)?;
+                    Ok(format!("Set([{}])", parts.join(", ")))
+                })
             }
-            Value::Map(entries) => {
-                let entries = self.heap.map(*entries).borrow().entries().to_vec();
+            Value::Map(cell) => {
+                let (cell, entries) = (*cell, self.heap.map(*cell).borrow().entries().to_vec());
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }
-                let mut parts = Vec::with_capacity(entries.len());
-                for (key, value) in &entries {
-                    let key = self.render(key, true, depth + 1)?;
-                    let value = self.render(value, true, depth + 1)?;
-                    parts.push(format!("{key}: {value}"));
-                }
-                Ok(format!("{{ {} }}", parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let mut parts = Vec::with_capacity(entries.len());
+                    for (key, value) in &entries {
+                        let key = this.render(key, true, depth + 1, path)?;
+                        let value = this.render(value, true, depth + 1, path)?;
+                        parts.push(format!("{key}: {value}"));
+                    }
+                    Ok(format!("{{ {} }}", parts.join(", ")))
+                })
             }
             Value::Option(inner) => match inner {
                 Some(inner) => {
-                    let inner = self.render(inner, true, depth + 1)?;
+                    let inner = self.render(inner, true, depth + 1, path)?;
                     Ok(format!("Some({inner})"))
                 }
                 None => Ok("None".to_string()),
@@ -97,16 +140,18 @@ impl<'a> Vm<'a> {
                     };
                 }
 
-                let fields = self.heap.struct_value(*s).fields.borrow().clone();
+                let (cell, fields) = (*s, self.heap.struct_value(*s).fields.borrow().clone());
                 if fields.is_empty() {
                     return Ok(format!("{} {{}}", shape.name));
                 }
-                let mut parts = Vec::with_capacity(fields.len());
-                for (name, field) in shape.fields.iter().zip(fields.iter()) {
-                    let field = self.render(field, true, depth + 1)?;
-                    parts.push(format!("{name}: {field}"));
-                }
-                Ok(format!("{} {{ {} }}", shape.name, parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let mut parts = Vec::with_capacity(fields.len());
+                    for (name, field) in shape.fields.iter().zip(fields.iter()) {
+                        let field = this.render(field, true, depth + 1, path)?;
+                        parts.push(format!("{name}: {field}"));
+                    }
+                    Ok(format!("{} {{ {} }}", shape.name, parts.join(", ")))
+                })
             }
             Value::Enum(e) => {
                 let variant_name = self
@@ -119,7 +164,7 @@ impl<'a> Vm<'a> {
                     return Ok(variant_name);
                 }
                 let fields = e.fields.clone();
-                let parts = self.render_all(&fields, depth)?;
+                let parts = self.render_all(&fields, depth, path)?;
                 Ok(format!("{variant_name}({})", parts.join(", ")))
             }
             Value::Func(func) => Ok(format!("<function {}>", self.function(*func).name)),
@@ -132,8 +177,10 @@ impl<'a> Vm<'a> {
             // The `Output` record renders like a struct
             // (`docs/spec/05-stdlib.md`, BRS-32).
             Value::ProcOutput(output) => {
-                let stdout = self.render(&Value::Str(output.stdout.clone()), true, depth + 1)?;
-                let stderr = self.render(&Value::Str(output.stderr.clone()), true, depth + 1)?;
+                let stdout =
+                    self.render(&Value::Str(output.stdout.clone()), true, depth + 1, path)?;
+                let stderr =
+                    self.render(&Value::Str(output.stderr.clone()), true, depth + 1, path)?;
                 Ok(format!(
                     "Output {{ stdout: {stdout}, stderr: {stderr}, code: {} }}",
                     output.code
@@ -150,10 +197,15 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn render_all(&mut self, values: &[Value], depth: usize) -> VmResult<Vec<String>> {
+    fn render_all(
+        &mut self,
+        values: &[Value],
+        depth: usize,
+        path: &mut Vec<GcRef>,
+    ) -> VmResult<Vec<String>> {
         let mut parts = Vec::with_capacity(values.len());
         for value in values {
-            parts.push(self.render(value, true, depth + 1)?);
+            parts.push(self.render(value, true, depth + 1, path)?);
         }
         Ok(parts)
     }

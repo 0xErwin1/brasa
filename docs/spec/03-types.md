@@ -125,6 +125,38 @@ end
   always show the decimal point (`1.0`, never `1`) — the int/float
   separation stays visible.
 
+## Cyclic values
+
+Reference cycles ARE constructible (recursive struct types plus shared
+mutable containers: `s.v.push(s)`), so every structural operation has to
+define what it does on one. The rules, in both backends:
+
+- **`==` is coinductive.** Two values are equal when assuming their
+  cycle-capable cells (Vector, Map, Set, Struct) equal derives no
+  contradiction. `a == b` where `a.v == [a]` and `b.v == [b]` is `true`:
+  both denote the same infinite structure, and with no identity operator
+  to fall back on there is nothing else `==` could honestly answer. A
+  cyclic value that is *not* equivalent still compares `false`; the
+  comparison always terminates. Identity is never observable: a pair is
+  only ever assumed equal, never assumed unequal, so `==` stays
+  reflexive-by-content, and `[a] == [b]`, `{ "k": a } == { "k": b }`, and
+  the container operations built on `==` (`contains?`, `uniq`, `Set`
+  dedupe) inherit the same answer.
+- **`toString` renders a back-edge as `<cycle>`** and does not recurse
+  into it, in the same marker family as `<lambda>` and `<bound method>`.
+  The marker is a property of the current path, not of sharing: a value
+  reachable twice as a sibling renders in full both times
+  (`[[1, 2], [1, 2]]`), while `a.v.push(a)` renders as
+  `Node { v: [<cycle>] }`.
+- **Nesting depth is not a cycle.** `toString` still refuses to render
+  more than 10000 levels of nesting, but that limit is about the host
+  stack and says only that; it never claims to have found a cycle.
+- **Ordering never sees a cycle**: `Comparable` is closed to `int`,
+  `float`, `string`, and `char`, so `<`/`<=`/`>`/`>=` and sort keys never
+  descend into a container at all.
+- A cyclic value is still not a Map or Set **key** (`Hashable` is
+  closed); it is an ordinary Map value or Vector element.
+
 ## `if` and `match` as expressions
 
 - `match` is always an expression; always exhaustive; all branches must

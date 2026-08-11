@@ -238,9 +238,19 @@ panic stacktrace) and loop iterators (`iter_new`'s snapshot state). Both
 are GC-scanned like any stack slot.
 
 Equality is structural (`==` has no identity form), ordering covers the
-four comparable primitives, and derived `toString` (recursion-capped at
-depth 100) all behave exactly as the walker's `value_eq` / `value_cmp` /
-`display`; the VM reuses the same rules over the new representation.
+four comparable primitives, and derived `toString` all behave exactly as
+the walker's `value_eq` / `value_cmp` / `display`; the VM reuses the same
+rules over the new representation.
+
+Both traversals are cycle-safe, and observably so
+(`docs/spec/03-types.md`, cyclic values). Equality is coinductive: past a
+shallow guard depth it records the arena-cell pairs on the current
+derivation path, and re-entering a recorded pair yields `true`. Below
+that depth nothing is recorded, so the acyclic case pays only the depth
+counter. `toString` tracks the arena cells on the current path instead
+and renders a back-edge as `<cycle>`; it keeps a 10000-level nesting
+limit purely to bound the host stack, and that limit reports nesting
+depth, never a cycle.
 
 A tuple renders in source form, which means the one-element tuple keeps
 its comma: `(1, "a")`, but `(7,)`. Bare parentheses around a single value
@@ -329,7 +339,7 @@ different failure semantics, per `docs/spec/03-types.md`.
 
 | Op | Stack | Semantics |
 |----|-------|-----------|
-| `eq` | `a b → bool` | Structural equality (`value_eq`): deep on composites, order-insensitive on Map/Set, IEEE on floats, identity fallback for closures. `!=` compiles to `eq` + `not` |
+| `eq` | `a b → bool` | Structural equality (`value_eq`): deep on composites, order-insensitive on Map/Set, IEEE on floats, identity fallback for closures, coinductive on reference cycles. `!=` compiles to `eq` + `not` |
 | `lt` `le` `gt` `ge` | `a b → bool` | Primitive ordering (int, float, string, char). Any float comparison involving NaN is `false`. `T: Comparable` never reaches these ops: the checker compiles it to a `cmp` call plus an int comparison against `0` |
 
 ### Jumps
@@ -387,7 +397,7 @@ All targets are absolute instruction indices.
 
 | Op | Operands | Stack | Semantics |
 |----|----------|-------|-----------|
-| `to_string` | | `v → s` | Derived `toString` (depth-capped structural rendering; floats always show the decimal point). A struct with a user-defined `toString` dispatches to it via the shape. Emitted by interpolation lowering; the checker makes it a no-op on strings |
+| `to_string` | | `v → s` | Derived `toString` (structural rendering; floats always show the decimal point; a back-edge of a reference cycle renders as `<cycle>`). A struct with a user-defined `toString` dispatches to it via the shape. Emitted by interpolation lowering; the checker makes it a no-op on strings |
 | `iter_new` | | `v → it` | Iterator over a Range (lazy, ends on `i64` overflow), Vector/Map/Set (snapshot at loop entry, M1 decision), or string (chars). Map yields key/value tuples |
 | `iter_next` | `t` | `it → it v` / jump | Push the next element, or jump to `t` with the iterator popped when exhausted |
 

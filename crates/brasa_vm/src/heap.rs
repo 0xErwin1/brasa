@@ -47,7 +47,7 @@ const GROWTH_FACTOR: usize = 2;
 
 /// An opaque index into the VM heap's arena. Copyable and trivially
 /// droppable: reclamation is the collector's job, never `Drop`'s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GcRef(u32);
 
 /// One arena slot: the payload of a cycle-capable heap kind, or a

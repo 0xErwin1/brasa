@@ -9,6 +9,7 @@
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use brasa_bytecode::{BuiltinId, EnumId, FuncId, StructId};
@@ -233,11 +234,69 @@ impl HashKeyed for Value {
     }
 }
 
+/// Depth at which structural equality starts recording the arena cells
+/// it is comparing, as in the walker: below it nothing is recorded at
+/// all, and a cycle re-enters its own pairs without bound, so it is
+/// always caught past this depth.
+const CYCLE_GUARD_DEPTH: usize = 16;
+
+/// The arena cell pairs currently assumed equal, scoped to the
+/// derivation path. Hashed rather than scanned so a deep acyclic
+/// comparison stays linear, and behind a `RefCell` so the comparators
+/// handed to the hashed tables stay `Fn` (`brasa_interp::table`).
+/// Allocated by the first descent that reaches [`CYCLE_GUARD_DEPTH`]
+/// and by nothing shallower.
+#[derive(Default)]
+struct Assumed(RefCell<HashSet<(GcRef, GcRef)>>);
+
+/// Compares one pair of arena cells coinductively: past
+/// [`CYCLE_GUARD_DEPTH`], re-entering a pair already being compared
+/// yields `true`. Assuming the pair equal and deriving no contradiction
+/// from it IS equality on a cyclic value — `==` is always structural
+/// (`docs/spec/03-types.md`) and there is no identity operator to fall
+/// back on.
+fn coinductive(
+    pair: (GcRef, GcRef),
+    depth: usize,
+    assumed: Option<&Assumed>,
+    compare: impl FnOnce(Option<&Assumed>) -> bool,
+) -> bool {
+    if depth < CYCLE_GUARD_DEPTH {
+        return compare(assumed);
+    }
+
+    match assumed {
+        Some(assumed) => assuming(assumed, pair, compare),
+        None => assuming(&Assumed::default(), pair, compare),
+    }
+}
+
+fn assuming(
+    assumed: &Assumed,
+    pair: (GcRef, GcRef),
+    compare: impl FnOnce(Option<&Assumed>) -> bool,
+) -> bool {
+    if !assumed.0.borrow_mut().insert(pair) {
+        return true;
+    }
+
+    let equal = compare(Some(assumed));
+    assumed.0.borrow_mut().remove(&pair);
+
+    equal
+}
+
 /// Structural equality, ported from the walker: floats follow IEEE
 /// (`NaN != NaN`), Maps and Sets compare content order-insensitively,
-/// functions and closures fall back to identity. Takes the heap to
-/// resolve the arena-managed container kinds.
+/// functions and closures fall back to identity, and values in a
+/// reference cycle compare coinductively (see [`coinductive`]). Takes
+/// the heap to resolve the arena-managed container kinds.
 pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
+    eq(heap, a, b, 0, None)
+}
+
+fn eq(heap: &Heap, a: &Value, b: &Value, depth: usize, assumed: Option<&Assumed>) -> bool {
+    let deeper = depth + 1;
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => x == y,
         (Value::Float(x), Value::Float(y)) => x == y,
@@ -254,36 +313,47 @@ pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
             },
         ) => lo == lo2 && hi == hi2 && inclusive == inclusive2,
         (Value::Tuple(x), Value::Tuple(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(heap, a, b))
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y.iter())
+                    .all(|(a, b)| eq(heap, a, b, deeper, assumed))
         }
-        (Value::Vector(x), Value::Vector(y)) => {
+        (Value::Vector(x), Value::Vector(y)) => coinductive((*x, *y), depth, assumed, |assumed| {
             let (x, y) = (heap.vector(*x).borrow(), heap.vector(*y).borrow());
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(heap, a, b))
-        }
-        (Value::Map(x), Value::Map(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y.iter())
+                    .all(|(a, b)| eq(heap, a, b, deeper, assumed))
+        }),
+        (Value::Map(x), Value::Map(y)) => coinductive((*x, *y), depth, assumed, |assumed| {
             let (x, y) = (heap.map(*x).borrow(), heap.map(*y).borrow());
             x.len() == y.len()
                 && x.iter().all(|(k, v)| {
-                    y.get(k, |a, b| value_eq(heap, a, b))
-                        .is_some_and(|v2| value_eq(heap, v, v2))
+                    y.get(k, |a, b| eq(heap, a, b, deeper, assumed))
+                        .is_some_and(|v2| eq(heap, v, v2, deeper, assumed))
                 })
-        }
-        (Value::Set(x), Value::Set(y)) => {
+        }),
+        (Value::Set(x), Value::Set(y)) => coinductive((*x, *y), depth, assumed, |assumed| {
             let (x, y) = (heap.set(*x).borrow(), heap.set(*y).borrow());
-            x.len() == y.len() && x.iter().all(|a| y.contains(a, |a, b| value_eq(heap, a, b)))
-        }
+            x.len() == y.len()
+                && x.iter()
+                    .all(|a| y.contains(a, |a, b| eq(heap, a, b, deeper, assumed)))
+        }),
         (Value::Option(x), Value::Option(y)) => match (x, y) {
-            (Some(x), Some(y)) => value_eq(heap, x, y),
+            (Some(x), Some(y)) => eq(heap, x, y, deeper, assumed),
             (None, None) => true,
             _ => false,
         },
-        (Value::Struct(x), Value::Struct(y)) => {
+        (Value::Struct(x), Value::Struct(y)) => coinductive((*x, *y), depth, assumed, |assumed| {
             let (x, y) = (heap.struct_value(*x), heap.struct_value(*y));
             let (fx, fy) = (x.fields.borrow(), y.fields.borrow());
             x.shape == y.shape
                 && fx.len() == fy.len()
-                && fx.iter().zip(fy.iter()).all(|(a, b)| value_eq(heap, a, b))
-        }
+                && fx
+                    .iter()
+                    .zip(fy.iter())
+                    .all(|(a, b)| eq(heap, a, b, deeper, assumed))
+        }),
         (Value::Enum(x), Value::Enum(y)) => {
             x.shape == y.shape
                 && x.variant == y.variant
@@ -291,7 +361,7 @@ pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
                 && x.fields
                     .iter()
                     .zip(y.fields.iter())
-                    .all(|(a, b)| value_eq(heap, a, b))
+                    .all(|(a, b)| eq(heap, a, b, deeper, assumed))
         }
         (Value::Func(x), Value::Func(y)) => x == y,
         (

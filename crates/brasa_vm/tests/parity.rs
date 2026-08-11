@@ -2712,3 +2712,134 @@ puts s.diff(Set([0])).len()
         "20000\n39998\nfalse\n0\n-1\n20000\n19998\n1\n10001\n19999\n20002\n19998\nfalse\n199980000\n2\n3\n3\nalpha,beta\n1\n11\n20000\ntrue\ntrue\nfalse\n19999\n19998\n",
     );
 }
+
+// --- reference cycles (BRS-55) ----------------------------------------
+
+/// The prelude every cycle test builds on: `a` and `b` are two
+/// separately allocated one-node self-cycles, `c`/`d` a two-node cycle.
+const CYCLE_PRELUDE: &str = r##"
+struct Node
+  v: Vector<Node>
+end
+
+let a = Node { v: [] }
+a.v.push(a)
+let b = Node { v: [] }
+b.v.push(b)
+let c = Node { v: [] }
+let d = Node { v: [] }
+c.v.push(d)
+d.v.push(c)
+"##;
+
+fn assert_cycle_success(body: &str, expected_stdout: &str) {
+    assert_success(&format!("{CYCLE_PRELUDE}{body}"), expected_stdout);
+}
+
+/// Two equivalent cyclic structures compare EQUAL: `==` is always
+/// structural (`docs/spec/03-types.md`) with no identity operator to
+/// fall back on, so equality on a cyclic value is the coinductive one —
+/// assume the pair equal, and report equal when nothing contradicts it.
+/// Before BRS-55 every line here aborted the process with an
+/// unrecoverable host stack overflow.
+#[test]
+fn structural_equality_on_cyclic_values_agrees() {
+    assert_cycle_success(
+        r##"
+puts a == b
+puts a == a
+puts a.v == b.v
+puts a == c
+puts c == d
+"##,
+        "true\ntrue\ntrue\ntrue\ntrue\n",
+    );
+}
+
+/// A cyclic value is not a Map key (`Hashable` is closed) but it is a
+/// perfectly ordinary Vector element and Map value, so the containers
+/// have to survive it too.
+#[test]
+fn cyclic_values_inside_containers_compare() {
+    assert_cycle_success(
+        r##"
+let va = [a]
+let vb = [b]
+puts va == vb
+let m = { "k": a }
+let n = { "k": b }
+puts m == n
+puts Set([1, 2]).has?(2)
+let dup = [a, b]
+puts dup.uniq().len()
+puts va.contains?(b)
+"##,
+        "true\ntrue\ntrue\n1\ntrue\n",
+    );
+}
+
+/// Unequal cyclic structures must still terminate with `false` rather
+/// than assuming their way to equality.
+#[test]
+fn cyclic_values_that_differ_compare_false() {
+    assert_cycle_success(
+        r##"
+let e = Node { v: [] }
+let f = Node { v: [] }
+f.v.push(e)
+puts e == f
+puts a == e
+let g = Node { v: [] }
+g.v.push(a)
+g.v.push(g)
+puts g == a
+"##,
+        "false\nfalse\nfalse\n",
+    );
+}
+
+/// `toString` renders the back-edge as `<cycle>` instead of recursing.
+/// The marker is a path property: a value that merely appears twice as
+/// a sibling still renders in full.
+#[test]
+fn to_string_marks_the_back_edge_of_a_cycle() {
+    assert_cycle_success(
+        r##"
+puts a.toString()
+let va = [a]
+puts va.toString()
+let m = { "k": c }
+puts m.toString()
+let shared = [1, 2]
+let pair = [shared, shared]
+puts pair.toString()
+"##,
+        "Node { v: [<cycle>] }\n[Node { v: [<cycle>] }]\n{ \"k\": Node { v: [Node { v: [<cycle>] }] } }\n[[1, 2], [1, 2]]\n",
+    );
+}
+
+/// A deep but ACYCLIC structure renders in full and compares in full.
+/// The old depth-100 cap failed both, and blamed a cycle that did not
+/// exist while doing it.
+#[test]
+fn deep_acyclic_values_render_and_compare_in_full() {
+    assert_cycle_success(
+        r##"
+def chain(n: int): Node
+  let mut acc = Node { v: [] }
+  for i in 0..n
+    let outer = Node { v: [] }
+    outer.v.push(acc)
+    acc = outer
+  end
+  acc
+end
+
+let deep = chain(300)
+puts deep.toString().len()
+puts deep == chain(300)
+puts deep == chain(299)
+"##,
+        "4214\ntrue\nfalse\n",
+    );
+}

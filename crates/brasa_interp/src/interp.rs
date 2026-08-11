@@ -44,9 +44,16 @@ use crate::value::{
     BoundBuiltin, BoundMethod, ClosureValue, EnumValue, StructValue, Value, value_cmp, value_eq,
 };
 
-/// Maximum nested `toString` depth, an insurance policy against cyclic
-/// heap values during rendering.
-const MAX_DISPLAY_DEPTH: usize = 100;
+/// Maximum nesting `toString` renders. Cyclic values are detected
+/// exactly (`Interp::render_cell`) and never reach this; it only bounds
+/// the host stack for absurdly deep ACYCLIC values, and says so.
+const MAX_DISPLAY_DEPTH: usize = 10_000;
+
+/// What `toString` renders in place of a value already being rendered
+/// further up the current path. Reads as a marker rather than as data,
+/// like the other non-representable renderings (`<lambda>`,
+/// `<bound method>`).
+const CYCLE_MARKER: &str = "<cycle>";
 
 /// The closed panic union of `docs/spec/04-errors.md`. Mirrors the
 /// canonical [`brasa_resolver::PANIC_UNION`] list one-to-one (asserted
@@ -1512,12 +1519,43 @@ impl<'a> Interp<'a> {
     /// prints raw; inside containers and composites strings print
     /// double-quoted (escaped) and chars single-quoted.
     pub(crate) fn display(&mut self, value: &Value) -> EvalResult<String> {
-        self.render(value, false, 0)
+        self.render(value, false, 0, &mut Vec::new())
     }
 
-    fn render(&mut self, value: &Value, quoted: bool, depth: usize) -> EvalResult<String> {
+    /// Renders one cycle-capable cell (`docs/spec/07-bytecode.md`: every
+    /// reference cycle passes through a Vector, Map, Set, or Struct),
+    /// emitting [`CYCLE_MARKER`] instead of recursing when the cell is
+    /// already being rendered further up the current path. The path is
+    /// popped on the way out, so a value that merely appears twice as a
+    /// sibling still renders in full.
+    fn render_cell(
+        &mut self,
+        cell: usize,
+        path: &mut Vec<usize>,
+        render: impl FnOnce(&mut Self, &mut Vec<usize>) -> EvalResult<String>,
+    ) -> EvalResult<String> {
+        if path.contains(&cell) {
+            return Ok(CYCLE_MARKER.to_string());
+        }
+
+        path.push(cell);
+        let rendered = render(self, path);
+        path.pop();
+
+        rendered
+    }
+
+    fn render(
+        &mut self,
+        value: &Value,
+        quoted: bool,
+        depth: usize,
+        path: &mut Vec<usize>,
+    ) -> EvalResult<String> {
         if depth > MAX_DISPLAY_DEPTH {
-            return Err(self.fatal("brasa: toString recursion too deep (cyclic value?)"));
+            return Err(self.fatal(format!(
+                "brasa: toString nesting deeper than {MAX_DISPLAY_DEPTH} levels"
+            )));
         }
 
         match value {
@@ -1545,36 +1583,45 @@ impl<'a> Interp<'a> {
             }
             Value::Tuple(items) => {
                 let items = items.clone();
-                let parts = self.render_all(items.iter(), depth)?;
+                let parts = self.render_all(items.iter(), depth, path)?;
                 Ok(render_tuple(&parts))
             }
             Value::Vector(items) => {
+                let cell = Rc::as_ptr(items) as *const u8 as usize;
                 let items = items.borrow().clone();
-                let parts = self.render_all(items.iter(), depth)?;
-                Ok(format!("[{}]", parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let parts = this.render_all(items.iter(), depth, path)?;
+                    Ok(format!("[{}]", parts.join(", ")))
+                })
             }
             Value::Set(items) => {
+                let cell = Rc::as_ptr(items) as *const u8 as usize;
                 let items = items.borrow().items().to_vec();
-                let parts = self.render_all(items.iter(), depth)?;
-                Ok(format!("Set([{}])", parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let parts = this.render_all(items.iter(), depth, path)?;
+                    Ok(format!("Set([{}])", parts.join(", ")))
+                })
             }
             Value::Map(entries) => {
+                let cell = Rc::as_ptr(entries) as *const u8 as usize;
                 let entries = entries.borrow().entries().to_vec();
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }
-                let mut parts = Vec::with_capacity(entries.len());
-                for (key, value) in &entries {
-                    let key = self.render(key, true, depth + 1)?;
-                    let value = self.render(value, true, depth + 1)?;
-                    parts.push(format!("{key}: {value}"));
-                }
-                Ok(format!("{{ {} }}", parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let mut parts = Vec::with_capacity(entries.len());
+                    for (key, value) in &entries {
+                        let key = this.render(key, true, depth + 1, path)?;
+                        let value = this.render(value, true, depth + 1, path)?;
+                        parts.push(format!("{key}: {value}"));
+                    }
+                    Ok(format!("{{ {} }}", parts.join(", ")))
+                })
             }
             Value::Option(inner) => match inner {
                 Some(inner) => {
                     let inner = (**inner).clone();
-                    let inner = self.render(&inner, true, depth + 1)?;
+                    let inner = self.render(&inner, true, depth + 1, path)?;
                     Ok(format!("Some({inner})"))
                 }
                 None => Ok("None".to_string()),
@@ -1597,16 +1644,19 @@ impl<'a> Interp<'a> {
                 let names: Vec<String> = def.fields.iter().map(|f| f.name.clone()).collect();
                 let struct_name = def.name.clone();
 
+                let cell = Rc::as_ptr(s) as *const u8 as usize;
                 let fields = s.fields.borrow().clone();
                 if fields.is_empty() {
                     return Ok(format!("{struct_name} {{}}"));
                 }
-                let mut parts = Vec::with_capacity(fields.len());
-                for (name, field) in names.iter().zip(fields.iter()) {
-                    let field = self.render(field, true, depth + 1)?;
-                    parts.push(format!("{name}: {field}"));
-                }
-                Ok(format!("{struct_name} {{ {} }}", parts.join(", ")))
+                self.render_cell(cell, path, |this, path| {
+                    let mut parts = Vec::with_capacity(fields.len());
+                    for (name, field) in names.iter().zip(fields.iter()) {
+                        let field = this.render(field, true, depth + 1, path)?;
+                        parts.push(format!("{name}: {field}"));
+                    }
+                    Ok(format!("{struct_name} {{ {} }}", parts.join(", ")))
+                })
             }
             Value::Enum(e) => {
                 let variant_name = match self.hir.item(e.item) {
@@ -1621,7 +1671,7 @@ impl<'a> Interp<'a> {
                     return Ok(variant_name);
                 }
                 let fields = e.fields.clone();
-                let parts = self.render_all(fields.iter(), depth)?;
+                let parts = self.render_all(fields.iter(), depth, path)?;
                 Ok(format!("{variant_name}({})", parts.join(", ")))
             }
             Value::Func(item) => Ok(format!("<function {}>", self.item_name(*item))),
@@ -1634,8 +1684,10 @@ impl<'a> Interp<'a> {
             // The `Output` record renders like a struct
             // (`docs/spec/05-stdlib.md`, BRS-32).
             Value::ProcOutput(output) => {
-                let stdout = self.render(&Value::Str(output.stdout.clone()), true, depth + 1)?;
-                let stderr = self.render(&Value::Str(output.stderr.clone()), true, depth + 1)?;
+                let stdout =
+                    self.render(&Value::Str(output.stdout.clone()), true, depth + 1, path)?;
+                let stderr =
+                    self.render(&Value::Str(output.stderr.clone()), true, depth + 1, path)?;
                 Ok(format!(
                     "Output {{ stdout: {stdout}, stderr: {stderr}, code: {} }}",
                     output.code
@@ -1653,10 +1705,11 @@ impl<'a> Interp<'a> {
         &mut self,
         values: impl Iterator<Item = &'v Value>,
         depth: usize,
+        path: &mut Vec<usize>,
     ) -> EvalResult<Vec<String>> {
         let mut parts = Vec::new();
         for value in values {
-            parts.push(self.render(value, true, depth + 1)?);
+            parts.push(self.render(value, true, depth + 1, path)?);
         }
         Ok(parts)
     }
