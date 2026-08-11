@@ -1,0 +1,16 @@
+total: 15
+tick 3
+tick 2
+tick 1
+fib(0) = 0
+fib(1) = 1
+fib(2) = 1
+fib(3) = 2
+odd
+quarter: 0.25
+big: 4611686018427387904
+3
+2.0
+nonewline
+0..10
+1..=3

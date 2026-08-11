@@ -25,6 +25,11 @@ struct Cli {
     #[arg(long)]
     dump_hir: bool,
 
+    /// Stop after type checking without executing the script; prints
+    /// nothing on success.
+    #[arg(long)]
+    check: bool,
+
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
@@ -124,11 +129,30 @@ fn main() -> ExitCode {
         Err(code) => return code,
     }
 
-    // Pipeline continues here as milestones complete: run (M1
-    // tree-walker, M3 VM).
-    eprintln!("check OK (execution lands with the M1 tree-walker)");
+    if cli.check {
+        return ExitCode::from(0);
+    }
 
-    ExitCode::from(70)
+    let mut stdout = std::io::stdout();
+    let outcome = brasa_interp::run(
+        &lowered.hir,
+        &lowered.roots,
+        &resolved.resolutions,
+        &checked.types,
+        &mut stdout,
+    );
+    if let Err(err) = stdout.flush() {
+        eprintln!("brasa: failed to flush output: {err}");
+        return ExitCode::from(70);
+    }
+
+    match outcome {
+        brasa_interp::Outcome::Success => ExitCode::from(0),
+        brasa_interp::Outcome::Error { message } | brasa_interp::Outcome::Panic { message } => {
+            eprintln!("{message}");
+            ExitCode::from(70)
+        }
+    }
 }
 
 /// Renders every diagnostic to stderr and reports whether any was an
