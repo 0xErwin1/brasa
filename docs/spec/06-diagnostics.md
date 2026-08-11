@@ -138,9 +138,10 @@ Notes on kind boundaries:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
   stdlib-error names (`string.ParseError`, `string.RegexError`,
   `proc.NonZeroExit`, `proc.SpawnError`, `fs.NotFound`, `fs.Denied`,
-  `fs.IoError`, `05-stdlib.md`) — both builtin, no import needed.
-  Dotted arm names in roots that have not landed (`json.`) are not yet
-  checked — that namespace lands during M4.
+  `fs.IoError`, `json.ParseError`, `05-stdlib.md`) — both builtin, no
+  import needed. With `json.ParseError` landed (BRS-34), every error
+  namespace the stdlib sketch promises for v1 is checked; dotted arm
+  names in other roots stay unchecked until a future module lands one.
 
 ### Type checker (`T`)
 

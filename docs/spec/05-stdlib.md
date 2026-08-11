@@ -227,10 +227,76 @@ through both backends and the CLI.
   `data["users"][0]["name"] ?? "anon"`.
 - A typed bridge (`json.decode<T>(s)`) is deferred to v2.
 
+Signatures closed in M4 (BRS-34):
+
+- `Json` is a compiler-known type: the name is predeclared like
+  `Option` (usable in annotations without an import), while the module
+  members need `import std::json`. In v1 the enum shape above is
+  DESCRIPTIVE, not surface syntax — `Json` has no constructors and no
+  patterns; every read goes through indexing and the accessors below.
+  Building `Json` values from language data (and with it a
+  `stringify` of arbitrary values) is deferred with the typed bridge.
+- `json.parse(s): Json` throws `json.ParseError` on invalid input; the
+  message carries the position (`cannot parse JSON: expected value at
+  line 2 column 8`).
+- **Indexing is total and Option-yielding**: `data[key]` (object
+  member, `string`) and `data[ix]` (array element, `int`) return
+  `Option<Json>` — a missing key, an out-of-range or negative
+  position, or a node of the wrong kind is `None`, never a panic.
+  Chains flatten: indexing an `Option<Json>` propagates `None`, so
+  `data["users"][0]["name"]` needs no unwrapping along the way.
+- **Accessors** (on `Json` and, flattening, on `Option<Json>` — a
+  chain has no other way to terminate, since `Json` values cannot be
+  constructed in the language): `asString(): Option<string>`,
+  `asInt(): Option<int>`, `asFloat(): Option<float>`,
+  `asBool(): Option<bool>`, `asArray(): Option<Vector<Json>>`,
+  `asObject(): Option<Map<string, Json>>`, and `null?(): bool`. Every
+  `as*` is `None` when the node is not that JSON kind; on a `None`
+  receiver the `as*` accessors propagate `None` and `null?` is `false`
+  (an absent member is not an explicit JSON `null`).
+- **Numbers do not coerce**: `asInt` succeeds only for integral
+  numbers representable as `int` (JSON `2.0` is a float); `asFloat`
+  succeeds for every number. Equality is structural over the tree,
+  so `1` and `1.0` differ.
+- `json.stringify(v: Json): string` emits compact JSON with object
+  keys in bytewise-sorted order — objects are held sorted, so
+  `stringify`, `toString` (the same text, in every rendering
+  position), and `asObject` iteration are all deterministic; the
+  source document's member order is not preserved.
+- `Json` is immutable after `parse`: assigning through an index
+  (`data["a"] = x`) is a compile error.
+- Representation note (non-normative): both backends share one
+  immutable serde_json tree behind `Rc`; indexing hands out subtree
+  copies, which is unobservable for an immutable value.
+
 ## `std::io`
 
 - `puts`, `print`, `eprint` (stderr), `readLine(): Option<string>`,
   `readAll(): string` (full stdin — key for Unix-style filters).
+
+Signatures closed in M4 (BRS-34):
+
+- `io.puts(v)` and `io.print(v)` are the prelude printers exposed as
+  module members (the spec lists them here; the prelude simply
+  re-exports them). `io.eprint(v)` writes to the real process stderr
+  with no trailing newline, mirroring `print`. All three take any
+  single value via the universal `toString`.
+- `io.readLine(): Option<string>` reads one line from the REAL
+  process stdin, stripping one trailing `\n` (and a preceding `\r`);
+  a final line without a newline still yields its content; end of
+  input is `None`. `io.readAll(): string` returns the whole remaining
+  stdin verbatim, newlines intact.
+- Input decodes as lossy UTF-8 (invalid bytes become U+FFFD),
+  consistent with `std::proc`'s output capture — a filter must never
+  die on a stray byte.
+- `std::io` has no error namespace in v1: an OS-level stdin read
+  failure is treated as end of input (`readLine` yields `None`,
+  `readAll` yields what was readable). A closed read end on any
+  output stream (`EPIPE`) is a silent successful exit, like the
+  prelude printers.
+- Testing note: both backends read the same OS stdin handle, so the
+  library-level parity harness cannot exercise the readers; they are
+  pinned by CLI-level tests running both backends with piped stdin.
 
 ## `std::math`, `std::time`, `std::rand`
 

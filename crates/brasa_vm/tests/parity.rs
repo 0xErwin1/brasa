@@ -1757,3 +1757,110 @@ puts blocked
     let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700));
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// --- std::json (BRS-34) ------------------------------------------------
+
+#[test]
+fn json_parse_stringify_and_to_string_agree() {
+    // Objects live in a sorted map: stringify (and toString, which is
+    // the same text) emits compact JSON with bytewise-sorted keys,
+    // regardless of the source document's member order.
+    assert_success(
+        r##"
+import std::json
+let data = json.parse("{\"b\": 2, \"a\": [true, null, \"x\"], \"f\": 2.0}")
+puts json.stringify(data)
+puts data
+puts "inline: #{data}"
+"##,
+        "{\"a\":[true,null,\"x\"],\"b\":2,\"f\":2.0}\n{\"a\":[true,null,\"x\"],\"b\":2,\"f\":2.0}\ninline: {\"a\":[true,null,\"x\"],\"b\":2,\"f\":2.0}\n",
+    );
+}
+
+#[test]
+fn json_indexing_chains_yield_option_and_flatten() {
+    assert_success(
+        r##"
+import std::json
+let data = json.parse("{\"users\": [{\"name\": \"ada\"}, {\"name\": \"grace\"}]}")
+puts data["users"][0]["name"].asString() ?? "anon"
+puts data["users"][1]["name"].asString() ?? "anon"
+puts data["users"][2]["name"].asString() ?? "anon"
+puts data["missing"][0]["name"].asString() ?? "anon"
+puts data["users"][-1].null?()
+puts data["users"]["not an index"].asString() ?? "wrong kind"
+"##,
+        "ada\ngrace\nanon\nanon\nfalse\nwrong kind\n",
+    );
+}
+
+#[test]
+fn json_accessors_agree() {
+    // `asInt` takes only integral i64 numbers; `asFloat` takes every
+    // number; no coercions between JSON kinds. `null?` distinguishes
+    // an explicit `null` from an absent member.
+    assert_success(
+        r##"
+import std::json
+let data = json.parse("{\"n\": 2, \"f\": 2.5, \"s\": \"hi\", \"b\": true, \"z\": null, \"v\": [1, 2], \"o\": {\"k\": 1}}")
+puts data["n"].asInt() ?? -1
+puts data["n"].asFloat() ?? -1.0
+puts data["f"].asInt() ?? -1
+puts data["f"].asFloat() ?? -1.0
+puts data["s"].asString() ?? "?"
+puts data["b"].asBool() ?? false
+puts data["z"].null?()
+puts data["missing"].null?()
+puts data["s"].asInt() ?? -1
+let items: Vector<Json> = data["v"].asArray() ?? []
+puts items.len()
+puts items[0].asInt() ?? -1
+let members: Map<string, Json> = data["o"].asObject() ?? {}
+puts members.len()
+puts members["k"].asInt() ?? -1
+"##,
+        "2\n2.0\n-1\n2.5\nhi\ntrue\ntrue\nfalse\n-1\n2\n1\n1\n1\n",
+    );
+}
+
+#[test]
+fn json_equality_is_structural_over_the_tree() {
+    assert_success(
+        r##"
+import std::json
+let a = json.parse("{\"x\": [1, 2]}")
+let b = json.parse("{ \"x\" : [ 1 , 2 ] }")
+let c = json.parse("{\"x\": [1, 2.0]}")
+puts a == b
+puts a == c
+"##,
+        "true\nfalse\n",
+    );
+}
+
+#[test]
+fn json_parse_errors_are_catchable_with_position() {
+    assert_success(
+        r##"
+import std::json
+let bad = json.stringify(json.parse("{\n  \"a\": }")) catch (e)
+  json.ParseError => e
+end
+puts bad
+"##,
+        "cannot parse JSON: expected value at line 2 column 8\n",
+    );
+}
+
+#[test]
+fn json_uncaught_parse_error_message_matches() {
+    let (outcome, stdout) = assert_parity("import std::json\njson.parse(\"nope\")\n");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        outcome,
+        Outcome::Error {
+            message: "error: json.ParseError: cannot parse JSON: expected ident at line 1 column 2"
+                .to_string()
+        }
+    );
+}
