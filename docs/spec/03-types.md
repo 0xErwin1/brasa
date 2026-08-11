@@ -81,6 +81,14 @@ end
   compatible signatures. There is no conformance declaration.
 - `Self` in an interface refers to the type satisfying it (allows
   `cmp(self, other: Self)` instead of fixing the type).
+- Satisfaction compares a member's signature as written, so a method
+  generic over its own parameters does not satisfy an interface member
+  that names concrete types: `def box<T>(self, x: T): Vector<T>` does
+  not satisfy `def box(self, x: int): Vector<int>`. A generic method is
+  more general and could serve every call, but accepting it would mean
+  reasoning about a signature that is not yet instantiated, which v1
+  does not do. Other members of the same type are unaffected — a struct
+  satisfies an interface through whichever members match.
 - Generic constraints (`<T: Comparable>`) are the ONLY place where
   interfaces are used in v1: there are no interface-typed values (no
   dynamic dispatch, no `Vector<Printable>`). This keeps the VM simple and

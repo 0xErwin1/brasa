@@ -352,6 +352,88 @@ let mixed = h.with("a")
 "##
 );
 
+// A method may reuse the struct's parameter name without capturing it:
+// the two are different owners, so `Holder<int>.echo<T>("a")` returns a
+// string while the receiver still holds an int.
+typecheck_test!(
+    a_method_generic_shadowing_the_struct_generic_stays_independent,
+    r##"
+struct Holder<T>
+  item: T
+
+  def echo<T>(self, other: T): T
+    other
+  end
+
+  def both<T>(self, other: T): Vector<string>
+    ["#{self.item}", "#{other}"]
+  end
+end
+
+let h = Holder { item: 7 }
+let echoed = h.echo("a")
+let same = h.echo(1)
+let rendered = h.both("a")
+
+let s = Holder { item: "x" }
+let flipped = s.echo(9)
+"##
+);
+
+// A generic method does not satisfy a fixed interface signature: the
+// member is compared as written, and a rigid parameter does not unify
+// with a concrete type. A struct carrying a generic method still
+// satisfies an interface through its other, non-generic members.
+typecheck_test!(
+    a_generic_method_does_not_block_satisfaction_by_other_members,
+    r##"
+interface Named
+  def name(self): string
+end
+
+struct Tagged
+  id: int
+
+  def name(self): string
+    "t#{self.id}"
+  end
+
+  def cast<T>(self, x: T): T
+    x
+  end
+end
+
+def show<N: Named>(n: N): string
+  n.name()
+end
+
+let shown = show(Tagged { id: 1 })
+"##
+);
+
+typecheck_error_test!(
+    a_generic_method_does_not_satisfy_a_fixed_interface_signature,
+    r#"
+interface Boxer
+  def box(self, x: int): Vector<int>
+end
+
+struct Impl
+  n: int
+
+  def box<T>(self, x: T): Vector<T>
+    [x]
+  end
+end
+
+def use<B: Boxer>(b: B): Vector<int>
+  b.box(1)
+end
+
+let boxed = use(Impl { n: 1 })
+"#
+);
+
 // The failure modes match the free-function ones: a parameter no
 // argument determines is T026, a second argument conflicting with the
 // first solution is a plain mismatch against the solved type, and an

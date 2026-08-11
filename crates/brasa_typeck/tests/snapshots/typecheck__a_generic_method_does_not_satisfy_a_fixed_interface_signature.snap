@@ -1,0 +1,13 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T027] Error: `Impl` does not satisfy `Boxer`
+    ╭─[ a_generic_method_does_not_satisfy_a_fixed_interface_signature.brs:18:13 ]
+    │
+ 18 │ let boxed = use(Impl { n: 1 })
+    │             ─────────┬─────────  
+    │                      ╰─────────── constraint not satisfied
+    │ 
+    │ Note: `Impl` has no member `box` with a compatible signature
+────╯

@@ -551,6 +551,39 @@ puts(h.with("a"))
     );
 }
 
+/// A method may reuse the struct's parameter name without capturing it.
+/// The receiver holds an `int` while the method instantiates to
+/// `string`, which is only observable at runtime if the two parameters
+/// really are separate.
+#[test]
+fn a_method_generic_shadowing_the_struct_generic_stays_independent() {
+    assert_success(
+        r##"
+struct Holder<T>
+  item: T
+
+  def echo<T>(self, other: T): T
+    other
+  end
+
+  def both<T>(self, other: T): Vector<string>
+    ["#{self.item}", "#{other}"]
+  end
+end
+
+let h = Holder { item: 7 }
+puts(h.echo("a"))
+puts(h.echo(1))
+puts(h.both("a"))
+
+let s = Holder { item: "x" }
+puts(s.echo(9))
+puts(s.both(9))
+"##,
+        "a\n1\n[\"7\", \"a\"]\n9\n[\"x\", \"9\"]\n",
+    );
+}
+
 /// `??` yields the carried type, so an empty literal on the fallback
 /// side takes its type from the `Option` itself, with no annotation
 /// anywhere. Both backends must produce the empty container, not a

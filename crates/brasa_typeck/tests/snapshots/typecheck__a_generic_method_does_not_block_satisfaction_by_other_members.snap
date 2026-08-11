@@ -1,0 +1,24 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 show -> (N) -> string
+  i3 shown -> string
+local types
+  l0 x -> T
+  l1 n -> N
+expr types
+  e0 -> string
+  e1 -> Tagged
+  e2 -> int
+  e3 -> string
+  e4 -> string
+  e5 -> T
+  e6 -> N
+  e7 -> () -> string
+  e8 -> string
+  e9 -> (Tagged) -> string
+  e10 -> int
+  e11 -> Tagged
+  e12 -> string

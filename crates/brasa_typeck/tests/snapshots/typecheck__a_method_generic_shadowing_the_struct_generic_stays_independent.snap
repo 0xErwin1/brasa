@@ -1,0 +1,42 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 h -> Holder<int>
+  i2 echoed -> string
+  i3 same -> int
+  i4 rendered -> Vector<string>
+  i5 s -> Holder<string>
+  i6 flipped -> int
+local types
+  l0 other -> T
+  l1 other -> T
+expr types
+  e0 -> T
+  e1 -> Holder<T>
+  e2 -> T
+  e3 -> string
+  e4 -> T
+  e5 -> string
+  e6 -> Vector<string>
+  e7 -> int
+  e8 -> Holder<int>
+  e9 -> Holder<int>
+  e10 -> (string) -> string
+  e11 -> string
+  e12 -> string
+  e13 -> Holder<int>
+  e14 -> (int) -> int
+  e15 -> int
+  e16 -> int
+  e17 -> Holder<int>
+  e18 -> (string) -> Vector<string>
+  e19 -> string
+  e20 -> Vector<string>
+  e21 -> string
+  e22 -> Holder<string>
+  e23 -> Holder<string>
+  e24 -> (int) -> int
+  e25 -> int
+  e26 -> int
