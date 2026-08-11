@@ -1082,13 +1082,15 @@ stock.merge(wrongValues)
 "#
 );
 
-/// A struct may declare a field and a method of the same name, and the
-/// checker resolves that name to the FIELD. This is what makes the VM's
-/// two dynamic-dispatch ops safe to resolve it differently
-/// (`docs/spec/07-bytecode.md`, "Dispatch through a generic
-/// constraint"): calling it is not callable, and the struct satisfies
-/// no interface declaring that method, so no checked program ever
-/// reaches the divergence.
+// A struct may declare a field and a method of the same name, and the
+// checker resolves that name to the FIELD even in call position. With a
+// non-callable field that is where it ends: the call is not callable and
+// the struct satisfies no interface declaring that method.
+//
+// With a CALLABLE field it does not end there, and the checker's order
+// disagrees with the runtime's, which dispatches the method — BRS-57,
+// a soundness defect (`docs/spec/07-bytecode.md`, "Dispatch through a
+// generic constraint"). This test pins the checker's half of it.
 typecheck_error_test!(
     field_shadows_a_same_named_method,
     r#"
