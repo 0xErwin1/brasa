@@ -377,6 +377,64 @@ end
     }
 }
 
+/// `throws` lists resolve in the type namespace like catch arm types:
+/// a known name records its `TypeRes` positionally, an unknown name is
+/// `R003` and records `None` to keep the list aligned.
+#[test]
+fn throws_lists_resolve_and_unknown_names_report() {
+    let source = r#"
+struct NetError
+  detail: string
+end
+
+def fetch(ok: bool): string throws NetError
+  "ok"
+end
+
+def bad(): int throws MissingError
+  0
+end
+"#;
+    let (_lowered, resolved, _map) =
+        resolve_source("throws_lists_resolve_and_unknown_names_report", source);
+
+    assert_eq!(
+        resolved.diagnostics.len(),
+        1,
+        "expected exactly the unknown-type diagnostic, got: {:#?}",
+        resolved.diagnostics
+    );
+    assert_eq!(
+        resolved.diagnostics[0].error_code,
+        brasa_diagnostics::codes::R_UNKNOWN_TYPE
+    );
+    assert!(
+        resolved.diagnostics[0]
+            .message
+            .contains("unknown type `MissingError`"),
+        "unexpected message: {}",
+        resolved.diagnostics[0].message
+    );
+
+    let mut lists: Vec<&Vec<Option<brasa_resolver::TypeRes>>> =
+        resolved.resolutions.throws_types.values().collect();
+    lists.sort_by_key(|list| list[0].is_none());
+    assert_eq!(lists.len(), 2, "both `throws` lists are recorded");
+    assert!(
+        matches!(
+            lists[0].as_slice(),
+            [Some(brasa_resolver::TypeRes::Item(_))]
+        ),
+        "`fetch`'s list resolves `NetError`: {:?}",
+        lists[0]
+    );
+    assert_eq!(
+        lists[1].as_slice(),
+        [None],
+        "`bad`'s unknown name records `None`"
+    );
+}
+
 resolution_error_test!(
     ambiguous_ctor_and_bad_constraint,
     r#"

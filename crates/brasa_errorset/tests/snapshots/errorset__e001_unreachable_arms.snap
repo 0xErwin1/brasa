@@ -1,0 +1,27 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E001] Error: unreachable `catch` arm: `ParseError` is not in the error-set here
+    ╭─[ e001_unreachable_arms.brs:19:5 ]
+    │
+ 19 │     ParseError => "never thrown"
+    │     ─────┬────  
+    │          ╰────── this expression cannot throw `ParseError`
+────╯
+[E001] Error: unreachable `catch` arm: `ParseError` is not in the error-set here
+    ╭─[ e001_unreachable_arms.brs:27:5 ]
+    │
+ 27 │     ParseError => "never thrown"
+    │     ─────┬────  
+    │          ╰────── this expression cannot throw `ParseError`
+────╯
+[E001] Error: `_` is unreachable: every error is already handled
+    ╭─[ e001_unreachable_arms.brs:32:3 ]
+    │
+ 32 │ ╭─▶   risky(ok) catch_all (e)
+    ┆ ┆   
+ 35 │ ├─▶   end
+    │ │           
+    │ ╰─────────── `_` can never match here
+────╯

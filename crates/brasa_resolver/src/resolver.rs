@@ -34,7 +34,7 @@ use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, CatchType, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId,
-    Stmt, StmtId, TypeExpr, TypeExprId,
+    Stmt, StmtId, Throws, TypeExpr, TypeExprId,
 };
 use brasa_source::Span;
 
@@ -521,6 +521,7 @@ impl<'h> Resolver<'h> {
         if let Some(ret) = func.ret {
             self.resolve_type(ret);
         }
+        self.resolve_throws(owner, func);
 
         let saved_self = self.self_allowed;
         self.self_allowed = func
@@ -552,6 +553,37 @@ impl<'h> Resolver<'h> {
         self.value_scopes.pop();
         self.self_allowed = saved_self;
         self.type_frames.pop();
+    }
+
+    /// Resolves a `throws Type | ...` declaration list in the type
+    /// namespace, mirroring `catch` arm types: every name records its
+    /// result positionally, an unknown name is `R003` and records `None`
+    /// so later slots stay aligned with the declared list. Runs inside
+    /// the function's generic frame, so a `throws T` naming a generic
+    /// parameter resolves (the error-set checker decides what it can do
+    /// with it). `throws never` declares no names and records nothing.
+    fn resolve_throws(&mut self, owner: DefRef, func: &'h FuncDef) {
+        let Some(Throws::Types(types)) = &func.throws else {
+            return;
+        };
+
+        let resolved = types
+            .iter()
+            .map(|throws_type| match self.lookup_type(&throws_type.name) {
+                Some(res) => Some(res),
+                None => {
+                    self.error(err_at(
+                        codes::R_UNKNOWN_TYPE,
+                        throws_type.span,
+                        format!("unknown type `{}`", throws_type.name),
+                        "not found in this scope",
+                    ));
+                    None
+                }
+            })
+            .collect();
+
+        self.res.throws_types.insert(owner, resolved);
     }
 
     // --- scopes and bindings -------------------------------------------

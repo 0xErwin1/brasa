@@ -1,0 +1,22 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E002] Error: catch_all does not handle `ParseError`
+    ╭─[ e002_catch_all_missing_tags.brs:20:3 ]
+    │
+ 20 │ ╭─▶   risky(mode) catch_all (e)
+    ┆ ┆   
+ 22 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms or `_`
+────╯
+[E002] Error: catch_all does not handle `NetError`
+    ╭─[ e002_catch_all_missing_tags.brs:26:3 ]
+    │
+ 26 │ ╭─▶   risky(mode) catch_all (e)
+    ┆ ┆   
+ 29 │ ├─▶   end
+    │ │           
+    │ ╰─────────── add arms or `_`
+────╯

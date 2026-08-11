@@ -54,10 +54,20 @@ pub enum Param {
     },
 }
 
+/// One name in a `throws` list, with the span of the name token so
+/// later phases can point diagnostics at it — like `CatchType::Named`,
+/// it lives inline in its declaration and has no arena id (and therefore
+/// no side-table span) of its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThrowsType {
+    pub name: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Throws {
     Never,
-    Types(Vec<String>),
+    Types(Vec<ThrowsType>),
 }
 
 /// A method signature inside an `interface` body or an inline anonymous

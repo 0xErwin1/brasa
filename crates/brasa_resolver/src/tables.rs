@@ -207,6 +207,13 @@ pub struct Resolutions {
     /// names (`panics.X`, stdlib errors) are absent — they resolve in M4
     /// (BRS-24).
     pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
+    /// Resolved `throws Type | ...` declaration lists, aligned with the
+    /// declaring function/method's `Throws::Types` names; `None` marks a
+    /// name that resolved to nothing (reported as `R003`). Interface
+    /// members declare `throws` too but stay unresolved here: checking
+    /// their contracts needs interface-satisfaction integration, which
+    /// is deferred.
+    pub throws_types: HashMap<DefRef, Vec<Option<TypeRes>>>,
     /// Function/method parameter lists, aligned with `FuncDef::params`;
     /// `None` marks a `Param::SelfParam` slot (`self` is not a local).
     pub func_params: HashMap<DefRef, Vec<Option<LocalId>>>,

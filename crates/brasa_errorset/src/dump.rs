@@ -72,7 +72,8 @@ fn render_set(hir: &Hir, set: &ErrorSet) -> String {
     rendered
 }
 
-fn tag_name(hir: &Hir, tag: &ErrorTag) -> String {
+/// The user-facing name of a tag; shared with the checks' messages.
+pub(crate) fn tag_name(hir: &Hir, tag: &ErrorTag) -> String {
     match tag {
         ErrorTag::Item(item) => item_name(hir, *item),
         ErrorTag::Primitive(primitive) => primitive.name().to_string(),
@@ -100,7 +101,9 @@ fn item_name(hir: &Hir, id: ItemId) -> String {
     }
 }
 
-fn def_ref_name(hir: &Hir, def: DefRef) -> String {
+/// The user-facing name of a function or method; shared with the
+/// checks' messages.
+pub(crate) fn def_ref_name(hir: &Hir, def: DefRef) -> String {
     match def {
         DefRef::Item(item) => item_name(hir, item),
         DefRef::Method { owner, index } => {

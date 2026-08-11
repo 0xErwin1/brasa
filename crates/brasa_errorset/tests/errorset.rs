@@ -1,8 +1,9 @@
-//! Snapshot tests for error-set inference. Inputs are parsed, lowered,
-//! resolved, and checked (all with zero diagnostics required), then
-//! inferred; each test snapshots the span-free error-set dump. The
-//! inference itself emits no diagnostics in this unit (the consuming
-//! checks are BRS-23), so every test also asserts the channel is empty.
+//! Snapshot tests for error-set inference and its consuming checks.
+//! Inputs are parsed, lowered, resolved, and checked (all with zero
+//! diagnostics required), then inferred. Happy-path tests assert the
+//! diagnostics channel is empty and snapshot the span-free error-set
+//! dump; error tests snapshot the rendered diagnostics so wording,
+//! labels, and spans are all pinned.
 
 use std::path::PathBuf;
 
@@ -11,7 +12,11 @@ use brasa_source::SourceMap;
 fn infer_source(
     name: &str,
     source: &str,
-) -> (brasa_hir::LowerResult, brasa_errorset::ErrorSetResult) {
+) -> (
+    brasa_hir::LowerResult,
+    brasa_errorset::ErrorSetResult,
+    SourceMap,
+) {
     let mut source_map = SourceMap::new();
     let file = source_map.add_file(PathBuf::from(format!("{name}.brs")), source.to_string());
 
@@ -54,22 +59,49 @@ fn infer_source(
         &resolved.resolutions,
         &checked.types,
     );
-    assert!(
-        inferred.diagnostics.is_empty(),
-        "{name} expected zero error-set diagnostics (checks are BRS-23), got: {:#?}",
-        inferred.diagnostics
-    );
 
-    (lowered, inferred)
+    (lowered, inferred, source_map)
+}
+
+fn render_diagnostics(
+    diagnostics: &[brasa_diagnostics::Diagnostic],
+    sources: &SourceMap,
+) -> String {
+    let mut out = Vec::new();
+    for diag in diagnostics {
+        brasa_diagnostics::render::render(diag, sources, &mut out, false)
+            .expect("render should not fail");
+    }
+    String::from_utf8(out).expect("rendered output should be valid utf-8")
 }
 
 macro_rules! errorset_test {
     ($test_name:ident, $source:expr) => {
         #[test]
         fn $test_name() {
-            let (lowered, inferred) = infer_source(stringify!($test_name), $source);
+            let (lowered, inferred, _map) = infer_source(stringify!($test_name), $source);
+            assert!(
+                inferred.diagnostics.is_empty(),
+                "expected zero error-set diagnostics, got: {:#?}",
+                inferred.diagnostics
+            );
             let dump = brasa_errorset::dump::dump(&lowered.hir, &inferred);
             insta::assert_snapshot!(stringify!($test_name), dump);
+        }
+    };
+}
+
+macro_rules! errorset_error_test {
+    ($test_name:ident, $source:expr) => {
+        #[test]
+        fn $test_name() {
+            let (_lowered, inferred, map) = infer_source(stringify!($test_name), $source);
+            assert!(
+                !inferred.diagnostics.is_empty(),
+                "expected error-set diagnostics, got none"
+            );
+            let rendered = render_diagnostics(&inferred.diagnostics, &map);
+            insta::assert_snapshot!(stringify!($test_name), rendered);
         }
     };
 }
@@ -211,6 +243,189 @@ import std::fs
 def readAny(path: string): string
   let data = fs.read(path)
   throw data
+end
+"#
+);
+
+errorset_test!(
+    throws_contracts_and_catch_all_satisfied,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct ParseError
+  line: int
+end
+
+def fetch(ok: bool): string throws NetError
+  if !ok
+    throw NetError { detail: "timeout" }
+  end
+  "<html>"
+end
+
+def relay(ok: bool): string throws NetError
+  fetch(ok)
+end
+
+def parse(flag: int): int throws ParseError
+  if flag == 0
+    throw ParseError { line: 3 }
+  end
+  flag
+end
+
+def handleBoth(ok: bool, flag: int): int throws never
+  let page = fetch(ok) catch_all (e)
+    NetError => "net down"
+  end
+  parse(page.len() + flag) catch_all (e)
+    ParseError => -1
+  end
+end
+
+def wildcardAll(ok: bool): string
+  fetch(ok) catch_all (e)
+    _ => "recovered"
+  end
+end
+
+def pure(n: int): int throws never
+  n + 1
+end
+"#
+);
+
+errorset_error_test!(
+    e001_unreachable_arms,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct ParseError
+  line: int
+end
+
+def risky(ok: bool): string
+  if !ok
+    throw NetError { detail: "down" }
+  end
+  "ok"
+end
+
+def deadArm(ok: bool): string
+  risky(ok) catch (e)
+    ParseError => "never thrown"
+    NetError => "net"
+  end
+end
+
+def deadArmExhaustive(ok: bool): string
+  risky(ok) catch_all (e)
+    NetError => "net"
+    ParseError => "never thrown"
+  end
+end
+
+def deadWildcard(ok: bool): string
+  risky(ok) catch_all (e)
+    NetError => "net"
+    _ => "unreachable"
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e002_catch_all_missing_tags,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct ParseError
+  line: int
+end
+
+def risky(mode: int): string
+  if mode == 1
+    throw NetError { detail: "down" }
+  elsif mode == 2
+    throw ParseError { line: 7 }
+  end
+  "ok"
+end
+
+def missesOne(mode: int): string
+  risky(mode) catch_all (e)
+    NetError => "net"
+  end
+end
+
+def guardedDoesNotCount(mode: int): string
+  risky(mode) catch_all (e)
+    NetError if mode > 0 => "sometimes"
+    ParseError => "parse"
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e003_open_catch_all,
+    r#"
+def callThrough(f: () -> int): int
+  f() catch_all (e)
+    _ => -1
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e004_undeclared_throw,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct DnsError
+  host: string
+end
+
+def fetch(mode: int): string throws NetError
+  if mode == 1
+    throw NetError { detail: "down" }
+  elsif mode == 2
+    throw DnsError { host: "example" }
+  end
+  "ok"
+end
+
+def relay(mode: int): string throws NetError
+  fetch(mode)
+end
+"#
+);
+
+errorset_error_test!(
+    e005_throws_never,
+    r#"
+struct BoomError
+  code: int
+end
+
+def boom(flag: bool): int throws never
+  if flag
+    throw BoomError { code: 1 }
+  end
+  0
+end
+
+def runThrough(f: () -> int): int throws never
+  f()
 end
 "#
 );

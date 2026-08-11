@@ -3,8 +3,9 @@
 //! This is the machine-facing side of the public registry in
 //! `docs/spec/06-diagnostics.md`; the spec table and these constants must
 //! stay in sync. Codes follow `<PhaseLetter><3 digits>` (`L` lexer, `P`
-//! parser, `R` resolver, `T` type checker; `E` and `X` are reserved), are
-//! append-only, and are never renumbered or reused after removal. Every
+//! parser, `R` resolver, `T` type checker, `E` error-sets; `X` is
+//! reserved), are append-only, and are never renumbered or reused after
+//! removal. Every
 //! emission site names one of these constants instead of writing the code
 //! inline; a code identifies an error kind, so one code may back several
 //! wordings and spans.
@@ -160,6 +161,25 @@ pub const T_COALESCE_TYPE_MISMATCH: &str = "T030";
 /// list (`int`, `string`, `char`, `bool`, and tuples of those).
 pub const T_KEY_NOT_HASHABLE: &str = "T031";
 
+// --- error-sets (E) ---
+
+/// A `catch`/`catch_all` arm that can never match: a named type the
+/// subject's (closed) error-set does not contain, or a `_` arm in a
+/// `catch_all` whose named arms already handle every error.
+pub const E_UNREACHABLE_ARM: &str = "E001";
+/// A `catch_all` whose arms (plus `_`, if any) do not cover every type
+/// in the subject's closed error-set.
+pub const E_CATCH_ALL_NOT_EXHAUSTIVE: &str = "E002";
+/// A `catch_all` whose subject's error-set is open, so exhaustiveness
+/// cannot be verified.
+pub const E_UNVERIFIABLE_EXHAUSTIVENESS: &str = "E003";
+/// A function whose inferred error-set contains a type its declared
+/// `throws` list does not name.
+pub const E_UNDECLARED_THROW: &str = "E004";
+/// A `throws never` contract the body violates: the inferred error-set
+/// is non-empty, or open (and therefore unverifiable).
+pub const E_THROWS_NEVER_VIOLATED: &str = "E005";
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -221,14 +241,19 @@ mod tests {
         super::T_COALESCE_NEEDS_OPTION,
         super::T_COALESCE_TYPE_MISMATCH,
         super::T_KEY_NOT_HASHABLE,
+        super::E_UNREACHABLE_ARM,
+        super::E_CATCH_ALL_NOT_EXHAUSTIVE,
+        super::E_UNVERIFIABLE_EXHAUSTIVENESS,
+        super::E_UNDECLARED_THROW,
+        super::E_THROWS_NEVER_VIOLATED,
     ];
 
-    /// The spec's `^[LPRT]\d{3}$` shape, checked without a regex crate.
+    /// The spec's `^[LPRTE]\d{3}$` shape, checked without a regex crate.
     fn has_valid_format(code: &str) -> bool {
         let bytes = code.as_bytes();
 
         bytes.len() == 4
-            && matches!(bytes[0], b'L' | b'P' | b'R' | b'T')
+            && matches!(bytes[0], b'L' | b'P' | b'R' | b'T' | b'E')
             && bytes[1..].iter().all(u8::is_ascii_digit)
     }
 
@@ -246,7 +271,7 @@ mod tests {
         for code in ALL {
             assert!(
                 has_valid_format(code),
-                "code {code} does not match ^[LPRT][0-9]{{3}}$"
+                "code {code} does not match ^[LPRTE][0-9]{{3}}$"
             );
         }
     }

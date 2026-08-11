@@ -25,8 +25,8 @@ struct Cli {
     #[arg(long)]
     dump_hir: bool,
 
-    /// Stop after type checking without executing the script; prints
-    /// nothing on success.
+    /// Stop after the static checks (through error-set analysis)
+    /// without executing the script; prints nothing on success.
     #[arg(long)]
     check: bool,
 
@@ -134,19 +134,19 @@ fn main() -> ExitCode {
         Err(code) => return code,
     }
 
-    if cli.dump_error_sets {
-        let inferred = brasa_errorset::infer(
-            &lowered.hir,
-            &lowered.roots,
-            &resolved.resolutions,
-            &checked.types,
-        );
-        match render_diagnostics(&inferred.diagnostics, &sources, color) {
-            Ok(false) => {}
-            Ok(true) => return ExitCode::from(65),
-            Err(code) => return code,
-        }
+    let inferred = brasa_errorset::infer(
+        &lowered.hir,
+        &lowered.roots,
+        &resolved.resolutions,
+        &checked.types,
+    );
+    match render_diagnostics(&inferred.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
 
+    if cli.dump_error_sets {
         println!("{}", brasa_errorset::dump::dump(&lowered.hir, &inferred));
         return ExitCode::from(0);
     }

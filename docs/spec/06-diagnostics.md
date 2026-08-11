@@ -48,7 +48,7 @@ Format: `<PhaseLetter><3 digits>` — e.g. `P001`, `R004`, `T012`.
 | `P` | parser |
 | `R` | resolver |
 | `T` | type checker |
-| `E` | error-sets (reserved, M2) |
+| `E` | error-sets |
 | `X` | execution/VM (reserved, M3+) |
 
 Rules:
@@ -196,6 +196,45 @@ Notes on kind boundaries:
   literal, or the `Set` constructor. Key-taking methods (`insert`,
   `get`, `has?`, `remove`, `add`) check against that established type
   and never re-report.
+
+### Error-sets (`E`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `E001` | unreachable `catch` arm | ``unreachable `catch` arm: `ParseError` is not in the error-set here`` |
+| `E002` | `catch_all` not exhaustive | ``catch_all does not handle `NetError` and `ParseError` `` |
+| `E003` | unverifiable exhaustiveness | `catch_all cannot be verified: the subject's error-set is open` |
+| `E004` | undeclared throw | `` `fetch` throws `DnsError` but does not declare it`` |
+| `E005` | `throws never` violated | `` `boom` declares `throws never` but can throw `BoomError` `` |
+
+Notes on kind boundaries:
+
+- The `E` checks run only over closed error-sets, except where noted:
+  the tags of an open set are a sound lower bound, so a "this CAN be
+  thrown" finding still fires, but every "this CANNOT be thrown" claim
+  is skipped or reported as unverifiable. Top-level code has no
+  computed error-set, so top-level `catch`/`catch_all` expressions are
+  not checked.
+- `E001` covers both unreachable-arm shapes: a named type the subject's
+  closed set does not contain (in `catch` and `catch_all` alike,
+  guarded or not — the guard runs only after the type matches), and a
+  `_` arm in a `catch_all` whose unguarded named arms already handle
+  every error. A defensive `_` in a plain `catch` is never flagged:
+  non-exhaustive handling is the default there.
+- `E002` counts only unguarded arms (and an unguarded `_`) toward
+  exhaustiveness — a guard may be false, the same rule error-set
+  subtraction uses.
+- `E003` is `catch_all` over an OPEN subject set: soundness forbids
+  claiming exhaustiveness over an incomplete list.
+- `E004` checks the inferred tags against the declared `throws` list;
+  an open actual set is tolerated (the declaration is the contract,
+  there is no exhaustiveness claim to prove — deliberately asymmetric
+  with `E003`). Over-declaration (declaring a type the body never
+  throws) gets no diagnostic. Interface-method `throws` contracts are
+  not checked yet (deferred with interface satisfaction).
+- `E005` backs two wordings under one kind: a concrete violation
+  (`throws never` with a non-empty set) and the unverifiable case
+  (`throws never` with an open set).
 
 ## Deferred (M5)
 

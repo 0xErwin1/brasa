@@ -8,26 +8,28 @@
 //! sets only grow and are finite)." The set is derived metadata, not
 //! part of the written signature, and it travels between modules.
 //!
-//! This crate only COMPUTES the sets and exposes them as side tables
+//! The crate COMPUTES the sets, exposes them as side tables
 //! (`docs/spec/00-vision.md`, the `error_sets: Map<FuncId, ErrorSet>`
-//! row); the checks that consume them — unreachable arms, `catch_all`
-//! exhaustiveness, `throws` verification — are BRS-23, so
-//! [`ErrorSetResult::diagnostics`] is always empty in this unit. The
-//! pass runs after type checking because tagging a thrown value needs
-//! its type.
+//! row), and then runs the checks that consume them (BRS-23):
+//! unreachable arms, `catch_all` exhaustiveness, and `throws`
+//! verification — see [`check`] for the rules and recorded decisions.
+//! The pass runs after type checking because tagging a thrown value
+//! needs its type.
 //!
 //! Panics never appear in an error-set: they are a separate channel
 //! (`docs/spec/04-errors.md`, "Panics vs errors"), so indexing,
 //! division, and arithmetic contribute nothing here.
 //!
 //! Top-level code (`Item::Stmt` blocks and `TopLet` initializers) is
-//! not analyzed: a top-level `throw` is runtime-relevant but no checker
-//! consumes a "top level" set yet. BRS-23 may add a main/top-level
-//! check; until then the sets are keyed by [`DefRef`] only, plus one
-//! set per lambda literal reachable from a function or method body.
+//! not analyzed: a top-level `throw` is runtime-relevant but no set is
+//! computed for it, so top-level `catch`/`catch_all` expressions are
+//! not checked either (a main/top-level analysis is a possible later
+//! unit). The sets are keyed by [`DefRef`] only, plus one set per
+//! lambda literal reachable from a function or method body.
 
 pub mod dump;
 
+mod check;
 mod collect;
 
 use std::cmp::Ordering;
@@ -139,9 +141,8 @@ impl ErrorSet {
 }
 
 /// The output of error-set inference: one set per function/method
-/// [`DefRef`] and one per lambda literal (keyed by its `Expr::Lambda`
-/// node). `diagnostics` is kept for the phase convention but stays
-/// empty in this unit — every consuming check is BRS-23.
+/// [`DefRef`], one per lambda literal (keyed by its `Expr::Lambda`
+/// node), and the diagnostics of the consuming checks (see [`check`]).
 pub struct ErrorSetResult {
     pub sets: HashMap<DefRef, ErrorSet>,
     pub lambda_sets: HashMap<ExprId, ErrorSet>,
@@ -158,6 +159,12 @@ pub struct ErrorSetResult {
 /// list from a growing subject set — so the sets only grow and the
 /// finite tag universe (declared items + six primitives) guarantees
 /// convergence (`docs/spec/04-errors.md`).
+///
+/// After convergence one extra checking pass recollects every body
+/// against the final sets (its output is identical by fixpoint) with
+/// diagnostics enabled: each `catch` is checked against its subject's
+/// transient contribution set, and each definition's declared `throws`
+/// contract against its converged set.
 pub fn infer(
     hir: &Hir,
     roots: &[ItemId],
@@ -183,6 +190,7 @@ pub fn infer(
                 types,
                 sets: &sets,
                 lambda_sets: &mut next_lambda_sets,
+                diagnostics: None,
             };
             next_sets.insert(def, collector.block(body));
         }
@@ -194,10 +202,26 @@ pub fn infer(
         lambda_sets = next_lambda_sets;
     }
 
+    let mut diagnostics = Vec::new();
+    let mut checked_lambda_sets = HashMap::with_capacity(lambda_sets.len());
+    for &(def, body) in &defs {
+        let mut collector = Collector {
+            hir,
+            res: resolutions,
+            types,
+            sets: &sets,
+            lambda_sets: &mut checked_lambda_sets,
+            diagnostics: Some(&mut diagnostics),
+        };
+        collector.block(body);
+
+        check::throws_contract(hir, resolutions, &sets, def, &mut diagnostics);
+    }
+
     ErrorSetResult {
         sets,
         lambda_sets,
-        diagnostics: Vec::new(),
+        diagnostics,
     }
 }
 

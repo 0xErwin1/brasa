@@ -209,12 +209,17 @@ impl<'a> Parser<'a> {
             return Some(Throws::Never);
         }
 
-        let mut types = vec![self.expect_type_ident_text("an error type")];
+        let mut types = vec![self.parse_throws_type()];
         while self.eat(TokenKind::Pipe).is_some() {
-            types.push(self.expect_type_ident_text("an error type"));
+            types.push(self.parse_throws_type());
         }
 
         Some(Throws::Types(types))
+    }
+
+    fn parse_throws_type(&mut self) -> brasa_ast::ThrowsType {
+        let (name, span) = self.expect_type_ident_spanned("an error type");
+        brasa_ast::ThrowsType { name, span }
     }
 
     pub(crate) fn parse_func_def(&mut self, is_pub: bool, start: Span) -> (FuncDef, Span) {

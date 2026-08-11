@@ -1,0 +1,15 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E003] Error: catch_all cannot be verified: the subject's error-set is open
+   ╭─[ e003_open_catch_all.brs:3:3 ]
+   │
+ 3 │ ╭─▶   f() catch_all (e)
+   ┆ ┆   
+ 5 │ ├─▶   end
+   │ │           
+   │ ╰─────────── the error-set of this expression is open
+   │     
+   │     Note: an indirect call or a throw of unknown type makes the set open
+───╯

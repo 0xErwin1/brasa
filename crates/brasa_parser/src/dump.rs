@@ -87,7 +87,10 @@ fn dump_throws(throws: &Option<Throws>) -> String {
     match throws {
         None => String::new(),
         Some(Throws::Never) => " throws never".to_string(),
-        Some(Throws::Types(types)) => format!(" throws {}", types.join("|")),
+        Some(Throws::Types(types)) => {
+            let names: Vec<&str> = types.iter().map(|t| t.name.as_str()).collect();
+            format!(" throws {}", names.join("|"))
+        }
     }
 }
 

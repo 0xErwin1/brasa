@@ -24,13 +24,14 @@
 
 use std::collections::HashMap;
 
+use brasa_diagnostics::Diagnostic;
 use brasa_hir::{
     ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, LambdaBody, Stmt, StmtId,
 };
 use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, TypeRes};
 use brasa_typeck::{Type, TypeTables};
 
-use crate::{ErrorSet, ErrorTag, Primitive};
+use crate::{ErrorSet, ErrorTag, Primitive, check};
 
 pub(crate) struct Collector<'a> {
     pub hir: &'a Hir,
@@ -40,6 +41,11 @@ pub(crate) struct Collector<'a> {
     pub sets: &'a HashMap<DefRef, ErrorSet>,
     /// This-iteration lambda sets, filled as lambda literals are walked.
     pub lambda_sets: &'a mut HashMap<ExprId, ErrorSet>,
+    /// `Some` only during the post-convergence checking pass: each
+    /// `catch` then runs the BRS-23 arm checks against its subject's
+    /// contribution set, which only exists transiently inside
+    /// [`Collector::catch`]. The fixpoint iterations pass `None`.
+    pub diagnostics: Option<&'a mut Vec<Diagnostic>>,
 }
 
 impl<'a> Collector<'a> {
@@ -179,7 +185,12 @@ impl<'a> Collector<'a> {
                 set.union_with(&self.expr(*hi));
                 set
             }
-            Expr::Catch { subject, arms, .. } => self.catch(id, *subject, arms),
+            Expr::Catch {
+                subject,
+                exhaustive,
+                arms,
+                ..
+            } => self.catch(id, *subject, *exhaustive, arms),
             Expr::EnumCtor { args, .. } => {
                 let mut set = ErrorSet::default();
                 for &arg in args {
@@ -378,9 +389,21 @@ impl<'a> Collector<'a> {
     ///   names subtract nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
-    /// BRS-23 check, not a set transformation.
-    fn catch(&mut self, id: ExprId, subject: ExprId, arms: &[CatchArm]) -> ErrorSet {
+    /// check on the subject's contribution set, not a set
+    /// transformation, and runs here only during the checking pass —
+    /// the subject set exists nowhere else.
+    fn catch(
+        &mut self,
+        id: ExprId,
+        subject: ExprId,
+        exhaustive: bool,
+        arms: &[CatchArm],
+    ) -> ErrorSet {
         let mut set = self.expr(subject);
+
+        if let Some(diagnostics) = self.diagnostics.as_deref_mut() {
+            check::catch_expr(self.hir, self.res, id, exhaustive, arms, &set, diagnostics);
+        }
 
         for (arm_index, arm) in arms.iter().enumerate() {
             if arm.guard.is_some() {
@@ -434,10 +457,11 @@ fn tag_of(ty: Option<&Type>) -> Option<ErrorTag> {
     }
 }
 
-/// The tag an unguarded `catch` arm naming a resolved type subtracts.
-/// Only throwable nominals and primitives map; interfaces, generic
+/// The tag an unguarded `catch` arm naming a resolved type subtracts —
+/// and, symmetrically, the tag a `throws` declaration names. Only
+/// throwable nominals and primitives map; interfaces, generic
 /// parameters, `Self`, and non-primitive builtins subtract nothing.
-fn caught_tag(hir: &Hir, res: TypeRes) -> Option<ErrorTag> {
+pub(crate) fn caught_tag(hir: &Hir, res: TypeRes) -> Option<ErrorTag> {
     match res {
         TypeRes::Item(item) => match hir.item(item) {
             Item::StructDef(_) | Item::EnumDef(_) => Some(ErrorTag::Item(item)),

@@ -1,0 +1,11 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  fetch -> {NetError}
+  relay -> {NetError}
+  parse -> {ParseError}
+  handleBoth -> {}
+  wildcardAll -> {}
+  pure -> {}

@@ -11,7 +11,7 @@ use crate::{Block, TypeExprId};
 
 /// Import paths and `throws` clauses carry no node IDs, so the AST's
 /// types are shared verbatim rather than duplicated.
-pub use brasa_ast::{Import, ImportPath, Throws};
+pub use brasa_ast::{Import, ImportPath, Throws, ThrowsType};
 
 /// A generic parameter's constraint.
 #[derive(Debug, Clone, PartialEq)]
