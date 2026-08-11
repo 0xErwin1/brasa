@@ -342,6 +342,38 @@ end
 "#
 );
 
+// A struct's fields and methods share one member namespace, so a
+// method may not repeat a field name (BRS-57). `Shadowed` is the
+// soundness case the rejection closes: the checker used to type
+// `b.tag()` from the field while both runtimes dispatched the method.
+// `Reversed` declares the method first, pinning that the labels follow
+// source order rather than the field/method split. A callable field
+// with no same-named method (`Fine`) stays legal.
+resolution_error_test!(
+    struct_field_and_method_collide,
+    r#"
+struct Shadowed
+  tag: () -> string
+
+  def tag(self): int
+    7
+  end
+end
+
+struct Reversed
+  def name(self): string
+    "method"
+  end
+
+  name: string
+end
+
+struct Fine
+  handler: () -> string
+end
+"#
+);
+
 resolution_error_test!(
     self_imports_and_order,
     r#"

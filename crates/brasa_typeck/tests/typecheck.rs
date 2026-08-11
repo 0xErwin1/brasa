@@ -1082,17 +1082,13 @@ stock.merge(wrongValues)
 "#
 );
 
-// A struct may declare a field and a method of the same name, and the
-// checker resolves that name to the FIELD even in call position. With a
-// non-callable field that is where it ends: the call is not callable and
-// the struct satisfies no interface declaring that method.
-//
-// With a CALLABLE field it does not end there, and the checker's order
-// disagrees with the runtime's, which dispatches the method — BRS-57,
-// a soundness defect (`docs/spec/07-bytecode.md`, "Dispatch through a
-// generic constraint"). This test pins the checker's half of it.
+// A field named like an interface method does not stand in for one
+// unless it holds a matching callable: a `string` field is neither
+// callable nor a member with a compatible signature. A struct may no
+// longer declare a field and a method of the same name at all
+// (`R006`), so the field is the only `tag` this struct can have.
 typecheck_error_test!(
-    field_shadows_a_same_named_method,
+    a_field_alone_does_not_provide_a_method,
     r#"
 interface Tagged
   def tag(self): string
@@ -1100,10 +1096,6 @@ end
 
 struct Both
   tag: string
-
-  def tag(self): string
-    "method"
-  end
 end
 
 def describe<T: Tagged>(v: T): string

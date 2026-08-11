@@ -143,7 +143,12 @@ Notes on kind boundaries:
 - `R003` covers every type-name lookup failure: annotations, struct
   literals, and named constraints.
 - `R006` covers every same-scope name clash: items, locals, generic
-  parameters, struct/variant fields, and enum variants.
+  parameters, struct/variant fields, and enum variants. A struct's
+  fields and its methods are one member namespace, so a method may not
+  repeat a field name either; the labels follow source order, since a
+  struct body may interleave the two. A field holding a callable stays
+  a legitimate way to provide a member (`07-bytecode.md`, "Dispatch
+  through a generic constraint") — only the collision is rejected.
 - `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
   path naming no known module) are distinct lookups and keep distinct
   codes.

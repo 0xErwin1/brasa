@@ -1576,9 +1576,9 @@ puts render([1, 2])
     );
 }
 
-/// A struct field holding a callable shadows nothing on the call path
-/// (methods win) but is what a bare member read yields; both reach the
-/// generic receiver only through the dynamic lookup.
+/// A struct field holding a callable satisfies a constraint method
+/// structurally: both the call and the bare member read reach it, and
+/// on a generic receiver only through the dynamic lookup.
 #[test]
 fn generic_receivers_reach_struct_fields_holding_callables() {
     assert_success(
@@ -2853,49 +2853,5 @@ puts deep == chain(300)
 puts deep == chain(299)
 "##,
         "4214\ntrue\nfalse\n",
-    );
-}
-
-/// A struct may declare a field and a method of the same name. When the
-/// field's type matches the interface method's signature the program
-/// checks, both dynamic-dispatch ops run, and they resolve DIFFERENTLY:
-/// a call takes the method, a bare read takes the field. This pins that
-/// the two BACKENDS agree on it, which is what the parity suite is for.
-///
-/// It does not endorse the rule. The checker resolves the field even in
-/// call position, so when the field's and the method's result types
-/// differ the call is typed from one and dispatched to the other —
-/// BRS-57, a soundness defect this test deliberately steps around by
-/// giving both the same result type.
-#[test]
-fn call_and_bind_split_on_a_shadowed_member() {
-    assert_success(
-        r##"
-interface Tagged
-  def tag(self): string
-end
-
-struct Both
-  tag: () -> string
-
-  def tag(self): string
-    "method"
-  end
-end
-
-def viaCall<T: Tagged>(v: T): string
-  v.tag()
-end
-
-def viaBind<T: Tagged>(v: T): string
-  let f = v.tag
-  f()
-end
-
-let b = Both { tag: || "field" }
-puts viaCall(b)
-puts viaBind(b)
-"##,
-        "method\nfield\n",
     );
 }

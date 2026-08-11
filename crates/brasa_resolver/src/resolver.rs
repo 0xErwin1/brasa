@@ -38,7 +38,7 @@ use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, CatchType, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId,
-    Stmt, StmtId, Throws, TypeExpr, TypeExprId,
+    Stmt, StmtId, StructDef, Throws, TypeExpr, TypeExprId,
 };
 use brasa_source::Span;
 
@@ -229,7 +229,7 @@ impl<'h> Resolver<'h> {
                 }
                 Item::StructDef(def) => {
                     self.declare_module_type(&def.name, root, span);
-                    self.check_duplicate_fields(&def.fields);
+                    self.check_struct_hygiene(def);
                 }
                 Item::EnumDef(def) => {
                     self.declare_module_type(&def.name, root, span);
@@ -264,10 +264,35 @@ impl<'h> Resolver<'h> {
         }
     }
 
+    /// Struct definition hygiene (BRS-57): fields and methods share one
+    /// member namespace, so a method that repeats a field name is a
+    /// duplicate-definition error just like a repeated field is. A
+    /// struct body may interleave fields and methods, so the labels are
+    /// ordered by position rather than by which list the member came
+    /// from.
+    fn check_struct_hygiene(&mut self, def: &'h StructDef) {
+        let fields = self.check_duplicate_fields(&def.fields);
+
+        for method in &def.methods {
+            let Some(&field_span) = fields.get(method.name.as_str()) else {
+                continue;
+            };
+
+            let (prev_span, span) = if field_span.start <= method.name_span.start {
+                (field_span, method.name_span)
+            } else {
+                (method.name_span, field_span)
+            };
+
+            self.duplicate_error(&method.name, span, prev_span);
+        }
+    }
+
     /// A repeated field name within one struct or enum variant is a
     /// duplicate-definition error; both labels point at the field names
-    /// themselves (`docs/spec/06-diagnostics.md`).
-    fn check_duplicate_fields(&mut self, fields: &'h [Field]) {
+    /// themselves (`docs/spec/06-diagnostics.md`). Returns the span each
+    /// name was first declared at.
+    fn check_duplicate_fields(&mut self, fields: &'h [Field]) -> HashMap<&'h str, Span> {
         let mut seen: HashMap<&'h str, Span> = HashMap::new();
 
         for field in fields {
@@ -277,6 +302,8 @@ impl<'h> Resolver<'h> {
                 seen.insert(&field.name, field.name_span);
             }
         }
+
+        seen
     }
 
     fn check_import(&mut self, import: &Import, span: Span) {

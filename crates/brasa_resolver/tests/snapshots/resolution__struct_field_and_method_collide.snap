@@ -1,0 +1,26 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R006] Error: duplicate definition of `tag`
+   ╭─[ struct_field_and_method_collide.brs:5:7 ]
+   │
+ 3 │   tag: () -> string
+   │   ─┬─  
+   │    ╰─── previously defined here
+   │ 
+ 5 │   def tag(self): int
+   │       ─┬─  
+   │        ╰─── redefined here
+───╯
+[R006] Error: duplicate definition of `name`
+    ╭─[ struct_field_and_method_collide.brs:15:3 ]
+    │
+ 11 │   def name(self): string
+    │       ──┬─  
+    │         ╰─── previously defined here
+    │ 
+ 15 │   name: string
+    │   ──┬─  
+    │     ╰─── redefined here
+────╯

@@ -108,30 +108,23 @@ single static target, and compiles to `call_method_dyn` (or
 `bind_method_dyn` for a bare member read), which resolves the name
 against the runtime value in this order:
 
-1. the receiver's struct shape — `call_method_dyn` looks at declared
-   methods first and then at a field holding a callable, while
-   `bind_method_dyn` looks at fields first and then at methods,
+1. the receiver's struct shape — either a declared method or a field
+   holding a callable,
 2. the universal derived `toString`,
 3. the builtin method table (a builtin type may satisfy a user
    interface structurally).
 
-Each op mirrors its non-generic counterpart, which is why step 1 differs
-between them: at runtime **a call resolves a method before a same-named
-field, and a bare read resolves the field**. Both backends implement
-that identically, so it is never a divergence between them — pinned by
-`call_and_bind_split_on_a_shadowed_member` in
+A struct's fields and its methods are **one member namespace**: a method
+may not repeat a field name, and the resolver rejects the collision at
+its declaration site (`R006`, `06-diagnostics.md`). Step 1 therefore has
+at most one candidate. Each op still mirrors its non-generic counterpart
+— `call_method_dyn` inspects methods before fields and `bind_method_dyn`
+fields before methods — but with the collision illegal that order is not
+observable: a call and a bare read of the same member always reach the
+same target, on both backends. A callable field with no same-named
+method satisfies a constraint method structurally, on both paths —
+pinned by `generic_receivers_reach_struct_fields_holding_callables` in
 `crates/brasa_vm/tests/parity.rs`.
-
-> **Known defect (BRS-57).** The type checker does not follow the same
-> order: its member lookup resolves a field before a same-named method
-> even in call position, which `field_shadows_a_same_named_method` in
-> `crates/brasa_typeck/tests/typecheck.rs` pins. When a struct declares
-> both and their result types differ, the checker types the call from
-> the field while the runtime dispatches the method, so a well-typed
-> program yields a value of the wrong type. The two orders above
-> describe what the runtime does today; they are not a rule the language
-> has settled on, and the likely resolution is to reject the collision
-> at its declaration site rather than to pick a winner.
 
 A missing member on a struct receiver is fatal (`unknown member`); on
 any other receiver the builtin table's own `unknown builtin method` is.
