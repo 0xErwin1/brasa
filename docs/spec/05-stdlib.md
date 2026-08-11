@@ -83,10 +83,10 @@ puts out.stdout
 
 let out = proc.run("git status --short")          # sugar: whitespace split only
 
-let r = proc.tryRun(["grep", "-q", pattern, file]) # -> Output, never throws
+let r = proc.tryRun(["grep", "-q", pattern, file]) # -> Output, no NonZeroExit
 if r.code == 0 ...
 
-proc.run(["wc", "-l"]).stdin(text)                # piping stdin
+let counted = proc.run(["wc", "-l"], text)        # optional trailing stdin
 proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
 ```
 
@@ -97,19 +97,67 @@ proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
   escapes; it exists for literal commands typed by the author. Building a
   string command from variables is a bug, and the docs say so.
 - `shell` is the explicit opt-in to `/bin/sh -c` — the only form where
-  shell metacharacters mean anything.
-- `Output` = `{ stdout: string, stderr: string, code: int }`.
-- `run` throws `proc.NonZeroExit { output }` if code != 0 — the bash
-  `set -e` default behavior, with `tryRun` as the escape hatch.
-- **Environment**: children inherit the parent environment by default
-  (scripting expects `PATH`, `HOME`, `SSH_AUTH_SOCK` to work). Overrides
-  via `proc.run(cmd, env: { ... })`; `proc.runClean(cmd)` starts from an
-  empty environment for the paranoid case.
+  shell metacharacters mean anything. Interpolating data into the
+  command line is shell injection; use `run` with an argv array for
+  anything built from variables.
 - **PATH resolution**: an unqualified command name resolves through `PATH`
   only. A relative path (`./script.sh`) must be written as such — the
   current directory is never implicitly searched.
-- `env.get(name): Option<string>`, `env.set`, `env.vars`, `args()`,
-  `exit(code)`, `cwd()`, `cd(path)`.
+
+Signatures closed in M4 (BRS-32):
+
+- `run(cmd)`, `run(cmd, stdin)`, `tryRun(cmd)`, `tryRun(cmd, stdin)`,
+  `shell(cmdline)`, `shell(cmdline, stdin)` — every runner returns
+  `Output` and takes an optional trailing `stdin: string` piped to the
+  child. Without it the child reads an empty stdin (never the script's
+  own stdin, so a forgotten filter argument can never hang the run).
+  The earlier `proc.run(...).stdin(text)` sketch was incoherent — the
+  process has already run by the time `.stdin` could apply — and is
+  replaced by the optional argument.
+- `Output` is a compiler-known record type with exactly the fields
+  `stdout: string`, `stderr: string`, `code: int`. It is native: not
+  user-constructible, not a pattern, no members beyond the fields and
+  the universal `toString`. Both streams are captured fully and decoded
+  as lossy UTF-8 (invalid bytes become U+FFFD).
+- `code` is the child's exit code; a signal-terminated child reports
+  `128 + signal` (the Unix shell convention).
+- `run` and `shell` throw `proc.NonZeroExit` when `code != 0` — the
+  bash `set -e` default behavior, with `tryRun` as the escape hatch.
+  **v1 limitation**: a native error carries only its qualified name and
+  a message (like `string.ParseError`), so `NonZeroExit`'s message
+  embeds the command, the exit code, and the child's trimmed stderr
+  when non-empty; the structured `proc.NonZeroExit { output }` payload
+  is deferred until native errors can carry values.
+- All three runners throw `proc.SpawnError` when the child cannot
+  start: missing binary, permission denied, or an empty command.
+  `tryRun` never throws `NonZeroExit`, but a process that never ran has
+  no `Output`, so it does throw `SpawnError`.
+- **Environment**: children inherit the parent environment (scripting
+  expects `PATH`, `HOME`, `SSH_AUTH_SOCK` to work) plus every
+  `env.set` override. The sketched `proc.run(cmd, env: { ... })` and
+  `proc.runClean(cmd)` forms are dropped from v1: the language has no
+  named arguments, and `env.set` covers the common case.
+
+## `std::env`
+
+Closed in M4 (BRS-32):
+
+- `env.get(name): Option<string>` — the process environment plus
+  `env.set` overrides; an unset or non-UTF-8 value is `None`.
+- `env.set(name, value)` — sets an override visible to `env.get`,
+  `env.vars`, and every child spawned through `std::proc`. Overrides
+  live in a runtime overlay; the host process's own OS-level
+  environment block is not mutated (unobservable from the language).
+- `env.vars(): Map<string, string>` — the merged environment (process
+  plus overrides), entries sorted by name for deterministic iteration;
+  non-UTF-8 names and values are decoded lossily.
+- `env.args(): Vector<string>` — the script's trailing CLI arguments.
+
+Deferred past BRS-32 (the old sketch listed these as free functions;
+they are `std::env` members when they land): `env.cwd()` / `env.cd(path)`
+close together with `std::fs` — a failed `cd` needs the `fs` error
+namespace — and `env.exit(code)` needs a clean-exit signal threaded
+through both backends and the CLI.
 
 ## `std::json`
 

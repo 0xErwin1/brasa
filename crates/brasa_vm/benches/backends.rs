@@ -90,12 +90,13 @@ fn run_walker(compiled: &Compiled) -> brasa_vm::Outcome {
         &compiled.resolved.resolutions,
         &compiled.checked.types,
         &mut out,
+        &[],
     )
 }
 
 fn run_vm(compiled: &Compiled) -> brasa_vm::Outcome {
     let mut out = std::io::sink();
-    brasa_vm::run(&compiled.module, &mut out)
+    brasa_vm::run(&compiled.module, &mut out, &[])
 }
 
 /// The shared acceptance set (`docs/spec/07-bytecode.md`): arithmetic
@@ -148,6 +149,7 @@ fn cold_start(criterion: &mut Criterion) {
                 &resolved.resolutions,
                 &checked.types,
                 &mut out,
+                &[],
             )
         })
     });
@@ -161,7 +163,7 @@ fn cold_start(criterion: &mut Criterion) {
                 &checked.types,
             );
             let mut out = std::io::sink();
-            brasa_vm::run(&module, &mut out)
+            brasa_vm::run(&module, &mut out, &[])
         })
     });
     group.finish();
