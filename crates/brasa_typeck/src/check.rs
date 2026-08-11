@@ -423,30 +423,39 @@ impl<'a> Checker<'a> {
                 let name = name.clone();
                 self.check_named_assign(span, target, &name, value);
             }
-            Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Field { .. } => {
                 let target_ty = self.check_expr(target, None);
+                self.check_expect(value, &target_ty);
+            }
+            Expr::Index { recv, .. } => {
+                let recv = *recv;
+                let read_ty = self.check_expr(target, None);
+                let recv_ty = self
+                    .tables
+                    .expr_types
+                    .get(&recv)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
 
                 // A `Json` tree is immutable after `parse` (BRS-34,
                 // `docs/spec/05-stdlib.md`), so a `Json` index is never
                 // an assignment target.
-                if let Expr::Index { recv, .. } = hir.expr(target) {
-                    let json_recv = match self.tables.expr_types.get(recv) {
-                        Some(Type::Json) => true,
-                        Some(Type::Option(inner)) => **inner == Type::Json,
-                        _ => false,
-                    };
+                let json_recv = match &recv_ty {
+                    Type::Json => true,
+                    Type::Option(inner) => **inner == Type::Json,
+                    _ => false,
+                };
 
-                    if json_recv {
-                        self.error(err_at(
-                            codes::T_CANNOT_ASSIGN,
-                            span,
-                            "cannot assign into a `Json` value".to_string(),
-                            "`Json` is immutable",
-                        ));
-                    }
+                if json_recv {
+                    self.error(err_at(
+                        codes::T_CANNOT_ASSIGN,
+                        span,
+                        "cannot assign into a `Json` value".to_string(),
+                        "`Json` is immutable",
+                    ));
                 }
 
-                self.check_expect(value, &target_ty);
+                self.check_expect(value, &index_assign_ty(&recv_ty, read_ty));
             }
             _ => {
                 self.error(err_at(
@@ -3502,6 +3511,20 @@ fn fn_of_sig(sig: MethodSig) -> Type {
         RetRule::VectorOfFnRet => Type::vector(Type::Unknown),
     };
     Type::func(sig.params, ret)
+}
+
+/// The type an index assignment stores, which is not always the type
+/// the same index expression reads.
+///
+/// A `Map` read is `Option<V>` because a missing key is a normal case
+/// (`docs/spec/03-types.md`), but there is no key to be missing on the
+/// writing side: `m[k] = v` stores a `V`. Every other receiver writes
+/// what it reads — a `Vector` element is a `T` both ways.
+fn index_assign_ty(recv_ty: &Type, read_ty: Type) -> Type {
+    match recv_ty {
+        Type::Map(_, value) => (**value).clone(),
+        _ => read_ty,
+    }
 }
 
 fn literal_type(literal: &Literal) -> Type {

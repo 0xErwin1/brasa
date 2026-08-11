@@ -1,0 +1,32 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 m -> Map<string, int>
+  i2 read -> Option<int>
+  i3 nested -> Map<string, Vector<int>>
+  i5 v -> Vector<int>
+expr types
+  e0 -> Map<string, int>
+  e1 -> Map<string, int>
+  e2 -> string
+  e3 -> Option<int>
+  e4 -> int
+  e5 -> Map<string, int>
+  e6 -> string
+  e7 -> Option<int>
+  e8 -> Map<string, Vector<int>>
+  e9 -> Map<string, Vector<int>>
+  e10 -> string
+  e11 -> Option<Vector<int>>
+  e12 -> int
+  e13 -> int
+  e14 -> Vector<int>
+  e15 -> int
+  e16 -> int
+  e17 -> Vector<int>
+  e18 -> Vector<int>
+  e19 -> int
+  e20 -> int
+  e21 -> int

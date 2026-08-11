@@ -265,6 +265,39 @@ let bad = Set(1)
 "#
 );
 
+// A `Map` index READS `Option<V>` because a missing key is a normal
+// case, but it WRITES a `V`: there is no key to be missing on the
+// assigning side. A `Vector` element writes what it reads.
+typecheck_test!(
+    index_assignment_writes_the_element_type,
+    r#"
+let m: Map<string, int> = {}
+m["a"] = 1
+let read = m["a"]
+
+let nested: Map<string, Vector<int>> = {}
+nested["xs"] = [1, 2]
+
+let v = [1, 2]
+v[0] = 9
+"#
+);
+
+// The write type is the element, so an `Option` is now rejected where
+// it used to be demanded — and the demanded form stored a double-wrapped
+// value the read then returned as `Some(Some(1))`.
+typecheck_error_test!(
+    index_assignment_rejects_the_read_type_and_the_wrong_element,
+    r#"
+let m: Map<string, int> = {}
+m["a"] = Some(1)
+m["b"] = "s"
+
+let v = [1, 2]
+v[0] = "x"
+"#
+);
+
 typecheck_test!(
     options_and_wrap,
     r#"

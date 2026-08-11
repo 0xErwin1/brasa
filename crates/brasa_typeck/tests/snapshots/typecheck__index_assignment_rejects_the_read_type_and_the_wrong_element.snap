@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `int`, found `Option<int>`
+   ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:3:10 ]
+   │
+ 3 │ m["a"] = Some(1)
+   │          ────┬───  
+   │              ╰───── expected `int`
+───╯
+[T001] Error: mismatched types: expected `int`, found `string`
+   ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:4:10 ]
+   │
+ 4 │ m["b"] = "s"
+   │          ──┬─  
+   │            ╰─── expected `int`
+───╯
+[T001] Error: mismatched types: expected `int`, found `string`
+   ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:7:8 ]
+   │
+ 7 │ v[0] = "x"
+   │        ──┬─  
+   │          ╰─── expected `int`
+───╯

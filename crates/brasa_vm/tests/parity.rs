@@ -457,6 +457,30 @@ puts nums
     );
 }
 
+/// A `Map` index assignment stores the element, not the `Option` the
+/// same expression reads back. The double-wrap this pins against was
+/// observable: writing `Some(1)` — the only form the checker used to
+/// accept — made the read answer `Some(Some(1))` on both backends.
+#[test]
+fn map_index_assignment_stores_the_element() {
+    assert_success(
+        r##"
+let m: Map<string, int> = {}
+m["a"] = 1
+m["b"] = 2
+m["a"] = 3
+puts(m["a"])
+puts(m["missing"])
+puts(m)
+
+let nested: Map<string, Vector<int>> = {}
+nested["xs"] = [1, 2]
+puts(nested["xs"])
+"##,
+        "Some(3)\nNone\n{ \"a\": 3, \"b\": 2 }\nSome([1, 2])\n",
+    );
+}
+
 /// The capture-order contract exercised end to end: `self` first when
 /// captured, then free locals in ascending `LocalId` order, chained
 /// through nested lambdas (the codegen `closures_and_captures` shape).

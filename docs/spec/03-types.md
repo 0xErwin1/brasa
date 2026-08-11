@@ -104,7 +104,15 @@ end
 | `?.` | `Option<T>?.method(...)` -> `Option<R>`; flattens (does not nest Options) |
 | `\|>` | `a \|> f(b)` ≡ `f(a, b)`; the target is any callable expression; pure syntactic sugar, desugared in AST→HIR lowering (the AST keeps the node for the formatter) |
 | `[i]` on Vector | `int -> T`; out of range is a **panic** (not Option: the common case is a bug) |
-| `[k]` on Map | `K -> Option<V>`; a missing key is a normal case, not a bug |
+| `[k]` on Map | reads `K -> Option<V>` (a missing key is a normal case, not a bug); **assigns a `V`** |
+
+An index assignment stores what the container holds, which on a `Map`
+is not what the same expression reads: `m[k]` reads `Option<V>` because
+the key may be absent, but `m[k] = v` takes a `V` — there is no key to
+be missing on the writing side. A consequence worth stating: compound
+assignment through a `Map` index (`m[k] += 1`) does not type-check,
+because it reads before it writes and the read is an `Option<V>`. Write
+the read and the write separately.
 
 ## Numbers and strings: fine-grained rules
 
