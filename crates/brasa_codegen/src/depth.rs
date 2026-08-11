@@ -148,6 +148,7 @@ fn net_effect(op: &Op, structs: &[StructShape]) -> i32 {
         | Op::EnumField(_)
         | Op::GetField(_)
         | Op::BindMethod(_)
+        | Op::BindMethodDyn(_)
         | Op::BindBuiltin(_)
         | Op::ToString
         | Op::IterNew
@@ -159,6 +160,7 @@ fn net_effect(op: &Op, structs: &[StructShape]) -> i32 {
         Op::Call { argc, .. } => 1 - i32::from(argc),
         Op::CallValue { argc } => -i32::from(argc),
         Op::CallBuiltin { argc, .. } => 1 - i32::from(argc),
+        Op::CallMethodDyn { argc, .. } => 1 - i32::from(argc),
 
         Op::MakeVector(n) | Op::MakeTuple(n) => 1 - i32::from(n),
         Op::MakeMap(n) => 1 - 2 * i32::from(n),

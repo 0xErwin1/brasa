@@ -112,6 +112,11 @@ fn golden_structs_enums() {
 }
 
 #[test]
+fn golden_generics_interfaces() {
+    assert_golden("generics_interfaces");
+}
+
+#[test]
 fn golden_collections() {
     assert_golden("collections");
 }

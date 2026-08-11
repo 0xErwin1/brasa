@@ -92,6 +92,34 @@ base + 0 .. argc              parameters (methods: self is slot 0)
   declared return type compile a `load_unit` before `ret`; there is no
   "void call" form.
 
+### Dispatch through a generic constraint
+
+Generics are not monomorphized (`03-types.md`, "Generics: execution
+model"): one bytecode function serves every instantiation. A member call
+on a receiver the checker types as a generic parameter therefore has no
+single static target, and compiles to `call_method_dyn` (or
+`bind_method_dyn` for a bare member read), which resolves the name
+against the runtime value in this order:
+
+1. a declared method of the receiver's struct shape,
+2. a struct field holding a callable — `bind_method_dyn` yields the
+   field's value, `call_method_dyn` calls it as `call_value` would,
+3. the universal derived `toString`,
+4. the builtin method table (a builtin type may satisfy a user
+   interface structurally).
+
+A missing member on a struct receiver is fatal (`unknown member`); on
+any other receiver the builtin table's own `unknown builtin method` is.
+Both are unreachable in checked programs.
+
+`call_method_dyn` enters the resolved frame in place, exactly like
+`call`, so recursion through a constraint method is bounded by the same
+call-depth guard rather than by host stack depth.
+
+When the concrete receiver type is statically known, no dynamic op is
+emitted: struct receivers compile to `call`, and `toString` compiles to
+`to_string`.
+
 ### Closures
 
 Capture is **by value at creation time** (M1 decision, `brasa_interp`
@@ -336,7 +364,9 @@ All targets are absolute instruction indices.
 | `call` | `f, argc` | `args → r` | Direct call to function-table entry `f` (top-level functions and struct methods; receiver is arg 0) |
 | `call_value` | `argc` | `callee args → r` | Indirect call: function value, closure, bound method, or bound builtin |
 | `call_builtin` | `b, argc` | `[recv] args → r` | Native builtin (`puts`, `push`, `len`, `std::math`, …). `argc` counts every pushed operand, the receiver included when the builtin takes one. The builtin registry is a stdlib concern (BRS-28/M4); bytecode only carries the opaque index (the shared `name → id` table lives in `crates/brasa_bytecode`) |
+| `call_method_dyn` | `c, argc` | `recv args → r` | Member call whose receiver is statically a generic parameter, so the target is only known from the runtime value (see "Dispatch through a generic constraint"). `c` is the member name in the constant pool; `argc` counts the receiver, pushed first |
 | `bind_method` | `f` | `recv → bm` | Method accessed without calling (`p.dist` as a value) |
+| `bind_method_dyn` | `c` | `recv → v` | The `call_method_dyn` lookup without calling: a struct field's value, a bound method, or a bound builtin |
 | `bind_builtin` | `b` | `recv → bb` | Builtin method as a value (`v.push` as a value) |
 | `ret` | | `r →` | Pop the result, pop the frame, push the result in the caller |
 

@@ -1,0 +1,13 @@
+tag:x
+count:2
+box
+TAG:X
+count:2/count:2
+42
+3
+2
+Tag { name: "x" }
+Counter(2)
+7
+tag:x,tag:x,tag:x
+count:2

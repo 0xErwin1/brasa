@@ -22,7 +22,8 @@ use std::io::Write;
 use std::rc::Rc;
 
 use brasa_bytecode::{
-    BuiltinId, CodeIx, Constant, EnumShape, FuncId, Function, Module, Op, StructShape, builtin_def,
+    BuiltinId, CodeIx, ConstId, Constant, EnumShape, FuncId, Function, Module, Op, StructShape,
+    builtin_def, builtin_id,
 };
 use brasa_interp::Outcome;
 use brasa_interp::table::{OrderedMap, OrderedSet};
@@ -627,6 +628,16 @@ impl<'a> Vm<'a> {
                 let result = self.dispatch_builtin(builtin, argc as usize)?;
                 self.push(result);
             }
+            Op::CallMethodDyn { name, argc } => {
+                let name = self.const_str(name);
+                self.call_method_dyn(name, argc as usize)?;
+            }
+            Op::BindMethodDyn(name) => {
+                let name = self.const_str(name);
+                let recv = self.pop();
+                let bound = self.bind_member_by_name(recv, name)?;
+                self.push(bound);
+            }
             Op::BindMethod(func) => {
                 let recv = self.pop();
                 self.push(Value::BoundMethod(Rc::new(BoundMethod { recv, func })));
@@ -888,6 +899,89 @@ impl<'a> Vm<'a> {
         }
 
         Err(Self::fatal(format!("brasa: unknown member `{name}`")))
+    }
+
+    /// The string constant behind a dynamic-dispatch operand.
+    fn const_str(&self, id: ConstId) -> &'a str {
+        let Constant::Str(text) = self.module.constants.get(id) else {
+            unreachable!("dynamic member dispatch carries a string constant");
+        };
+        text
+    }
+
+    /// `call_method_dyn c, argc`: the member call behind a receiver the
+    /// checker only knows as a generic parameter, mirroring the
+    /// walker's `call_method_by_name`. `argc` counts the receiver, which
+    /// already sits below the arguments.
+    ///
+    /// Struct methods and field callables enter their frame in place
+    /// rather than through a nested loop, so recursion through a
+    /// constraint method is bounded by the same call-depth guard as a
+    /// direct call.
+    fn call_method_dyn(&mut self, name: &str, argc: usize) -> Result<(), Signal> {
+        let base = self.stack.len() - argc;
+
+        let Value::Struct(s) = self.stack[base] else {
+            let mut args = self.pop_n(argc);
+            let recv = args.remove(0);
+            let result = self.method_builtin(name, recv, args)?;
+            self.push(result);
+            return Ok(());
+        };
+
+        let shape = self.module_struct(self.heap.struct_value(s).shape);
+
+        if let Some(&func) = shape
+            .methods
+            .iter()
+            .find(|&&method| self.function(method).name == name)
+        {
+            return self.enter_function(func, base, base);
+        }
+
+        // A struct field holding a callable: it replaces the receiver
+        // on the stack, which leaves exactly an indirect-call layout.
+        if let Some(ix) = shape.fields.iter().position(|field| field == name) {
+            self.stack[base] = self.heap.struct_value(s).fields.borrow()[ix].clone();
+            return self.call_value_op(argc - 1);
+        }
+
+        if name == "toString" && argc == 1 {
+            let recv = self.pop();
+            let text = self.display(&recv)?;
+            self.push(Value::str(text));
+            return Ok(());
+        }
+
+        self.stack.truncate(base);
+        Err(Self::fatal(format!("brasa: unknown member `{name}`")))
+    }
+
+    /// `bind_method_dyn c`: the same lookup without calling, mirroring
+    /// the walker's `eval_field` — a struct reads fields before methods
+    /// here, the reverse of the call path.
+    fn bind_member_by_name(&mut self, recv: Value, name: &str) -> VmResult {
+        if let Value::Struct(s) = recv {
+            let shape = self.module_struct(self.heap.struct_value(s).shape);
+
+            if let Some(ix) = shape.fields.iter().position(|field| field == name) {
+                return Ok(self.heap.struct_value(s).fields.borrow()[ix].clone());
+            }
+            if let Some(&func) = shape
+                .methods
+                .iter()
+                .find(|&&method| self.function(method).name == name)
+            {
+                return Ok(Value::BoundMethod(Rc::new(BoundMethod { recv, func })));
+            }
+        }
+
+        match builtin_id(name).filter(|&id| builtin_def(id).is_some_and(|def| def.has_receiver)) {
+            Some(builtin) => Ok(Value::BoundBuiltin(Rc::new(BoundBuiltin { recv, builtin }))),
+            None => Err(Self::fatal(format!(
+                "brasa: unknown builtin method `{name}`"
+            ))),
+        }
     }
 
     fn get_index(&self, recv: &Value, index: &Value) -> VmResult {

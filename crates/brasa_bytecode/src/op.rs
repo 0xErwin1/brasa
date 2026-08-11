@@ -140,6 +140,16 @@ pub enum Op {
     CallValue { argc: u8 },
     /// `[recv] args -> r`: native builtin (`puts`, `push`, `len`, ...).
     CallBuiltin { builtin: BuiltinId, argc: u8 },
+    /// `recv args -> r`: member call whose receiver is statically a
+    /// generic parameter, so the target is only known from the runtime
+    /// value's method table (`argc` counts the receiver). Declared
+    /// struct methods first, then a struct field holding a callable,
+    /// then the universal `toString`, then the builtin method table.
+    CallMethodDyn { name: ConstId, argc: u8 },
+    /// `recv -> v`: the same lookup as [`Op::CallMethodDyn`] without
+    /// calling — a struct field's value, a bound method, or a bound
+    /// builtin.
+    BindMethodDyn(ConstId),
     /// `recv -> bm`: struct method accessed as a value (`p.dist`).
     BindMethod(FuncId),
     /// `recv -> bb`: builtin method accessed as a value (`v.push`).

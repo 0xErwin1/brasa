@@ -194,6 +194,14 @@ fn render_op(module: &Module, op: &Op) -> (String, Option<String>) {
             format!("call_builtin b{}, {argc}", builtin.0),
             builtin_name(builtin),
         ),
+        Op::CallMethodDyn { name, argc } => (
+            format!("call_method_dyn c{}, {argc}", name.0),
+            Some(const_text(name)),
+        ),
+        Op::BindMethodDyn(name) => (
+            format!("bind_method_dyn c{}", name.0),
+            Some(const_text(name)),
+        ),
         Op::BindMethod(f) => (format!("bind_method fn{}", f.0), func_name(f)),
         Op::BindBuiltin(b) => (format!("bind_builtin b{}", b.0), builtin_name(b)),
         Op::Ret => ("ret".to_string(), None),

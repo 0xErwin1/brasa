@@ -1300,6 +1300,404 @@ puts maxOf('x', 'c')
     );
 }
 
+// --- structural interfaces as generic constraints ----------------------
+//
+// A constrained generic body is compiled once for every instantiation
+// (`docs/spec/03-types.md`, "Generics: execution model"), so the
+// constraint's method has no single static target: the walker
+// dispatches on the runtime value and the VM must reach the same
+// target through the value's method table.
+
+#[test]
+fn named_interface_constraint_dispatches_to_the_struct_method() {
+    assert_success(
+        r##"
+interface Printable2
+  def label(self): string
+end
+
+struct Tag
+  name: string
+
+  def label(self): string
+    "tag:" + self.name
+  end
+end
+
+def show<T: Printable2>(v: T): string
+  v.label()
+end
+
+puts show(Tag { name: "x" })
+"##,
+        "tag:x\n",
+    );
+}
+
+#[test]
+fn inline_interface_constraint_dispatches_to_the_struct_method() {
+    assert_success(
+        r##"
+struct Tag
+  name: string
+
+  def label(self): string
+    "tag:" + self.name
+  end
+end
+
+def show<T: { def label(self): string }>(v: T): string
+  v.label()
+end
+
+puts show(Tag { name: "x" })
+"##,
+        "tag:x\n",
+    );
+}
+
+/// One shared body reached at two concrete types, plus repeated and
+/// nested constraint calls: the dispatch is per value, not per call
+/// site.
+#[test]
+fn one_generic_body_serves_several_concrete_types() {
+    assert_success(
+        r##"
+interface Labeled
+  def label(self): string
+end
+
+struct A
+  n: int
+
+  def label(self): string
+    "A#{self.n}"
+  end
+end
+
+struct B
+  s: string
+
+  def label(self): string
+    "B" + self.s
+  end
+end
+
+def twice<T: Labeled>(v: T): string
+  v.label() + "/" + v.label()
+end
+
+def outer<T: Labeled>(v: T): string
+  "[" + twice(v) + "]"
+end
+
+puts outer(A { n: 1 })
+puts outer(B { s: "z" })
+"##,
+        "[A1/A1]\n[Bz/Bz]\n",
+    );
+}
+
+/// The constrained receiver crossing a lambda capture, a `for` body,
+/// the pipe operator, and a higher-order builtin.
+#[test]
+fn constraint_methods_work_through_lambdas_loops_and_pipes() {
+    assert_success(
+        r##"
+interface Labeled
+  def label(self): string
+end
+
+struct A
+  n: int
+
+  def label(self): string
+    "A#{self.n}"
+  end
+end
+
+def wrap(s: string): string
+  "<" + s + ">"
+end
+
+def viaLambda<T: Labeled>(v: T): string
+  let f = || v.label()
+  f()
+end
+
+def viaFor<T: Labeled>(v: T): string
+  let mut out = ""
+  for i in 0..2
+    out = out + v.label()
+  end
+  out
+end
+
+def viaPipe<T: Labeled>(v: T): string
+  v.label() |> wrap()
+end
+
+def viaMap<T: Labeled>(v: T): string
+  [1, 2].map(|i| v.label()).join(",")
+end
+
+let a = A { n: 1 }
+puts viaLambda(a)
+puts viaFor(a)
+puts viaPipe(a)
+puts viaMap(a)
+"##,
+        "A1\nA1A1\n<A1>\nA1,A1\n",
+    );
+}
+
+/// The constraint method taking arguments (including `Self`), and a
+/// generic struct satisfying the constraint.
+#[test]
+fn constraint_methods_take_arguments_and_generic_receivers() {
+    assert_success(
+        r##"
+interface Adder
+  def add(self, other: Self): int
+end
+
+struct N
+  v: int
+
+  def add(self, other: N): int
+    self.v + other.v
+  end
+end
+
+interface Labeled
+  def label(self): string
+end
+
+struct Box<T>
+  item: T
+
+  def label(self): string
+    "box"
+  end
+end
+
+def sum<T: Adder>(a: T, b: T): int
+  a.add(b)
+end
+
+def show<T: Labeled>(v: T): string
+  v.label()
+end
+
+puts sum(N { v: 1 }, N { v: 2 })
+puts show(Box { item: 1 })
+puts show(Box { item: "s" })
+"##,
+        "3\nbox\nbox\n",
+    );
+}
+
+/// A builtin type satisfying a user interface: the constraint method is
+/// a builtin method name, so the dynamic lookup must fall through to
+/// the builtin table exactly like the walker.
+#[test]
+fn builtin_receivers_satisfy_user_interfaces() {
+    assert_success(
+        r##"
+interface Lengthy
+  def len(self): int
+end
+
+def size<T: Lengthy>(v: T): int
+  v.len()
+end
+
+puts size("abc")
+puts size([1, 2])
+puts size({"k": 1})
+"##,
+        "3\n2\n1\n",
+    );
+}
+
+/// The universal `toString` on a generic value, with and without a
+/// user override, and a constraint method bound as a value instead of
+/// called.
+#[test]
+fn generic_receivers_bind_members_and_render_to_string() {
+    assert_success(
+        r##"
+interface Labeled
+  def label(self): string
+end
+
+struct A
+  n: int
+
+  def label(self): string
+    "A"
+  end
+end
+
+struct Custom
+  n: int
+
+  def label(self): string
+    "c"
+  end
+
+  def toString(self): string
+    "custom<#{self.n}>"
+  end
+end
+
+def bound<T: Labeled>(v: T): string
+  let f = v.label
+  f()
+end
+
+def render<T>(v: T): string
+  v.toString()
+end
+
+puts bound(A { n: 1 })
+puts render(A { n: 1 })
+puts render(Custom { n: 2 })
+puts render(5)
+puts render([1, 2])
+"##,
+        "A\nA { n: 1 }\ncustom<2>\n5\n[1, 2]\n",
+    );
+}
+
+/// A struct field holding a callable shadows nothing on the call path
+/// (methods win) but is what a bare member read yields; both reach the
+/// generic receiver only through the dynamic lookup.
+#[test]
+fn generic_receivers_reach_struct_fields_holding_callables() {
+    assert_success(
+        r##"
+interface Labeled
+  def label(self): string
+end
+
+struct FieldOnly
+  label: () -> string
+end
+
+def show<T: Labeled>(v: T): string
+  v.label()
+end
+
+def bound<T: Labeled>(v: T): string
+  let f = v.label
+  f()
+end
+
+let v = FieldOnly { label: || "fromField" }
+puts show(v)
+puts bound(v)
+"##,
+        "fromField\nfromField\n",
+    );
+}
+
+/// `?.` on an `Option` of a constrained parameter: the flattened
+/// member call still lands on the dynamic path.
+#[test]
+fn optional_chaining_on_a_generic_receiver() {
+    assert_success(
+        r##"
+interface Labeled
+  def label(self): string
+end
+
+struct A
+  n: int
+
+  def label(self): string
+    "A#{self.n}"
+  end
+end
+
+def show<T: Labeled>(v: Option<T>): Option<string>
+  v?.label()
+end
+
+puts show(Some(A { n: 1 }))
+let missing: Option<A> = None
+puts show(missing)
+"##,
+        "Some(\"A1\")\nNone\n",
+    );
+}
+
+/// A signal raised inside a constraint method unwinds through the
+/// dynamic call site like any other frame.
+#[test]
+fn signals_unwind_through_a_constraint_method_call() {
+    assert_success(
+        r##"
+interface Risky
+  def boom(self): int
+end
+
+struct BadThing
+  why: string
+end
+
+struct R
+  def boom(self): int
+    throw BadThing { why: "no" }
+  end
+end
+
+def run<T: Risky>(v: T): int
+  v.boom()
+end
+
+let out = run(R {}) catch (e)
+  BadThing => -1
+end
+puts out
+"##,
+        "-1\n",
+    );
+}
+
+/// Recursion through a constraint method must be bounded by the shared
+/// call-depth guard, not by the host stack: the dynamic call enters its
+/// frame in place, exactly like a direct call.
+#[test]
+fn recursion_through_a_constraint_method_hits_the_depth_guard() {
+    let source = r##"
+interface Steps
+  def step(self, n: int): int
+end
+
+struct Down
+  def step(self, n: int): int
+    self.step(n + 1)
+  end
+end
+
+def go<T: Steps>(v: T, n: int): int
+  v.step(n)
+end
+
+puts go(Down {}, 0)
+"##;
+
+    let (outcome, _) = assert_parity_with_depth(source, 64);
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert!(
+        message.contains("panics.StackOverflow"),
+        "unexpected message: {message}"
+    );
+}
+
 // --- globals, entry, recursion ----------------------------------------
 
 #[test]

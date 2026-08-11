@@ -370,6 +370,21 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
         return;
     }
 
+    // A receiver typed as a generic parameter: the constraint's method
+    // is a different function at every instantiation and the body is
+    // shared (no monomorphization, `docs/spec/03-types.md`), so the
+    // target comes from the runtime value's method table.
+    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::Generic { .. })) {
+        compile_expr(f, recv);
+        for &arg in args {
+            compile_expr(f, arg);
+        }
+        let name = f.cx.const_str(name);
+        let argc = u8::try_from(args.len() + 1).expect("argument count overflow");
+        f.emit(Op::CallMethodDyn { name, argc }, span);
+        return;
+    }
+
     match builtin_id(name).filter(|&id| builtin_def(id).is_some_and(|def| def.has_receiver)) {
         Some(builtin) => {
             compile_expr(f, recv);
@@ -479,6 +494,15 @@ fn field(f: &mut FuncCx, recv: ExprId, name: &str, span: Span) {
         let builtin = builtin_id(name).expect("Output field accessors are registered");
         compile_expr(f, recv);
         f.emit(Op::CallBuiltin { builtin, argc: 1 }, span);
+        return;
+    }
+
+    // A generic receiver, as in `method_call`: the member is whatever
+    // the runtime value carries.
+    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::Generic { .. })) {
+        compile_expr(f, recv);
+        let name = f.cx.const_str(name);
+        f.emit(Op::BindMethodDyn(name), span);
         return;
     }
 
