@@ -85,6 +85,10 @@ pub(crate) struct Vm<'a> {
     /// spawned through `std::proc`. The host process's own environment
     /// block is never mutated (mirrors the walker's overlay).
     pub(crate) env_overlay: std::collections::HashMap<String, String>,
+    /// The per-run PRNG behind `std::rand` (BRS-35): entropy-seeded at
+    /// startup, reset deterministically by `rand.seed` (mirrors the
+    /// walker's generator through the shared glue).
+    pub(crate) rng: brasa_interp::rand_glue::Rng,
 }
 
 impl<'a> Vm<'a> {
@@ -120,6 +124,7 @@ impl<'a> Vm<'a> {
             regex_cache: std::collections::HashMap::new(),
             script_args: args.to_vec(),
             env_overlay: std::collections::HashMap::new(),
+            rng: brasa_interp::rand_glue::Rng::from_entropy(),
         }
     }
 

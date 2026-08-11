@@ -1,0 +1,74 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `float`, found `int`
+   ╭─[ math_time_rand_module_call_errors.brs:6:11 ]
+   │
+ 6 │ math.sqrt(9)
+   │           ┬  
+   │           ╰── expected `float`
+───╯
+[T001] Error: mismatched types: expected `int` or `float`, found `string`
+   ╭─[ math_time_rand_module_call_errors.brs:7:10 ]
+   │
+ 7 │ math.abs("x")
+   │          ──┬─  
+   │            ╰─── expected `int` or `float`
+───╯
+[T001] Error: mismatched types: expected `int`, found `float`
+   ╭─[ math_time_rand_module_call_errors.brs:8:13 ]
+   │
+ 8 │ math.min(1, 2.0)
+   │             ─┬─  
+   │              ╰─── expected `int`
+───╯
+[T006] Error: cannot call a value of type `float`
+   ╭─[ math_time_rand_module_call_errors.brs:9:1 ]
+   │
+ 9 │ math.pi()
+   │ ─────┬────  
+   │      ╰────── not callable
+───╯
+[T007] Error: module `math` has no member `nope`
+    ╭─[ math_time_rand_module_call_errors.brs:10:1 ]
+    │
+ 10 │ math.nope(1)
+    │ ──────┬──────  
+    │       ╰──────── unknown member
+────╯
+[T001] Error: mismatched types: expected `int`, found `float`
+    ╭─[ math_time_rand_module_call_errors.brs:11:12 ]
+    │
+ 11 │ time.sleep(1.5)
+    │            ─┬─  
+    │             ╰─── expected `int`
+────╯
+[T007] Error: module `time` has no member `nope`
+    ╭─[ math_time_rand_module_call_errors.brs:12:1 ]
+    │
+ 12 │ time.nope()
+    │ ──────┬─────  
+    │       ╰─────── unknown member
+────╯
+[T001] Error: mismatched types: expected `Range`, found `int`
+    ╭─[ math_time_rand_module_call_errors.brs:13:10 ]
+    │
+ 13 │ rand.int(5)
+    │          ┬  
+    │          ╰── expected `Range`
+────╯
+[T001] Error: mismatched types: expected `Vector<unknown>`, found `string`
+    ╭─[ math_time_rand_module_call_errors.brs:14:13 ]
+    │
+ 14 │ rand.choice("abc")
+    │             ───┬──  
+    │                ╰──── expected `Vector<unknown>`
+────╯
+[T007] Error: module `rand` has no member `nope`
+    ╭─[ math_time_rand_module_call_errors.brs:15:1 ]
+    │
+ 15 │ rand.nope()
+    │ ──────┬─────  
+    │       ╰─────── unknown member
+────╯

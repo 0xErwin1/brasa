@@ -260,10 +260,10 @@ end
 errorset_test!(
     unknown_throw_opens_the_set,
     r#"
-import std::time
+import std::proc
 
 def readAny(): string
-  let data = time.now()
+  let data = proc.run
   throw data
 end
 "#
@@ -1154,6 +1154,40 @@ def frozen(data: Json): string
   json.stringify(data) catch (e)
     json.ParseError => "unused"
   end
+end
+"#
+);
+
+errorset_test!(
+    new_hof_methods_stay_transparent,
+    r#"
+struct FoldError
+  index: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw FoldError { index: x }
+  end
+  x + 1
+end
+
+def total(values: Vector<int>): int
+  values.reduce(0, |acc, x| acc + bump(x))
+end
+
+def firstBig(values: Vector<int>): int
+  values.find(|x| bump(x) > 10) ?? 0
+end
+
+def anyBig(values: Vector<int>): bool
+  values.any?(|x| bump(x) > 10)
+end
+
+def eachEntry(counts: Map<string, int>): int
+  let mut seen = 0
+  counts.each(|k, v| bump(v))
+  seen
 end
 "#
 );

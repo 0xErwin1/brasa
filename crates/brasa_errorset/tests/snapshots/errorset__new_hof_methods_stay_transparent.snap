@@ -1,0 +1,15 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  bump -> {FoldError}
+  total -> {FoldError}
+  firstBig -> {FoldError}
+  anyBig -> {FoldError}
+  eachEntry -> {FoldError}
+lambda error sets
+  e16 -> {FoldError}
+  e25 -> {FoldError}
+  e37 -> {FoldError}
+  e45 -> {FoldError}

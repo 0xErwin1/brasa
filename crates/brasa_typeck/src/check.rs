@@ -930,6 +930,20 @@ impl<'a> Checker<'a> {
         }
 
         let recv_ty = self.check_expr(recv, None);
+
+        // `reduce` and `zip` need argument-driven inference the fixed
+        // method table cannot express (BRS-35): `reduce`'s accumulator
+        // type comes from `init`, `zip`'s pair type from the other
+        // vector.
+        if let Type::Vector(elem) = &recv_ty {
+            let elem = (**elem).clone();
+            match name {
+                "reduce" => return self.check_reduce(span, callee, elem, args),
+                "zip" => return self.check_zip(span, callee, elem, args),
+                _ => {}
+            }
+        }
+
         match self.lookup_member(&recv_ty, name) {
             Member::Sig(sig) => {
                 self.check_args(span, args, &sig.params);
@@ -1024,7 +1038,26 @@ impl<'a> Checker<'a> {
             return unknown(self);
         };
 
+        if builtins::module_member_special(&module, name) {
+            return self.check_module_special(span, callee, &module, name, args);
+        }
+
         let Some(sig) = builtins::module_member(&module, name) else {
+            // Calling a module constant (`math.pi()`) is a call on a
+            // plain value, not an unknown member (BRS-35).
+            if let Some(ty) = builtins::module_constant(&module, name) {
+                self.error(err_at(
+                    codes::T_NOT_CALLABLE,
+                    span,
+                    format!("cannot call a value of type `{}`", ty.display(self.hir)),
+                    "not callable",
+                ));
+                for &arg in args {
+                    self.check_expr(arg, None);
+                }
+                self.tables.expr_types.insert(callee, ty);
+                return Type::Unknown;
+            }
             if builtins::module_closed(&module) {
                 self.error(err_at(
                     codes::T_UNKNOWN_MEMBER,
@@ -1089,6 +1122,141 @@ impl<'a> Checker<'a> {
         sig.ret
     }
 
+    /// The module members whose types the fixed table cannot express
+    /// (BRS-35): `math.abs`/`min`/`max` are polymorphic over
+    /// `int`/`float`, and `rand.choice`/`shuffle` are generic over the
+    /// vector element.
+    fn check_module_special(
+        &mut self,
+        span: Span,
+        callee: ExprId,
+        module: &str,
+        name: &str,
+        args: &[ExprId],
+    ) -> Type {
+        let ret = match (module, name) {
+            ("math", "abs") => self.check_numeric_args(span, args, 1),
+            ("math", "min" | "max") => self.check_numeric_args(span, args, 2),
+            ("rand", "choice" | "shuffle") => {
+                self.check_args(span, args, &[Type::vector(Type::Unknown)]);
+
+                let elem = match args.first().and_then(|arg| self.tables.expr_types.get(arg)) {
+                    Some(Type::Vector(inner)) => (**inner).clone(),
+                    _ => Type::Unknown,
+                };
+                if name == "choice" {
+                    elem
+                } else {
+                    Type::vector(elem)
+                }
+            }
+            _ => unreachable!("module_member_special and this table agree"),
+        };
+
+        self.tables.expr_types.insert(callee, Type::Unknown);
+        ret
+    }
+
+    /// Checks the arguments of a numeric-polymorphic `math` member:
+    /// every argument must be `int` or `float`, all of the same kind,
+    /// and the result is that kind (BRS-35).
+    fn check_numeric_args(&mut self, span: Span, args: &[ExprId], count: usize) -> Type {
+        if args.len() != count {
+            self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "wrong number of arguments: expected {count}, found {}",
+                    args.len()
+                ),
+                &format!("expected {count} argument(s)"),
+            ));
+        }
+
+        let mut decided: Option<Type> = None;
+        for (i, &arg) in args.iter().enumerate() {
+            if i >= count {
+                self.check_expr(arg, None);
+                continue;
+            }
+
+            if let Some(ty) = decided.clone()
+                && !ty.is_flexible()
+            {
+                self.check_expect(arg, &ty);
+                continue;
+            }
+
+            let found = self.check_expr(arg, None);
+            match found {
+                Type::Int | Type::Float => decided = Some(found),
+                flexible if flexible.is_flexible() => {
+                    decided.get_or_insert(Type::Unknown);
+                }
+                other => {
+                    let arg_span = self.hir.span_of_expr(arg);
+                    let shown = other.display(self.hir);
+                    self.error(err_at(
+                        codes::T_MISMATCHED_TYPES,
+                        arg_span,
+                        format!("mismatched types: expected `int` or `float`, found `{shown}`"),
+                        "expected `int` or `float`",
+                    ));
+                    decided.get_or_insert(Type::Unknown);
+                }
+            }
+        }
+
+        decided.unwrap_or(Type::Unknown)
+    }
+
+    /// `Vector<T>.reduce(init, f)` folds left with `f: (U, T) -> U`;
+    /// the accumulator type `U` comes from `init` (BRS-35).
+    fn check_reduce(&mut self, span: Span, callee: ExprId, elem: Type, args: &[ExprId]) -> Type {
+        if args.len() != 2 {
+            self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "wrong number of arguments: expected 2, found {}",
+                    args.len()
+                ),
+                "expected 2 argument(s)",
+            ));
+            for &arg in args {
+                self.check_expr(arg, None);
+            }
+            self.tables.expr_types.insert(callee, Type::Unknown);
+            return Type::Unknown;
+        }
+
+        let acc = self.check_expr(args[0], None);
+        let f = Type::func(vec![acc.clone(), elem], acc.clone());
+        self.check_expect(args[1], &f);
+
+        self.tables
+            .expr_types
+            .insert(callee, Type::func(vec![acc.clone(), f], acc.clone()));
+        acc
+    }
+
+    /// `Vector<T>.zip(other: Vector<U>) -> Vector<(T, U)>`: the pair's
+    /// second element comes from the argument (BRS-35).
+    fn check_zip(&mut self, span: Span, callee: ExprId, elem: Type, args: &[ExprId]) -> Type {
+        self.check_args(span, args, &[Type::vector(Type::Unknown)]);
+
+        let other = match args.first().and_then(|arg| self.tables.expr_types.get(arg)) {
+            Some(Type::Vector(inner)) => (**inner).clone(),
+            _ => Type::Unknown,
+        };
+
+        let ret = Type::vector(Type::Tuple(vec![elem, other.clone()]));
+        self.tables
+            .expr_types
+            .insert(callee, Type::func(vec![Type::vector(other)], ret.clone()));
+        ret
+    }
+
     /// The module name of a `Res::Module` receiver when it is a
     /// `std::` import; `None` for file imports.
     fn std_module_of(&self, recv: ExprId) -> Option<String> {
@@ -1108,6 +1276,15 @@ impl<'a> Checker<'a> {
     fn check_field(&mut self, id: ExprId, recv: ExprId, name: &str) -> Type {
         if self.is_module_ref(recv) {
             self.check_expr(recv, None);
+
+            // Module constants (`math.pi`, BRS-35) are the only typed
+            // plain-value members; every other member read stays
+            // `Unknown` (a bound module member is untyped in v1).
+            if let Some(module) = self.std_module_of(recv)
+                && let Some(ty) = builtins::module_constant(&module, name)
+            {
+                return ty;
+            }
             return Type::Unknown;
         }
 

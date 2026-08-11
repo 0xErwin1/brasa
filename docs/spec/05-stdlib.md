@@ -305,6 +305,39 @@ Signatures closed in M4 (BRS-34):
 - `time`: `now()`, timestamps, `sleep(ms)`, basic ISO-8601 formatting.
 - `rand`: `int(range)`, `float()`, `choice(vector)`, `shuffle`.
 
+Signatures closed in M4 (BRS-35):
+
+- **`math`** — `sqrt`, `floor`, `ceil`, `round` take and return
+  `float`; `pow(base: float, exp: float): float`. `abs`, `min`, and
+  `max` are polymorphic over `int` and `float` (mixing the two in one
+  call is a type error); `math.abs` of `int` minimum panics with
+  `panics.IntegerOverflow`. The constants are `math.pi` and `math.e`
+  (`float`) — plain value members, so calling them (`math.pi()`) is a
+  "not callable" type error. Nothing in `math` throws; float members
+  follow IEEE semantics (`sqrt(-1.0)` is NaN, never an error).
+- **`time`** — `now(): float` is Unix epoch seconds with sub-second
+  precision; `nowMillis(): int` is epoch milliseconds (the integer
+  timestamp form). `sleep(ms: int)` sleeps at least `ms` milliseconds;
+  a negative duration panics with `panics.AssertionFailed` (a
+  programmer error, like the sortBy-NaN rule). `iso(epochMillis: int):
+  string` is the basic ISO-8601 formatter: UTC,
+  `YYYY-MM-DDTHH:MM:SS.mmmZ`, proleptic Gregorian, negative
+  (pre-1970) timestamps supported. Nothing in `time` throws, and
+  `now`/`nowMillis` read the wall clock (no monotonicity guarantee
+  beyond the clock's own).
+- **`rand`** — a per-run deterministic PRNG (xoshiro256\*\*, seeded
+  through SplitMix64; documented, not cryptographic) shared by both
+  backends, so a seeded sequence is reproducible everywhere.
+  `seed(n: int)` resets the state deterministically; an unseeded run
+  starts from clock entropy. `int(r: Range): int` is uniform over the
+  range's values (`0..10` and `0..=10` both work); an empty range
+  panics with `panics.AssertionFailed`. `float(): float` is uniform in
+  `[0, 1)` (53-bit). `choice(v: Vector<T>): T` picks one element; the
+  empty vector panics with `panics.AssertionFailed`.
+  `shuffle(v: Vector<T>): Vector<T>` returns a NEW Fisher-Yates
+  shuffled vector; the argument is not modified. Nothing in `rand`
+  throws — the empty-pick cases are panics, not catchable errors.
+
 ## Collections (methods, no import needed)
 
 - `Vector<T>`: `len`, `push`, `pop`, `map`, `filter`, `reduce`, `each`,
@@ -317,6 +350,46 @@ Signatures closed in M4 (BRS-34):
   (`Set([1, 2, 3])`): a set of the vector's contents, deduplicated by
   structural equality, first occurrence kept, insertion order
   preserved. `Set(...)` is constructor-only; it is not a pattern.
+
+Signatures closed in M4 (BRS-35):
+
+- **`Vector<T>`** — `reduce(init: U, f: (U, T) -> U): U` folds left
+  over a snapshot; the accumulator type comes from `init`.
+  `find(f: (T) -> bool): Option<T>` yields the first satisfying
+  element. `any?`/`all?` take a `(T) -> bool` predicate and
+  short-circuit (`any?` on the first `true`, `all?` on the first
+  `false`); the empty vector is `false`/`true` respectively.
+  `sort(): Vector<T>` is a NEW vector in natural ascending order and
+  exists only on orderable elements (`int`, `float`, `string`,
+  `char` — the `sortBy` key rule); a NaN element panics with
+  `panics.AssertionFailed`, like a NaN `sortBy` key.
+  `zip(other: Vector<U>): Vector<(T, U)>` pairs up to the shorter
+  length (the longer vector's leftovers are dropped).
+  `flatten(): Vector<T>` exists only on `Vector<Vector<T>>` and
+  removes exactly one nesting level. `uniq(): Vector<T>` deduplicates
+  by structural equality, first occurrence kept, order preserved (the
+  `Set` constructor's rule). All of these return NEW vectors; only
+  `push`/`pop` mutate, as before.
+- **`Map<K, V>`** — `entries(): Vector<(K, V)>` in insertion order
+  (the same order as `keys`/`values`). `merge(other: Map<K, V>):
+  Map<K, V>` is a NEW map holding the receiver's entries then the
+  argument's, the argument winning on duplicate keys; neither operand
+  is modified. `each(f: (K, V) -> unit)` iterates a snapshot in
+  insertion order — the function takes the key and value as two
+  parameters, not a tuple.
+- **`Set<T>`** — `union`, `intersect`, and `diff` take a `Set<T>` and
+  return NEW sets; neither operand is modified. Order: `union` is the
+  receiver's elements then the argument's unseen elements (each side
+  in its insertion order); `intersect`/`diff` keep the receiver's
+  order.
+- **Higher-order arguments** — every HOF above participates in
+  error-set HOF transparency: a literal lambda argument contributes
+  its own error-set (`docs/spec/04-errors.md`), like `map`/`filter`.
+- **Prelude (verified complete)** — always available without imports:
+  `puts`, `print`, `Option`/`Some`/`None`, the `Vector`/`Map`/`Set`
+  types with the `Set(...)` constructor, ranges, every primitive and
+  collection method above, and the predeclared `Json` type name
+  (BRS-34; the `json` module members still need `import std::json`).
 
 ## Out of v1
 

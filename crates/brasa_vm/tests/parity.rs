@@ -1864,3 +1864,234 @@ fn json_uncaught_parse_error_message_matches() {
         }
     );
 }
+
+// --- BRS-35: collection surfaces, math/time/rand closure --------------
+
+#[test]
+fn vector_reduce_find_any_all() {
+    assert_success(
+        r##"
+let nums = [1, 2, 3, 4]
+puts nums.reduce(0, |acc, x| acc + x)
+puts nums.reduce(1, |acc, x| acc * x)
+puts nums.reduce("", |acc, x| acc + x.toString())
+puts nums.find(|x| x > 2) ?? -1
+puts nums.find(|x| x > 9) ?? -1
+puts nums.any?(|x| x % 2 == 0)
+puts nums.any?(|x| x > 9)
+puts nums.all?(|x| x > 0)
+puts nums.all?(|x| x > 1)
+let empty: Vector<int> = []
+puts empty.reduce(10, |acc, x| acc + x)
+puts empty.any?(|x| true)
+puts empty.all?(|x| false)
+"##,
+        "10\n24\n1234\n3\n-1\ntrue\nfalse\ntrue\nfalse\n10\nfalse\ntrue\n",
+    );
+}
+
+#[test]
+fn vector_sort_zip_flatten_uniq() {
+    assert_success(
+        r##"
+let nums = [3, 1, 2]
+puts nums.sort()
+puts nums
+let floats = [2.5, 1.5, 3.5]
+puts floats.sort()
+let words = ["pear", "apple", "fig"]
+puts words.sort()
+let chars = ['b', 'a']
+puts chars.sort()
+let pairs = [1, 2].zip(["a", "b", "c"])
+puts pairs
+let mixed = [1, 2, 3].zip([true])
+puts mixed
+let nested = [[1, 2], [3], []]
+puts nested.flatten()
+let dupes = [1, 2, 1, 3, 2]
+puts dupes.uniq()
+let empty: Vector<int> = []
+puts empty.sort()
+puts empty.uniq()
+"##,
+        "[1, 2, 3]\n[3, 1, 2]\n[1.5, 2.5, 3.5]\n[\"apple\", \"fig\", \"pear\"]\n['a', 'b']\n[(1, \"a\"), (2, \"b\")]\n[(1, true)]\n[1, 2, 3]\n[1, 2, 3]\n[]\n[]\n",
+    );
+}
+
+#[test]
+fn vector_sort_nan_panics_match() {
+    let (outcome, _) = assert_parity("let v = [1.0, 0.0 / 0.0]\nv.sort()\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert!(
+        message.contains("cannot sort a NaN element"),
+        "unexpected message: {message}"
+    );
+}
+
+#[test]
+fn map_entries_merge_each() {
+    assert_success(
+        r##"
+let stock: Map<string, int> = { "ember": 2, "ash": 1 }
+puts stock.entries()
+let extra: Map<string, int> = { "ash": 5, "coal": 3 }
+let merged = stock.merge(extra)
+puts merged
+puts stock
+puts extra
+stock.each(|name, count| puts("#{name}=#{count}"))
+"##,
+        "[(\"ember\", 2), (\"ash\", 1)]\n{ \"ember\": 2, \"ash\": 5, \"coal\": 3 }\n{ \"ember\": 2, \"ash\": 1 }\n{ \"ash\": 5, \"coal\": 3 }\nember=2\nash=1\n",
+    );
+}
+
+#[test]
+fn set_algebra_members() {
+    assert_success(
+        r##"
+let a = Set([1, 2, 3])
+let b = Set([3, 4])
+puts a.union(b)
+puts a.intersect(b)
+puts a.diff(b)
+puts b.diff(a)
+puts a
+puts b
+puts a.union(a)
+"##,
+        "Set([1, 2, 3, 4])\nSet([3])\nSet([1, 2])\nSet([4])\nSet([1, 2, 3])\nSet([3, 4])\nSet([1, 2, 3])\n",
+    );
+}
+
+#[test]
+fn math_constants_and_polymorphic_members() {
+    assert_success(
+        r##"
+import std::math
+
+puts math.pi
+puts math.e
+puts math.max(math.pi, math.e)
+puts math.min(math.pi, math.e)
+let tau = math.pi * 2.0
+puts math.floor(tau)
+"##,
+        "3.141592653589793\n2.718281828459045\n3.141592653589793\n2.718281828459045\n6.0\n",
+    );
+}
+
+#[test]
+fn time_iso_formatting_is_pinned() {
+    assert_success(
+        r##"
+import std::time
+
+puts time.iso(0)
+puts time.iso(1700000000123)
+puts time.iso(951782400000)
+puts time.iso(-1)
+"##,
+        "1970-01-01T00:00:00.000Z\n2023-11-14T22:13:20.123Z\n2000-02-29T00:00:00.000Z\n1969-12-31T23:59:59.999Z\n",
+    );
+}
+
+#[test]
+fn time_clock_properties_hold() {
+    assert_success(
+        r##"
+import std::time
+
+let a = time.now()
+let b = time.now()
+puts b >= a
+puts a > 1700000000.0
+let m1 = time.nowMillis()
+time.sleep(15)
+let m2 = time.nowMillis()
+puts m2 - m1 >= 15
+time.sleep(0)
+puts "done"
+"##,
+        "true\ntrue\ntrue\ndone\n",
+    );
+}
+
+#[test]
+fn time_negative_sleep_panics_match() {
+    let (outcome, _) = assert_parity("import std::time\ntime.sleep(-1)\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert!(
+        message.contains("cannot sleep a negative duration"),
+        "unexpected message: {message}"
+    );
+}
+
+#[test]
+fn rand_seeded_sequences_are_pinned() {
+    // The pinned values are the shared xoshiro256** sequence for seed
+    // 42 (`brasa_interp::rand_glue`); a change here means the PRNG or
+    // its consumption order changed, which breaks seeded scripts.
+    assert_success(
+        r##"
+import std::rand
+
+rand.seed(42)
+puts rand.int(0..100)
+puts rand.int(0..100)
+puts rand.int(1..=6)
+puts rand.float()
+puts rand.choice(["ember", "ash", "coal"])
+puts rand.shuffle([1, 2, 3, 4, 5])
+rand.seed(42)
+puts rand.int(0..100)
+puts rand.int(-5..=5)
+"##,
+        "42\n2\n6\n0.9246929453253876\nash\n[2, 4, 1, 3, 5]\n42\n2\n",
+    );
+}
+
+#[test]
+fn rand_unseeded_properties_hold() {
+    assert_success(
+        r##"
+import std::rand
+
+let n = rand.int(10..20)
+puts n >= 10 && n < 20
+let m = rand.int(-3..=3)
+puts m >= -3 && m <= 3
+let f = rand.float()
+puts f >= 0.0 && f < 1.0
+puts rand.int(3..=3)
+puts rand.choice([7])
+puts rand.shuffle([9]) 
+"##,
+        "true\ntrue\ntrue\n3\n7\n[9]\n",
+    );
+}
+
+#[test]
+fn rand_empty_picks_panic() {
+    let (outcome, _) = assert_parity("import std::rand\nrand.int(5..5)\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert!(
+        message.contains("cannot pick from an empty range"),
+        "unexpected message: {message}"
+    );
+
+    let (outcome, _) = assert_parity("import std::rand\nlet v: Vector<int> = []\nrand.choice(v)\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert!(
+        message.contains("cannot pick from an empty vector"),
+        "unexpected message: {message}"
+    );
+}

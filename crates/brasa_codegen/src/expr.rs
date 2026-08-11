@@ -394,7 +394,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
     if is_std
         && matches!(
             module.as_str(),
-            "math" | "proc" | "env" | "fs" | "json" | "io"
+            "math" | "proc" | "env" | "fs" | "json" | "io" | "time" | "rand"
         )
     {
         if let Some(builtin) = builtin_id(&format!("{module}.{name}")) {

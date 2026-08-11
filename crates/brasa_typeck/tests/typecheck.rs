@@ -954,3 +954,100 @@ data["a"] = data["b"]
 data["a"][0] = data["b"]
 "#
 );
+
+typecheck_test!(
+    math_time_rand_module_signatures,
+    r#"
+import std::math
+import std::time
+import std::rand
+
+let root = math.sqrt(9.0)
+let lifted = math.pow(2.0, 8.0) + math.floor(1.9) + math.ceil(1.1) + math.round(2.5)
+let wholeAbs = math.abs(-3) + 1
+let realAbs = math.abs(-3.5) + 1.0
+let small = math.min(1, 2) + 1
+let big = math.max(1.5, 2.5) + 1.0
+let tau = math.pi * 2.0
+let euler = math.e
+
+let seconds = time.now() + 1.0
+let millis = time.nowMillis() + 1
+time.sleep(0)
+let stamp = time.iso(0) + "!"
+
+rand.seed(7)
+let n = rand.int(0..10) + 1
+let x = rand.float() + 0.5
+let pick = rand.choice(["a", "b"]).len()
+let shuffled = rand.shuffle([1, 2, 3])
+let head = shuffled.first() ?? 0
+"#
+);
+
+typecheck_error_test!(
+    math_time_rand_module_call_errors,
+    r#"
+import std::math
+import std::time
+import std::rand
+
+math.sqrt(9)
+math.abs("x")
+math.min(1, 2.0)
+math.pi()
+math.nope(1)
+time.sleep(1.5)
+time.nope()
+rand.int(5)
+rand.choice("abc")
+rand.nope()
+"#
+);
+
+typecheck_test!(
+    collection_method_signatures,
+    r#"
+let nums = [3, 1, 2]
+let total = nums.reduce(0, |acc, x| acc + x)
+let joined = nums.map(|x| x.toString()).reduce("", |acc, s| acc + s)
+let found = nums.find(|x| x > 1) ?? 0
+let anyEven = nums.any?(|x| x % 2 == 0)
+let allPos = nums.all?(|x| x > 0)
+let sorted = nums.sort()
+let pairs = nums.zip(["a", "b", "c"])
+let nested = [[1], [2, 3]]
+let flat = nested.flatten()
+let unique = nums.uniq()
+
+let stock: Map<string, int> = { "a": 1 }
+let entries = stock.entries()
+let extra: Map<string, int> = { "b": 2 }
+let merged = stock.merge(extra)
+stock.each(|k, v| puts(k + v.toString()))
+
+let s = Set([1, 2])
+let u = s.union(Set([3]))
+let i = s.intersect(Set([2]))
+let d = s.diff(Set([1]))
+"#
+);
+
+typecheck_error_test!(
+    collection_method_errors,
+    r#"
+let nums = [1, 2]
+nums.sort("x")
+let bools = [true, false]
+let unsortable = bools.sort()
+let unflattenable = nums.flatten()
+nums.reduce(0)
+let widened = nums.reduce(0, |acc, x| "s")
+nums.zip(3)
+let s = Set([1])
+s.union([2])
+let stock: Map<string, int> = { "a": 1 }
+let wrongValues: Map<string, string> = { "b": "s" }
+stock.merge(wrongValues)
+"#
+);

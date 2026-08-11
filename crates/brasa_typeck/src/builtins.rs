@@ -1,12 +1,11 @@
 //! The builtin method table: what `.method(...)` means on primitive and
 //! container types.
 //!
-//! This is the minimal M1 slice of `docs/spec/05-stdlib.md` — exact
-//! stdlib signatures close module by module during M4, so this table
-//! only carries what the checker needs now. `string.toInt`/`toFloat`
-//! return the parsed number directly and throw `string.ParseError` on
-//! failure (BRS-41); the error contribution is the error-set pass's
-//! concern, not this table's.
+//! Carries the `docs/spec/05-stdlib.md` surface as it closes module by
+//! module during M4 (BRS-31 strings, BRS-35 collections).
+//! `string.toInt`/`toFloat` return the parsed number directly and
+//! throw `string.ParseError` on failure (BRS-41); the error
+//! contribution is the error-set pass's concern, not this table's.
 
 use crate::types::{Type, unify};
 
@@ -17,6 +16,14 @@ pub enum RetRule {
     /// return type of the function argument, known only after the
     /// argument is checked.
     VectorOfFnRet,
+}
+
+/// Whether `elem` can be a `sort` element or a `sortBy` key: the
+/// orderable primitives (`docs/spec/05-stdlib.md`, BRS-35). Flexible
+/// types stay allowed — the cause of the imprecision was already
+/// reported.
+fn orderable(elem: &Type) -> bool {
+    matches!(elem, Type::Int | Type::Float | Type::String | Type::Char) || elem.is_flexible()
 }
 
 /// One builtin method signature: parameter types (`self` excluded) and
@@ -134,6 +141,44 @@ fn vector_method(elem: &Type, name: &str) -> Option<MethodSig> {
             vec![Type::func(vec![elem.clone()], Type::Unknown)],
             Type::vector(elem.clone()),
         )),
+        // `reduce(init, f)` folds left: `(U, (U, T) -> U) -> U`. This
+        // table cannot see the `init` argument, so the entry here only
+        // serves the bound-value form; the call form is special-cased
+        // in the checker, which infers `U` from `init` (BRS-35).
+        "reduce" => Some(sig(
+            vec![
+                Type::Unknown,
+                Type::func(vec![Type::Unknown, elem.clone()], Type::Unknown),
+            ],
+            Type::Unknown,
+        )),
+        "find" => Some(sig(
+            vec![Type::func(vec![elem.clone()], Type::Bool)],
+            Type::option(elem.clone()),
+        )),
+        "any?" | "all?" => Some(sig(
+            vec![Type::func(vec![elem.clone()], Type::Bool)],
+            Type::Bool,
+        )),
+        // `sort` is natural ascending order, so it only exists on
+        // vectors of orderable elements — the same key rule `sortBy`
+        // enforces at runtime (decision recorded here, BRS-35).
+        "sort" if orderable(elem) => Some(sig(vec![], Type::vector(elem.clone()))),
+        // `zip(other)`'s pair type depends on the argument; like
+        // `reduce`, the entry serves the bound-value form and the call
+        // form is special-cased in the checker (BRS-35).
+        "zip" => Some(sig(
+            vec![Type::vector(Type::Unknown)],
+            Type::vector(Type::Tuple(vec![elem.clone(), Type::Unknown])),
+        )),
+        // `flatten` removes exactly one nesting level, so it only
+        // exists on `Vector<Vector<T>>` (decision recorded here).
+        "flatten" => match elem {
+            Type::Vector(inner) => Some(sig(vec![], Type::vector((**inner).clone()))),
+            flexible if flexible.is_flexible() => Some(sig(vec![], Type::vector(Type::Unknown))),
+            _ => None,
+        },
+        "uniq" => Some(sig(vec![], Type::vector(elem.clone()))),
         _ => None,
     }
 }
@@ -147,6 +192,18 @@ fn map_method(key: &Type, value: &Type, name: &str) -> Option<MethodSig> {
         "remove" => Some(sig(vec![key.clone()], Type::option(value.clone()))),
         "has?" => Some(sig(vec![key.clone()], Type::Bool)),
         "get" => Some(sig(vec![key.clone()], Type::option(value.clone()))),
+        "entries" => Some(sig(
+            vec![],
+            Type::vector(Type::Tuple(vec![key.clone(), value.clone()])),
+        )),
+        "merge" => Some(sig(
+            vec![Type::Map(Box::new(key.clone()), Box::new(value.clone()))],
+            Type::Map(Box::new(key.clone()), Box::new(value.clone())),
+        )),
+        "each" => Some(sig(
+            vec![Type::func(vec![key.clone(), value.clone()], Type::Unit)],
+            Type::Unit,
+        )),
         _ => None,
     }
 }
@@ -179,6 +236,10 @@ fn set_method(elem: &Type, name: &str) -> Option<MethodSig> {
         "remove" => Some(sig(vec![elem.clone()], Type::Bool)),
         "has?" => Some(sig(vec![elem.clone()], Type::Bool)),
         "len" => Some(sig(vec![], Type::Int)),
+        "union" | "intersect" | "diff" => Some(sig(
+            vec![Type::Set(Box::new(elem.clone()))],
+            Type::Set(Box::new(elem.clone())),
+        )),
         _ => None,
     }
 }
@@ -203,9 +264,10 @@ pub struct ModuleSig {
 
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
-/// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`).
-/// Returns `None` for members of modules that are still open — the
-/// checker stays silent on those until they close.
+/// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
+/// BRS-35: `math`, `time`, and `rand`). Polymorphic members
+/// ([`module_member_special`]) and constants ([`module_constant`])
+/// resolve outside this fixed-type table.
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
     let msig = |required: Vec<ModuleParam>, optional: Vec<ModuleParam>, ret: Type| ModuleSig {
         required,
@@ -307,15 +369,63 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         )),
         ("io", "readLine") => Some(msig(vec![], vec![], Type::option(Type::String))),
         ("io", "readAll") => Some(msig(vec![], vec![], Type::String)),
+        // `std::math` (BRS-35): the float members. `abs`/`min`/`max`
+        // are polymorphic over `int`/`float` and are special-cased in
+        // the checker; the constants live in [`module_constant`].
+        ("math", "sqrt" | "floor" | "ceil" | "round") => Some(msig(
+            vec![ModuleParam::Ty(Type::Float)],
+            vec![],
+            Type::Float,
+        )),
+        ("math", "pow") => Some(msig(
+            vec![ModuleParam::Ty(Type::Float), ModuleParam::Ty(Type::Float)],
+            vec![],
+            Type::Float,
+        )),
+        // `std::time` (BRS-35): epoch timestamps plus sleep and basic
+        // ISO-8601 formatting.
+        ("time", "now") => Some(msig(vec![], vec![], Type::Float)),
+        ("time", "nowMillis") => Some(msig(vec![], vec![], Type::Int)),
+        ("time", "sleep") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
+        ("time", "iso") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::String)),
+        // `std::rand` (BRS-35): the deterministic PRNG surface.
+        // `choice`/`shuffle` are generic over the vector element and
+        // are special-cased in the checker.
+        ("rand", "seed") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
+        ("rand", "int") => Some(msig(vec![ModuleParam::Ty(Type::Range)], vec![], Type::Int)),
+        ("rand", "float") => Some(msig(vec![], vec![], Type::Float)),
         _ => None,
     }
+}
+
+/// Looks up a plain-value module member (`math.pi`): the constants of
+/// the closed std modules (`docs/spec/05-stdlib.md`, BRS-35).
+pub fn module_constant(module: &str, name: &str) -> Option<Type> {
+    match (module, name) {
+        ("math", "pi" | "e") => Some(Type::Float),
+        _ => None,
+    }
+}
+
+/// The module members whose signatures the checker resolves outside
+/// [`module_member`]'s fixed-type table: `math.abs`/`min`/`max` are
+/// polymorphic over `int`/`float`, and `rand.choice`/`shuffle` are
+/// generic over the vector element (BRS-35).
+pub fn module_member_special(module: &str, name: &str) -> bool {
+    matches!(
+        (module, name),
+        ("math", "abs" | "min" | "max") | ("rand", "choice" | "shuffle")
+    )
 }
 
 /// Whether `module` is a std module whose member signatures have
 /// closed: an unknown member on a closed module is an error, while
 /// open modules stay `Unknown`-typed until they close during M4.
 pub fn module_closed(module: &str) -> bool {
-    matches!(module, "proc" | "env" | "fs" | "json" | "io")
+    matches!(
+        module,
+        "proc" | "env" | "fs" | "json" | "io" | "math" | "time" | "rand"
+    )
 }
 
 #[cfg(test)]
@@ -403,5 +513,81 @@ mod tests {
         let sig = method(&Type::vector(Type::Int), "map").expect("map exists");
         assert!(matches!(sig.ret, RetRule::VectorOfFnRet));
         assert_eq!(sig.params, vec![Type::func(vec![Type::Int], Type::Unknown)]);
+    }
+
+    #[test]
+    fn sort_requires_orderable_elements() {
+        for elem in [
+            Type::Int,
+            Type::Float,
+            Type::String,
+            Type::Char,
+            Type::Unknown,
+        ] {
+            assert!(method(&Type::vector(elem), "sort").is_some());
+        }
+        assert!(method(&Type::vector(Type::Bool), "sort").is_none());
+        assert!(method(&Type::vector(Type::vector(Type::Int)), "sort").is_none());
+    }
+
+    #[test]
+    fn flatten_requires_nested_vectors() {
+        let sig = method(&Type::vector(Type::vector(Type::Int)), "flatten").expect("flatten");
+        assert!(matches!(&sig.ret, RetRule::Fixed(t) if *t == Type::vector(Type::Int)));
+
+        assert!(method(&Type::vector(Type::Unknown), "flatten").is_some());
+        assert!(method(&Type::vector(Type::Int), "flatten").is_none());
+    }
+
+    #[test]
+    fn predicate_hofs_take_bool_functions() {
+        for name in ["find", "any?", "all?"] {
+            let sig = method(&Type::vector(Type::Int), name).expect("predicate HOF exists");
+            assert_eq!(sig.params, vec![Type::func(vec![Type::Int], Type::Bool)]);
+        }
+    }
+
+    #[test]
+    fn map_and_set_surfaces_from_brs35() {
+        let map = Type::Map(Box::new(Type::String), Box::new(Type::Int));
+        let entries = method(&map, "entries").expect("entries exists");
+        assert!(matches!(
+            &entries.ret,
+            RetRule::Fixed(t) if *t == Type::vector(Type::Tuple(vec![Type::String, Type::Int]))
+        ));
+
+        let each = method(&map, "each").expect("each exists");
+        assert_eq!(
+            each.params,
+            vec![Type::func(vec![Type::String, Type::Int], Type::Unit)]
+        );
+
+        let set = Type::Set(Box::new(Type::Int));
+        for name in ["union", "intersect", "diff"] {
+            let sig = method(&set, name).expect("set algebra exists");
+            assert_eq!(sig.params, vec![set.clone()]);
+            assert!(matches!(&sig.ret, RetRule::Fixed(t) if *t == set));
+        }
+    }
+
+    #[test]
+    fn closed_modules_and_constants() {
+        use super::{module_closed, module_constant, module_member, module_member_special};
+
+        for module in ["math", "time", "rand"] {
+            assert!(module_closed(module));
+        }
+
+        assert_eq!(module_constant("math", "pi"), Some(Type::Float));
+        assert_eq!(module_constant("math", "e"), Some(Type::Float));
+        assert_eq!(module_constant("math", "tau"), None);
+
+        assert!(module_member_special("math", "abs"));
+        assert!(module_member_special("rand", "shuffle"));
+        assert!(!module_member_special("math", "sqrt"));
+
+        assert!(module_member("time", "iso").is_some());
+        assert!(module_member("rand", "int").is_some());
+        assert!(module_member("math", "sqrt").is_some());
     }
 }

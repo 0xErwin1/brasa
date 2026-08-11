@@ -12,7 +12,7 @@ use std::rc::Rc;
 use brasa_interp::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
-use brasa_interp::{fs_glue, io_glue, json_glue};
+use brasa_interp::{fs_glue, io_glue, json_glue, time_glue};
 
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
@@ -83,6 +83,10 @@ impl Vm<'_> {
                     self.json_call(member, args)
                 } else if let Some(member) = name.strip_prefix("io.") {
                     self.io_call(member, args)
+                } else if let Some(member) = name.strip_prefix("time.") {
+                    self.time_call(member, args)
+                } else if let Some(member) = name.strip_prefix("rand.") {
+                    self.rand_call(member, args)
                 } else {
                     unreachable!("unknown free builtin `{name}`")
                 }
@@ -379,10 +383,14 @@ impl Vm<'_> {
         }
     }
 
-    /// The `std::math` slice executable in M1: f64 semantics
-    /// throughout; `abs`, `min`, and `max` also work on ints.
+    /// The `std::math` members (closed in BRS-35): f64 semantics
+    /// throughout; `abs`, `min`, and `max` are polymorphic over ints
+    /// and floats. The constants `pi`/`e` arrive here through the
+    /// module field-read path with zero arguments.
     fn math_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
+            ("pi", []) => Ok(Value::Float(std::f64::consts::PI)),
+            ("e", []) => Ok(Value::Float(std::f64::consts::E)),
             ("sqrt", [Value::Float(v)]) => Ok(Value::Float(v.sqrt())),
             ("floor", [Value::Float(v)]) => Ok(Value::Float(v.floor())),
             ("ceil", [Value::Float(v)]) => Ok(Value::Float(v.ceil())),
@@ -397,11 +405,82 @@ impl Vm<'_> {
             ("max", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).max(*b))),
             ("min", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.min(*b))),
             ("max", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.max(*b))),
-            ("sqrt" | "floor" | "ceil" | "round" | "pow" | "abs" | "min" | "max", _) => Err(
-                Signal::Fatal(format!("brasa: invalid argument(s) to `math.{name}`")),
-            ),
+            (
+                "pi" | "e" | "sqrt" | "floor" | "ceil" | "round" | "pow" | "abs" | "min" | "max",
+                _,
+            ) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `math.{name}`"
+            ))),
             _ => Err(Signal::Fatal(format!(
                 "brasa: unknown member `{name}` on module `math`"
+            ))),
+        }
+    }
+
+    /// The `std::time` members (BRS-35), ported from the walker's
+    /// `time_call`; all clock and formatting behavior lives in the
+    /// shared `brasa_interp::time_glue`. A negative `sleep` duration
+    /// panics with `panics.AssertionFailed`.
+    fn time_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("now", []) => Ok(Value::Float(time_glue::now_seconds())),
+            ("nowMillis", []) => Ok(Value::Int(time_glue::now_millis())),
+            ("sleep", [Value::Int(ms)]) => {
+                if *ms < 0 {
+                    return Err(self.panic(
+                        ASSERTION_FAILED,
+                        format!("cannot sleep a negative duration ({ms} ms)"),
+                    ));
+                }
+                time_glue::sleep_ms(*ms as u64);
+                Ok(Value::Unit)
+            }
+            ("iso", [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
+            ("now" | "nowMillis" | "sleep" | "iso", _) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `time.{name}`"
+            ))),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `time`"
+            ))),
+        }
+    }
+
+    /// The `std::rand` members (BRS-35), ported from the walker's
+    /// `rand_call` and backed by the same shared PRNG
+    /// (`brasa_interp::rand_glue`). Picking from an empty range or
+    /// vector panics with `panics.AssertionFailed`; `shuffle` returns
+    /// a NEW vector.
+    fn rand_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("seed", [Value::Int(n)]) => {
+                self.rng = brasa_interp::rand_glue::Rng::seeded(*n as u64);
+                Ok(Value::Unit)
+            }
+            ("int", [Value::Range { lo, hi, inclusive }]) => {
+                match self.rng.int_in(*lo, *hi, *inclusive) {
+                    Some(value) => Ok(Value::Int(value)),
+                    None => Err(self.panic(ASSERTION_FAILED, "cannot pick from an empty range")),
+                }
+            }
+            ("float", []) => Ok(Value::Float(self.rng.float())),
+            ("choice", [Value::Vector(items)]) => {
+                let items = self.heap.vector(*items).borrow();
+                if items.is_empty() {
+                    return Err(self.panic(ASSERTION_FAILED, "cannot pick from an empty vector"));
+                }
+                let index = self.rng.below(items.len() as u64) as usize;
+                Ok(items[index].clone())
+            }
+            ("shuffle", [Value::Vector(items)]) => {
+                let mut shuffled = self.heap.vector(*items).borrow().clone();
+                self.rng.shuffle(&mut shuffled);
+                Ok(self.heap.alloc_vector(shuffled))
+            }
+            ("seed" | "int" | "float" | "choice" | "shuffle", _) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `rand.{name}`"
+            ))),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `rand`"
             ))),
         }
     }
@@ -683,8 +762,124 @@ impl Vm<'_> {
                 let snapshot = self.heap.vector(items).borrow().clone();
                 self.sort_by(snapshot, f.clone())
             }
+            ("sort", []) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+                self.sort_natural(snapshot)
+            }
+            ("reduce", [init, f]) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+                let mut acc = init.clone();
+                for item in snapshot {
+                    acc = self.call_callable(f.clone(), vec![acc, item])?;
+                }
+                Ok(acc)
+            }
+            ("find", [f]) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+                for item in snapshot {
+                    match self.call_callable(f.clone(), vec![item.clone()])? {
+                        Value::Bool(true) => return Ok(Value::some(item)),
+                        Value::Bool(false) => {}
+                        _ => {
+                            return Err(Signal::Fatal(
+                                "brasa: `find` predicate must return a bool".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(Value::NONE)
+            }
+            // `any?` short-circuits on the first `true`, `all?` on the
+            // first `false`; the empty vector is `false`/`true`.
+            ("any?" | "all?", [f]) => {
+                let deciding = name == "any?";
+                let snapshot = self.heap.vector(items).borrow().clone();
+                for item in snapshot {
+                    match self.call_callable(f.clone(), vec![item])? {
+                        Value::Bool(found) => {
+                            if found == deciding {
+                                return Ok(Value::Bool(deciding));
+                            }
+                        }
+                        _ => {
+                            return Err(Signal::Fatal(format!(
+                                "brasa: `{name}` predicate must return a bool"
+                            )));
+                        }
+                    }
+                }
+                Ok(Value::Bool(!deciding))
+            }
+            // Pairs up to the shorter length; the leftovers of the
+            // longer vector are dropped.
+            ("zip", [Value::Vector(other)]) => {
+                let left = self.heap.vector(items).borrow().clone();
+                let right = self.heap.vector(*other).borrow().clone();
+                let pairs = left
+                    .into_iter()
+                    .zip(right)
+                    .map(|(a, b)| Value::Tuple(Rc::from(vec![a, b])))
+                    .collect();
+                Ok(self.heap.alloc_vector(pairs))
+            }
+            ("flatten", []) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+                let mut flat = Vec::new();
+                for item in snapshot {
+                    match item {
+                        Value::Vector(inner) => {
+                            flat.extend(self.heap.vector(inner).borrow().iter().cloned())
+                        }
+                        _ => {
+                            return Err(Signal::Fatal(
+                                "brasa: `flatten` requires a `Vector<Vector<...>>`".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(self.heap.alloc_vector(flat))
+            }
+            // Structural equality, first occurrence kept, insertion
+            // order preserved — the `Set` constructor's dedup rule.
+            ("uniq", []) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+                let mut unique: Vec<Value> = Vec::new();
+                for item in snapshot {
+                    if !unique.iter().any(|seen| value_eq(&self.heap, seen, &item)) {
+                        unique.push(item);
+                    }
+                }
+                Ok(self.heap.alloc_vector(unique))
+            }
             _ => Err(builtin_error(name)),
         }
+    }
+
+    /// `sort` in natural ascending order: the elements must satisfy the
+    /// same orderable rule as `sortBy` keys, NaN panic included
+    /// (BRS-35, `docs/spec/05-stdlib.md`).
+    fn sort_natural(&mut self, items: Vec<Value>) -> VmResult {
+        for item in &items {
+            match item {
+                Value::Float(v) if v.is_nan() => {
+                    return Err(self.panic(
+                        ASSERTION_FAILED,
+                        "cannot sort a NaN element (floats with NaN do not order)",
+                    ));
+                }
+                Value::Int(_) | Value::Float(_) | Value::Str(_) | Value::Char(_) => {}
+                _ => {
+                    return Err(Signal::Fatal(
+                        "brasa: `sort` elements must be ints, floats, strings, or chars"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
+        let mut sorted = items;
+        sorted.sort_by(|a, b| value_cmp(a, b).unwrap_or(Ordering::Equal));
+        Ok(self.heap.alloc_vector(sorted))
     }
 
     fn sort_by(&mut self, items: Vec<Value>, f: Value) -> VmResult {
@@ -778,6 +973,40 @@ impl Vm<'_> {
                 .find(|(k, _)| value_eq(&self.heap, k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
+            ("entries", []) => {
+                let pairs = self
+                    .heap
+                    .map(entries)
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| Value::Tuple(Rc::from(vec![k.clone(), v.clone()])))
+                    .collect();
+                Ok(self.heap.alloc_vector(pairs))
+            }
+            // A NEW map: the receiver's entries, then the argument's,
+            // with the argument winning on duplicate keys; neither
+            // operand is modified.
+            ("merge", [Value::Map(other)]) => {
+                let mut merged = self.heap.map(entries).borrow().clone();
+                let additions = self.heap.map(*other).borrow().clone();
+                for (key, value) in additions {
+                    match merged
+                        .iter_mut()
+                        .find(|(k, _)| value_eq(&self.heap, k, &key))
+                    {
+                        Some(entry) => entry.1 = value,
+                        None => merged.push((key, value)),
+                    }
+                }
+                Ok(self.heap.alloc_map(merged))
+            }
+            ("each", [f]) => {
+                let snapshot = self.heap.map(entries).borrow().clone();
+                for (key, value) in snapshot {
+                    self.call_callable(f.clone(), vec![key, value])?;
+                }
+                Ok(Value::Unit)
+            }
             _ => Err(builtin_error(name)),
         }
     }
@@ -814,6 +1043,33 @@ impl Vm<'_> {
                     .iter()
                     .any(|v| value_eq(&self.heap, v, value)),
             )),
+            // The algebra members return NEW sets in the receiver's
+            // insertion order (`union` appends the argument's unseen
+            // elements in its order); neither operand is modified.
+            ("union", [Value::Set(other)]) => {
+                let mut result = self.heap.set(items).borrow().clone();
+                let additions = self.heap.set(*other).borrow().clone();
+                for value in additions {
+                    if !result.iter().any(|v| value_eq(&self.heap, v, &value)) {
+                        result.push(value);
+                    }
+                }
+                Ok(self.heap.alloc_set(result))
+            }
+            ("intersect" | "diff", [Value::Set(other)]) => {
+                let other = self.heap.set(*other).borrow();
+                let keep_present = name == "intersect";
+                let result: Vec<Value> = self
+                    .heap
+                    .set(items)
+                    .borrow()
+                    .iter()
+                    .filter(|v| other.iter().any(|o| value_eq(&self.heap, o, v)) == keep_present)
+                    .cloned()
+                    .collect();
+                drop(other);
+                Ok(self.heap.alloc_set(result))
+            }
             _ => Err(builtin_error(name)),
         }
     }

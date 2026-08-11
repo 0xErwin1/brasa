@@ -17,7 +17,7 @@
 //! | the `fs` predicates and pure path helpers | nothing — they never throw |
 //! | `json.parse` | the `Opaque("json.ParseError")` tag (BRS-34) |
 //! | `json.stringify` and every `io` member | nothing — they never throw (BRS-34) |
-//! | any other stdlib module member (`math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
+//! | every `math`/`time`/`rand` member | nothing — they never throw (BRS-35: empty-range/vector picks and negative sleeps are panics, and panics are not in error-sets) |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |

@@ -1,0 +1,140 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i3 root -> float
+  i4 lifted -> float
+  i5 wholeAbs -> int
+  i6 realAbs -> float
+  i7 small -> int
+  i8 big -> float
+  i9 tau -> float
+  i10 euler -> float
+  i11 seconds -> float
+  i12 millis -> int
+  i14 stamp -> string
+  i16 n -> int
+  i17 x -> float
+  i18 pick -> int
+  i19 shuffled -> Vector<int>
+  i20 head -> int
+local types
+  l0 $tmp0 -> int
+expr types
+  e0 -> unknown
+  e1 -> unknown
+  e2 -> float
+  e3 -> float
+  e4 -> unknown
+  e5 -> unknown
+  e6 -> float
+  e7 -> float
+  e8 -> float
+  e9 -> unknown
+  e10 -> unknown
+  e11 -> float
+  e12 -> float
+  e13 -> float
+  e14 -> unknown
+  e15 -> unknown
+  e16 -> float
+  e17 -> float
+  e18 -> float
+  e19 -> unknown
+  e20 -> unknown
+  e21 -> float
+  e22 -> float
+  e23 -> float
+  e24 -> unknown
+  e25 -> unknown
+  e26 -> int
+  e27 -> int
+  e28 -> int
+  e29 -> int
+  e30 -> int
+  e31 -> unknown
+  e32 -> unknown
+  e33 -> float
+  e34 -> float
+  e35 -> float
+  e36 -> float
+  e37 -> float
+  e38 -> unknown
+  e39 -> unknown
+  e40 -> int
+  e41 -> int
+  e42 -> int
+  e43 -> int
+  e44 -> int
+  e45 -> unknown
+  e46 -> unknown
+  e47 -> float
+  e48 -> float
+  e49 -> float
+  e50 -> float
+  e51 -> float
+  e52 -> unknown
+  e53 -> float
+  e54 -> float
+  e55 -> float
+  e56 -> unknown
+  e57 -> float
+  e58 -> unknown
+  e59 -> unknown
+  e60 -> float
+  e61 -> float
+  e62 -> float
+  e63 -> unknown
+  e64 -> unknown
+  e65 -> int
+  e66 -> int
+  e67 -> int
+  e68 -> unknown
+  e69 -> unknown
+  e70 -> int
+  e71 -> unit
+  e72 -> unknown
+  e73 -> unknown
+  e74 -> int
+  e75 -> string
+  e76 -> string
+  e77 -> string
+  e78 -> unknown
+  e79 -> unknown
+  e80 -> int
+  e81 -> unit
+  e82 -> unknown
+  e83 -> unknown
+  e84 -> int
+  e85 -> int
+  e86 -> Range
+  e87 -> int
+  e88 -> int
+  e89 -> int
+  e90 -> unknown
+  e91 -> unknown
+  e92 -> float
+  e93 -> float
+  e94 -> float
+  e95 -> unknown
+  e96 -> unknown
+  e97 -> string
+  e98 -> string
+  e99 -> Vector<string>
+  e100 -> string
+  e101 -> () -> int
+  e102 -> int
+  e103 -> unknown
+  e104 -> unknown
+  e105 -> int
+  e106 -> int
+  e107 -> int
+  e108 -> Vector<int>
+  e109 -> Vector<int>
+  e110 -> Vector<int>
+  e111 -> () -> Option<int>
+  e112 -> Option<int>
+  e113 -> int
+  e114 -> int
+  e115 -> int

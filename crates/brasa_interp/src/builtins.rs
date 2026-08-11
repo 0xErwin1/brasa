@@ -58,7 +58,7 @@ use crate::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
-use crate::{fs_glue, io_glue, json_glue};
+use crate::{fs_glue, io_glue, json_glue, time_glue};
 
 impl Interp<'_> {
     pub(crate) fn call_builtin(&mut self, recv: Value, name: &str, args: Vec<Value>) -> EvalResult {
@@ -362,8 +362,122 @@ impl Interp<'_> {
                 let snapshot = items.borrow().clone();
                 self.sort_by(snapshot, f.clone())
             }
+            ("sort", []) => {
+                let snapshot = items.borrow().clone();
+                self.sort_natural(snapshot)
+            }
+            ("reduce", [init, f]) => {
+                let snapshot = items.borrow().clone();
+                let mut acc = init.clone();
+                for item in snapshot {
+                    acc = self.call_value(f.clone(), vec![acc, item])?;
+                }
+                Ok(acc)
+            }
+            ("find", [f]) => {
+                let snapshot = items.borrow().clone();
+                for item in snapshot {
+                    match self.call_value(f.clone(), vec![item.clone()])? {
+                        Value::Bool(true) => return Ok(Value::some(item)),
+                        Value::Bool(false) => {}
+                        _ => {
+                            return Err(Signal::Fatal(
+                                "brasa: `find` predicate must return a bool".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(Value::NONE)
+            }
+            // `any?` short-circuits on the first `true`, `all?` on the
+            // first `false`; the empty vector is `false`/`true`.
+            ("any?" | "all?", [f]) => {
+                let deciding = name == "any?";
+                let snapshot = items.borrow().clone();
+                for item in snapshot {
+                    match self.call_value(f.clone(), vec![item])? {
+                        Value::Bool(found) => {
+                            if found == deciding {
+                                return Ok(Value::Bool(deciding));
+                            }
+                        }
+                        _ => {
+                            return Err(Signal::Fatal(format!(
+                                "brasa: `{name}` predicate must return a bool"
+                            )));
+                        }
+                    }
+                }
+                Ok(Value::Bool(!deciding))
+            }
+            // Pairs up to the shorter length; the leftovers of the
+            // longer vector are dropped.
+            ("zip", [Value::Vector(other)]) => {
+                let left = items.borrow().clone();
+                let right = other.borrow().clone();
+                let pairs = left
+                    .into_iter()
+                    .zip(right)
+                    .map(|(a, b)| Value::Tuple(Rc::from(vec![a, b])))
+                    .collect();
+                Ok(Value::vector(pairs))
+            }
+            ("flatten", []) => {
+                let snapshot = items.borrow().clone();
+                let mut flat = Vec::new();
+                for item in snapshot {
+                    match item {
+                        Value::Vector(inner) => flat.extend(inner.borrow().iter().cloned()),
+                        _ => {
+                            return Err(Signal::Fatal(
+                                "brasa: `flatten` requires a `Vector<Vector<...>>`".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(Value::vector(flat))
+            }
+            // Structural equality, first occurrence kept, insertion
+            // order preserved — the `Set` constructor's dedup rule.
+            ("uniq", []) => {
+                let snapshot = items.borrow().clone();
+                let mut unique: Vec<Value> = Vec::new();
+                for item in snapshot {
+                    if !unique.iter().any(|seen| value_eq(seen, &item)) {
+                        unique.push(item);
+                    }
+                }
+                Ok(Value::vector(unique))
+            }
             _ => Err(self.builtin_error(name)),
         }
+    }
+
+    /// `sort` in natural ascending order: the elements must satisfy the
+    /// same orderable rule as `sortBy` keys, NaN panic included
+    /// (BRS-35, `docs/spec/05-stdlib.md`).
+    fn sort_natural(&mut self, items: Vec<Value>) -> EvalResult {
+        for item in &items {
+            match item {
+                Value::Float(v) if v.is_nan() => {
+                    return Err(self.panic(
+                        PanicKind::AssertionFailed,
+                        "cannot sort a NaN element (floats with NaN do not order)",
+                    ));
+                }
+                Value::Int(_) | Value::Float(_) | Value::Str(_) | Value::Char(_) => {}
+                _ => {
+                    return Err(Signal::Fatal(
+                        "brasa: `sort` elements must be ints, floats, strings, or chars"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
+        let mut sorted = items;
+        sorted.sort_by(|a, b| value_cmp(a, b).unwrap_or(Ordering::Equal));
+        Ok(Value::vector(sorted))
     }
 
     fn sort_by(&mut self, items: Vec<Value>, f: Value) -> EvalResult {
@@ -428,6 +542,33 @@ impl Interp<'_> {
                 .find(|(k, _)| value_eq(k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
+            ("entries", []) => Ok(Value::vector(
+                entries
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| Value::Tuple(Rc::from(vec![k.clone(), v.clone()])))
+                    .collect(),
+            )),
+            // A NEW map: the receiver's entries, then the argument's,
+            // with the argument winning on duplicate keys; neither
+            // operand is modified.
+            ("merge", [Value::Map(other)]) => {
+                let mut merged = entries.borrow().clone();
+                for (key, value) in other.borrow().iter() {
+                    match merged.iter_mut().find(|(k, _)| value_eq(k, key)) {
+                        Some(entry) => entry.1 = value.clone(),
+                        None => merged.push((key.clone(), value.clone())),
+                    }
+                }
+                Ok(Value::Map(Rc::new(std::cell::RefCell::new(merged))))
+            }
+            ("each", [f]) => {
+                let snapshot = entries.borrow().clone();
+                for (key, value) in snapshot {
+                    self.call_value(f.clone(), vec![key, value])?;
+                }
+                Ok(Value::Unit)
+            }
             _ => Err(self.builtin_error(name)),
         }
     }
@@ -459,6 +600,29 @@ impl Interp<'_> {
             ("has?", [value]) => Ok(Value::Bool(
                 items.borrow().iter().any(|v| value_eq(v, value)),
             )),
+            // The algebra members return NEW sets in the receiver's
+            // insertion order (`union` appends the argument's unseen
+            // elements in its order); neither operand is modified.
+            ("union", [Value::Set(other)]) => {
+                let mut result = items.borrow().clone();
+                for value in other.borrow().iter() {
+                    if !result.iter().any(|v| value_eq(v, value)) {
+                        result.push(value.clone());
+                    }
+                }
+                Ok(Value::Set(Rc::new(std::cell::RefCell::new(result))))
+            }
+            ("intersect" | "diff", [Value::Set(other)]) => {
+                let other = other.borrow();
+                let keep_present = name == "intersect";
+                let result: Vec<Value> = items
+                    .borrow()
+                    .iter()
+                    .filter(|v| other.iter().any(|o| value_eq(o, v)) == keep_present)
+                    .cloned()
+                    .collect();
+                Ok(Value::Set(Rc::new(std::cell::RefCell::new(result))))
+            }
             _ => Err(self.builtin_error(name)),
         }
     }
@@ -643,6 +807,76 @@ impl Interp<'_> {
                 Err(self.fatal(format!("brasa: invalid argument(s) to `io.{name}`")))
             }
             _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `io`"))),
+        }
+    }
+
+    /// The `std::time` members (BRS-35, `docs/spec/05-stdlib.md`); all
+    /// clock and formatting behavior lives in the shared [`time_glue`].
+    /// A negative `sleep` duration panics with `panics.AssertionFailed`
+    /// (the sortBy-NaN precedent: a programmer error, not a recoverable
+    /// scripting error).
+    pub(crate) fn time_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        match (name, args.as_slice()) {
+            ("now", []) => Ok(Value::Float(time_glue::now_seconds())),
+            ("nowMillis", []) => Ok(Value::Int(time_glue::now_millis())),
+            ("sleep", [Value::Int(ms)]) => {
+                if *ms < 0 {
+                    return Err(self.panic(
+                        PanicKind::AssertionFailed,
+                        format!("cannot sleep a negative duration ({ms} ms)"),
+                    ));
+                }
+                time_glue::sleep_ms(*ms as u64);
+                Ok(Value::Unit)
+            }
+            ("iso", [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
+            ("now" | "nowMillis" | "sleep" | "iso", _) => {
+                Err(self.fatal(format!("brasa: invalid argument(s) to `time.{name}`")))
+            }
+            _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `time`"))),
+        }
+    }
+
+    /// The `std::rand` members (BRS-35, `docs/spec/05-stdlib.md`),
+    /// backed by the shared per-run PRNG ([`crate::rand_glue`]).
+    /// Picking from an empty range or vector panics with
+    /// `panics.AssertionFailed`; `shuffle` returns a NEW vector.
+    pub(crate) fn rand_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        match (name, args.as_slice()) {
+            ("seed", [Value::Int(n)]) => {
+                self.rng = crate::rand_glue::Rng::seeded(*n as u64);
+                Ok(Value::Unit)
+            }
+            ("int", [Value::Range { lo, hi, inclusive }]) => {
+                match self.rng.int_in(*lo, *hi, *inclusive) {
+                    Some(value) => Ok(Value::Int(value)),
+                    None => Err(self.panic(
+                        PanicKind::AssertionFailed,
+                        "cannot pick from an empty range",
+                    )),
+                }
+            }
+            ("float", []) => Ok(Value::Float(self.rng.float())),
+            ("choice", [Value::Vector(items)]) => {
+                let items = items.borrow();
+                if items.is_empty() {
+                    return Err(self.panic(
+                        PanicKind::AssertionFailed,
+                        "cannot pick from an empty vector",
+                    ));
+                }
+                let index = self.rng.below(items.len() as u64) as usize;
+                Ok(items[index].clone())
+            }
+            ("shuffle", [Value::Vector(items)]) => {
+                let mut shuffled = items.borrow().clone();
+                self.rng.shuffle(&mut shuffled);
+                Ok(Value::vector(shuffled))
+            }
+            ("seed" | "int" | "float" | "choice" | "shuffle", _) => {
+                Err(self.fatal(format!("brasa: invalid argument(s) to `rand.{name}`")))
+            }
+            _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `rand`"))),
         }
     }
 

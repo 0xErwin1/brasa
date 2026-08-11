@@ -179,6 +179,34 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("asArray"),
     method("asObject"),
     method("null?"),
+    // M4 collections plus `std::math`/`std::time`/`std::rand` closure
+    // (BRS-35): appended, never reordered. `find`, `each`, `remove`,
+    // `has?`, and `len` already exist above (ids are shared across
+    // receiver kinds); the math constants are zero-argument free
+    // builtins served by the module field-read path.
+    method("reduce"),
+    method("any?"),
+    method("all?"),
+    method("sort"),
+    method("zip"),
+    method("flatten"),
+    method("uniq"),
+    method("entries"),
+    method("merge"),
+    method("union"),
+    method("intersect"),
+    method("diff"),
+    free("math.pi"),
+    free("math.e"),
+    free("time.now"),
+    free("time.nowMillis"),
+    free("time.sleep"),
+    free("time.iso"),
+    free("rand.seed"),
+    free("rand.int"),
+    free("rand.float"),
+    free("rand.choice"),
+    free("rand.shuffle"),
 ];
 
 /// Looks up a builtin by its stable name.

@@ -130,6 +130,9 @@ pub(crate) struct Interp<'a> {
     /// spawned through `std::proc`. The host process's own environment
     /// block is never mutated.
     pub(crate) env_overlay: HashMap<String, String>,
+    /// The per-run PRNG behind `std::rand` (BRS-35): entropy-seeded at
+    /// startup, reset deterministically by `rand.seed`.
+    pub(crate) rng: crate::rand_glue::Rng,
 }
 
 impl<'a> Interp<'a> {
@@ -152,6 +155,7 @@ impl<'a> Interp<'a> {
             regex_cache: HashMap::new(),
             script_args: args.to_vec(),
             env_overlay: HashMap::new(),
+            rng: crate::rand_glue::Rng::from_entropy(),
         }
     }
 
@@ -1383,6 +1387,8 @@ impl<'a> Interp<'a> {
                 "fs" => return self.fs_call(name, args),
                 "json" => return self.json_call(name, args),
                 "io" => return self.io_call(name, args),
+                "time" => return self.time_call(name, args),
+                "rand" => return self.rand_call(name, args),
                 _ => {}
             }
         }
@@ -1392,12 +1398,14 @@ impl<'a> Interp<'a> {
         )))
     }
 
-    /// The `std::math` slice needed by M1 programs
-    /// (`docs/spec/05-stdlib.md`): f64 semantics throughout; `abs`,
-    /// `min`, and `max` also work on ints since the runtime value
-    /// dispatches them trivially.
+    /// The `std::math` members (`docs/spec/05-stdlib.md`, closed in
+    /// BRS-35): f64 semantics throughout; `abs`, `min`, and `max` are
+    /// polymorphic over ints and floats. The constants `pi`/`e` arrive
+    /// here through the module field-read path with zero arguments.
     fn math_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
         match (name, args.as_slice()) {
+            ("pi", []) => Ok(Value::Float(std::f64::consts::PI)),
+            ("e", []) => Ok(Value::Float(std::f64::consts::E)),
             ("sqrt", [Value::Float(v)]) => Ok(Value::Float(v.sqrt())),
             ("floor", [Value::Float(v)]) => Ok(Value::Float(v.floor())),
             ("ceil", [Value::Float(v)]) => Ok(Value::Float(v.ceil())),
@@ -1411,9 +1419,10 @@ impl<'a> Interp<'a> {
             ("max", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).max(*b))),
             ("min", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.min(*b))),
             ("max", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.max(*b))),
-            ("sqrt" | "floor" | "ceil" | "round" | "pow" | "abs" | "min" | "max", _) => {
-                Err(self.fatal(format!("brasa: invalid argument(s) to `math.{name}`")))
-            }
+            (
+                "pi" | "e" | "sqrt" | "floor" | "ceil" | "round" | "pow" | "abs" | "min" | "max",
+                _,
+            ) => Err(self.fatal(format!("brasa: invalid argument(s) to `math.{name}`"))),
             _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `math`"))),
         }
     }
@@ -1424,8 +1433,9 @@ impl<'a> Interp<'a> {
         if let Expr::Ident(_) = self.hir.expr(recv)
             && let Some(&Res::Module(item)) = self.res.expr_res.get(&recv)
         {
-            // No module exposes plain values in M1 (math is
-            // functions-only); reuse the module-call error path.
+            // A module member read is a zero-argument member call:
+            // constants (`math.pi`, BRS-35) yield their value, and
+            // anything else reuses the module-call error path.
             return self.module_call(item, name, vec![]);
         }
 
