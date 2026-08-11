@@ -1,7 +1,8 @@
 //! Regression tests for the review-findings hardening pass: `unit` as a
 //! type, a parser recursion-depth guard, unknown-escape errors, duplicate
 //! struct-literal fields, diagnostic-cascade dedup, a leading UTF-8 BOM,
-//! `0x_`/`0b_` vs genuine overflow, and non-empty enum/interface bodies.
+//! `0x_`/`0b_` vs genuine overflow, non-empty enum/interface bodies, and
+//! error recovery inside parenthesized/tuple expressions.
 
 use brasa_source::SourceMap;
 
@@ -305,6 +306,100 @@ fn empty_interface_body_is_reported() {
 #[test]
 fn non_empty_interface_body_parses_clean() {
     assert_clean("interface Fetcher\n  def fetch(url: string): string\nend\n");
+}
+
+// -- (9) parenthesized/tuple error recovery ---------------------------------
+// The tuple element loop in `parse_paren_expr` only ever runs while the
+// cursor sits on a comma, and consuming that comma always advances the
+// cursor, so every case below must terminate. Each test reaching its
+// assertions is the proof: a non-terminating loop would hang the suite
+// rather than fail it. The snapshots pin the diagnostics that recovery
+// produces, which is the part a future change can silently regress.
+
+/// `()` is not a zero-element tuple (`docs/spec/02-grammar.md`): the unit
+/// value is spelled `unit`, so this stays a parse error.
+#[test]
+fn empty_parens_are_a_parse_error_not_a_zero_tuple() {
+    let result = parse("let p = ()\n");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn tuple_with_a_missing_element_recovers_with_bounded_diagnostics() {
+    let result = parse("let p = (1,,2)\n");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn unterminated_tuple_at_eof_reports_the_missing_paren() {
+    let result = parse("let p = (1, 2");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn tuple_trailing_comma_at_eof_reports_the_missing_paren() {
+    let result = parse("let p = (1,");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+/// A leading comma never reaches the tuple loop: the first element is
+/// already missing, so this fails as a parenthesized expression.
+#[test]
+fn leading_comma_in_parens_fails_as_a_grouping() {
+    let result = parse("let p = (,)\n");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn open_paren_at_eof_reports_one_diagnostic() {
+    let result = parse("let p = (");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn nested_one_element_tuples_parse_clean() {
+    assert_clean("let p = ((1,),)\n");
+}
+
+#[test]
+fn unterminated_nested_tuple_at_eof_reports_the_missing_paren() {
+    let result = parse("let p = ((1,),");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+/// Repeated missing elements must not cascade one diagnostic per comma.
+#[test]
+fn repeated_missing_tuple_elements_stay_bounded() {
+    let result = parse("let p = (1,,,2)\n");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+/// The tuple path and the vector path are the same recovery shape: the
+/// same "expected an expression" for a missing element, and the same
+/// "expected <closer> to close the ..." for the unterminated form. Only
+/// the delimiter description may differ.
+#[test]
+fn tuple_recovery_matches_vector_recovery_in_shape() {
+    let tuple_missing = messages(&parse("let p = (1,,2)\n"));
+    let vector_missing = messages(&parse("let v = [1,,2]\n"));
+
+    assert_eq!(tuple_missing.len(), vector_missing.len());
+    assert_eq!(tuple_missing[0], vector_missing[0]);
+    assert!(tuple_missing[1].contains("to close the tuple"));
+    assert!(vector_missing[1].contains("to close the vector literal"));
+
+    let tuple_unterminated = messages(&parse("let p = (1, 2"));
+    let vector_unterminated = messages(&parse("let v = [1, 2"));
+
+    assert_eq!(tuple_unterminated.len(), vector_unterminated.len());
+    assert_eq!(
+        tuple_unterminated[0]
+            .replace("')'", "X")
+            .replace("tuple", "Y"),
+        vector_unterminated[0]
+            .replace("']'", "X")
+            .replace("vector literal", "Y")
+    );
 }
 
 // -- underscore-placement leniency stays as-is (documenting, not testing a
