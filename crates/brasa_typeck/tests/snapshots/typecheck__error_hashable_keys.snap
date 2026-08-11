@@ -1,0 +1,46 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T031] Error: `float` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+   ╭─[ error_hashable_keys.brs:6:19 ]
+   │
+ 6 │ def lookup(m: Map<float, int>): int
+   │                   ──┬──  
+   │                     ╰──── not `Hashable`
+───╯
+[T031] Error: `float` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+    ╭─[ error_hashable_keys.brs:10:17 ]
+    │
+ 10 │ let weights = { 1.5: "heavy" }
+    │                 ─┬─  
+    │                  ╰─── not `Hashable`
+────╯
+[T031] Error: `Vector<int>` cannot be a `Set` element: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+    ╭─[ error_hashable_keys.brs:11:14 ]
+    │
+ 11 │ let nested = Set([[1], [2]])
+    │              ────────┬───────  
+    │                      ╰───────── not `Hashable`
+────╯
+[T031] Error: `Point` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+    ╭─[ error_hashable_keys.brs:12:17 ]
+    │
+ 12 │ let byPoint = { Point { x: 1 }: "origin" }
+    │                 ───────┬───────  
+    │                        ╰───────── not `Hashable`
+────╯
+[T031] Error: `(int, Vector<int>)` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+    ╭─[ error_hashable_keys.brs:13:19 ]
+    │
+ 13 │ let badTuple: Map<(int, Vector<int>), bool> = {}
+    │                   ─────────┬────────  
+    │                            ╰────────── not `Hashable`
+────╯
+[T031] Error: `Vector<string>` cannot be a `Set` element: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+    ╭─[ error_hashable_keys.brs:14:17 ]
+    │
+ 14 │ let badSet: Set<Vector<string>> = Set([])
+    │                 ───────┬──────  
+    │                        ╰──────── not `Hashable`
+────╯

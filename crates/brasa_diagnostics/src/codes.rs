@@ -156,6 +156,9 @@ pub const T_COALESCE_NEEDS_OPTION: &str = "T029";
 /// `??` whose fallback's type does not match the type the `Option`
 /// carries.
 pub const T_COALESCE_TYPE_MISMATCH: &str = "T030";
+/// A `Map` key or `Set` element type outside the closed `Hashable`
+/// list (`int`, `string`, `char`, `bool`, and tuples of those).
+pub const T_KEY_NOT_HASHABLE: &str = "T031";
 
 #[cfg(test)]
 mod tests {
@@ -217,6 +220,7 @@ mod tests {
         super::T_SAFE_NAV_NEEDS_OPTION,
         super::T_COALESCE_NEEDS_OPTION,
         super::T_COALESCE_TYPE_MISMATCH,
+        super::T_KEY_NOT_HASHABLE,
     ];
 
     /// The spec's `^[LPRT]\d{3}$` shape, checked without a regex crate.

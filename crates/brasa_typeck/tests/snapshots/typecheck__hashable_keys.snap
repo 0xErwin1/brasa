@@ -1,0 +1,49 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 tally -> (Vector<K>) -> Map<K, int>
+  i1 words -> Map<string, int>
+  i2 flags -> Map<(int, bool), string>
+  i3 grid -> Map<char, string>
+  i4 ids -> Set<int>
+  i5 tags -> Set<(char, bool)>
+local types
+  l0 keys -> Vector<K>
+  l1 counts -> Map<K, int>
+  l2 k -> K
+  l3 $tmp0 -> int
+expr types
+  e0 -> Map<K, int>
+  e1 -> Vector<K>
+  e2 -> Map<K, int>
+  e3 -> (K, int) -> unit
+  e4 -> K
+  e5 -> Map<K, int>
+  e6 -> K
+  e7 -> Option<int>
+  e8 -> int
+  e9 -> int
+  e10 -> int
+  e11 -> int
+  e12 -> int
+  e13 -> unit
+  e14 -> Map<K, int>
+  e15 -> (Vector<string>) -> Map<string, int>
+  e16 -> string
+  e17 -> string
+  e18 -> string
+  e19 -> Vector<string>
+  e20 -> Map<string, int>
+  e21 -> Map<(int, bool), string>
+  e22 -> char
+  e23 -> string
+  e24 -> Map<char, string>
+  e25 -> int
+  e26 -> int
+  e27 -> int
+  e28 -> Vector<int>
+  e29 -> Set<int>
+  e30 -> Vector<(char, bool)>
+  e31 -> Set<(char, bool)>

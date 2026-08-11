@@ -397,6 +397,63 @@ let shown = pick(Person { name: "Cy" })
 );
 
 typecheck_test!(
+    hashable_keys,
+    r#"
+def tally<K: Hashable>(keys: Vector<K>): Map<K, int>
+  let mut counts: Map<K, int> = {}
+  for k in keys
+    counts.insert(k, (counts[k] ?? 0) + 1)
+  end
+  counts
+end
+
+let words = tally(["a", "b", "a"])
+let flags: Map<(int, bool), string> = {}
+let grid = { 'x': "origin" }
+let ids = Set([1, 2, 3])
+let tags: Set<(char, bool)> = Set([])
+"#
+);
+
+typecheck_error_test!(
+    error_hashable_keys,
+    r#"
+struct Point
+  x: int
+end
+
+def lookup(m: Map<float, int>): int
+  m.len()
+end
+
+let weights = { 1.5: "heavy" }
+let nested = Set([[1], [2]])
+let byPoint = { Point { x: 1 }: "origin" }
+let badTuple: Map<(int, Vector<int>), bool> = {}
+let badSet: Set<Vector<string>> = Set([])
+"#
+);
+
+typecheck_error_test!(
+    error_constraint_annotations,
+    r#"
+struct Point<T: Comparable>
+  x: T
+end
+
+def dist(p: Point<bool>): int
+  1
+end
+
+def make(): Point<bool>
+  Point { x: true }
+end
+
+let q: Point<bool> = Point { x: true }
+"#
+);
+
+typecheck_test!(
     exhaustive_matches,
     r#"
 enum Shape

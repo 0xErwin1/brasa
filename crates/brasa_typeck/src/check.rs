@@ -57,6 +57,22 @@ enum Member {
     Missing,
 }
 
+/// Where a `Hashable`-constrained type appeared, for T031 wording.
+#[derive(Clone, Copy)]
+enum KeyRole {
+    MapKey,
+    SetElement,
+}
+
+impl KeyRole {
+    fn phrase(self) -> &'static str {
+        match self {
+            KeyRole::MapKey => "`Map` key",
+            KeyRole::SetElement => "`Set` element",
+        }
+    }
+}
+
 /// What a generic constraint means once resolved: a builtin interface
 /// (closed satisfaction lists), a user interface (structural member
 /// check), or an inline anonymous interface (same semantics,
@@ -1371,6 +1387,39 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// Enforces the closed `Hashable` list at a point where a concrete
+    /// `Map` key or `Set` element type is established: type
+    /// annotations, map literals, and the `Set` constructor. Key-taking
+    /// methods check against the type established here, so they never
+    /// re-report.
+    fn check_key_hashable(&mut self, span: Span, ty: &Type, role: KeyRole) {
+        if !self.hashable_violation(ty) {
+            return;
+        }
+
+        let shown = ty.display(self.hir);
+        self.error(err_at(
+            codes::T_KEY_NOT_HASHABLE,
+            span,
+            format!(
+                "`{shown}` cannot be a {}: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those",
+                role.phrase()
+            ),
+            "not `Hashable`",
+        ));
+    }
+
+    /// Whether `ty` definitely falls outside the closed `Hashable`
+    /// list: [`Self::hashable`] negated, except flexible components,
+    /// which stay silent — their cause was already reported.
+    fn hashable_violation(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Tuple(elems) => elems.iter().any(|e| self.hashable_violation(e)),
+            flexible if flexible.is_flexible() => false,
+            other => !self.hashable(other),
+        }
+    }
+
     fn report_constraint_violation(
         &mut self,
         span: Span,
@@ -2136,9 +2185,20 @@ impl<'a> Checker<'a> {
             return Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown));
         }
 
+        let key_from_entries = key.is_none();
         for &(entry_key, entry_value) in entries {
             key = Some(self.check_lit_slot(entry_key, key));
             value = Some(self.check_lit_slot(entry_value, value));
+        }
+
+        // An expected key type was already checked at its annotation;
+        // only a key unified from the entries is established here.
+        if key_from_entries
+            && let Some(key_ty) = key.clone()
+            && let Some(&(first_key, _)) = entries.first()
+        {
+            let key_span = self.hir.span_of_expr(first_key);
+            self.check_key_hashable(key_span, &key_ty, KeyRole::MapKey);
         }
 
         Type::Map(
@@ -2399,13 +2459,22 @@ impl<'a> Checker<'a> {
             Some(Type::Set(elem)) => Some((**elem).clone()),
             _ => None,
         };
+        let elem_inferred = elem_expected.is_none();
         let arg_ty = match elem_expected {
             Some(elem) => self.check_expect(args[0], &Type::vector(elem)),
             None => self.check_expr(args[0], None),
         };
 
         match arg_ty {
-            Type::Vector(elem) => Type::Set(elem),
+            Type::Vector(elem) => {
+                // An expected element type was already checked at its
+                // annotation; only an element inferred from the vector
+                // argument is established here.
+                if elem_inferred {
+                    self.check_key_hashable(span, &elem, KeyRole::SetElement);
+                }
+                Type::Set(elem)
+            }
             flexible if flexible.is_flexible() => Type::Set(Box::new(Type::Unknown)),
             other => {
                 self.error(err_at(
@@ -2781,22 +2850,28 @@ impl<'a> Checker<'a> {
     }
 
     /// Converts a user-defined nominal type reference, checking generic
-    /// arity. Interfaces are rejected here: they are only usable as
+    /// arity and the declared constraints against the given arguments —
+    /// the annotation establishes concrete arguments just like a call
+    /// or literal does (`docs/spec/03-types.md`, satisfaction at the
+    /// use site). Interfaces are rejected here: they are only usable as
     /// generic constraints in v1 (`docs/spec/03-types.md`).
     fn conv_item(&mut self, id: TypeExprId, item: ItemId, args: &[TypeExprId]) -> Type {
-        let expected = match self.hir.item(item) {
-            Item::StructDef(def) => def.generics.len(),
-            Item::EnumDef(def) => def.generics.len(),
+        let hir = self.hir;
+
+        let generics: &'a [GenericParam] = match hir.item(item) {
+            Item::StructDef(def) => &def.generics,
+            Item::EnumDef(def) => &def.generics,
             Item::InterfaceDef(_) => {
                 self.report_interface_as_type(id);
                 return Type::Unknown;
             }
             _ => return Type::Unknown,
         };
+        let expected = generics.len();
 
         let conv_args: Vec<Type> = args.iter().map(|&a| self.conv(a)).collect();
+        let span = self.hir.span_of_type_expr(id);
         if conv_args.len() != expected {
-            let span = self.hir.span_of_type_expr(id);
             let name = item_name(self.hir, item);
             self.error(err_at(
                 codes::T_WRONG_TYPE_ARG_COUNT,
@@ -2809,6 +2884,14 @@ impl<'a> Checker<'a> {
             ));
             return Type::Unknown;
         }
+
+        let owner = DefRef::Item(item);
+        let map: HashMap<(DefRef, usize), Type> = conv_args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| ((owner, index), arg.clone()))
+            .collect();
+        self.check_constraints(span, owner, generics, &map);
 
         match self.hir.item(item) {
             Item::StructDef(_) => Type::Struct(item, conv_args),
@@ -2831,10 +2914,21 @@ impl<'a> Checker<'a> {
             BuiltinType::Range => Type::Range,
             BuiltinType::Option => Type::option(arg(self, 0)),
             BuiltinType::Vector => Type::vector(arg(self, 0)),
-            BuiltinType::Set => Type::Set(Box::new(arg(self, 0))),
+            BuiltinType::Set => {
+                let elem = arg(self, 0);
+                if let Some(&elem_expr) = args.first() {
+                    let elem_span = self.hir.span_of_type_expr(elem_expr);
+                    self.check_key_hashable(elem_span, &elem, KeyRole::SetElement);
+                }
+                Type::Set(Box::new(elem))
+            }
             BuiltinType::Map => {
                 let key = arg(self, 0);
                 let value = arg(self, 1);
+                if let Some(&key_expr) = args.first() {
+                    let key_span = self.hir.span_of_type_expr(key_expr);
+                    self.check_key_hashable(key_span, &key, KeyRole::MapKey);
+                }
                 Type::Map(Box::new(key), Box::new(value))
             }
             BuiltinType::Comparable | BuiltinType::Printable | BuiltinType::Hashable => {

@@ -167,6 +167,7 @@ Notes on kind boundaries:
 | `T028` | `?.` needs an `Option` receiver | `` `?.` requires an `Option` receiver, found `int` `` |
 | `T029` | `??` needs an `Option` left side | `` `??` requires an `Option` on its left side, found `int` `` |
 | `T030` | `??` fallback type mismatch | `` `??` fallback has type `string`, but the `Option` carries `int` `` |
+| `T031` | key/element not `Hashable` | `` `float` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those `` |
 
 Notes on kind boundaries:
 
@@ -190,6 +191,11 @@ Notes on kind boundaries:
   spans point at the user's receiver, left side, or fallback, and the
   desugared `match` (its synthesized patterns and arms) never appears
   in a message — sugar misuse is never `T016` or `T018`.
+- `T031` covers `Map` keys and `Set` elements, and fires once, where
+  the key/element type is established: the type annotation, the map
+  literal, or the `Set` constructor. Key-taking methods (`insert`,
+  `get`, `has?`, `remove`, `add`) check against that established type
+  and never re-report.
 
 ## Deferred (M5)
 
