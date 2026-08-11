@@ -710,6 +710,61 @@ end
 "#
 );
 
+typecheck_test!(
+    catch_narrowing,
+    r#"
+struct ParseError
+  detail: string
+  line: int
+end
+
+struct IoError
+  path: string
+end
+
+def risky(flag: bool): int
+  if flag
+    throw ParseError { detail: "bad", line: 3 }
+  end
+  if !flag
+    throw IoError { path: "/tmp/x" }
+  end
+  1
+end
+
+def recover(flag: bool): int
+  risky(flag) catch (e)
+    ParseError if e.line > 10 => e.line
+    ParseError => e.detail.len()
+    IoError => e.path.len()
+    ParseError | IoError => e.toString().len()
+    string => e.len()
+    _ => -1
+  end
+end
+
+let total = recover(true) + 1
+"#
+);
+
+typecheck_error_test!(
+    error_catch_narrowing,
+    r#"
+struct ParseError
+  detail: string
+end
+
+def boom(): int
+  throw ParseError { detail: "x" }
+end
+
+let r = boom() catch (e)
+  ParseError => e.line
+  _ => "not an int"
+end
+"#
+);
+
 typecheck_error_test!(
     error_options_sugar,
     r#"

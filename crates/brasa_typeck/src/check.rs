@@ -24,9 +24,10 @@ use std::collections::{HashMap, HashSet};
 
 use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
-    ArmBody, BinaryOp, CatchArm, Constraint, EnumDef, Expr, ExprId, FuncDef, GenericParam, Hir,
-    IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal, MatchArm, Param, Pattern,
-    PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp, Variant,
+    ArmBody, BinaryOp, CatchArm, CatchType, Constraint, EnumDef, Expr, ExprId, FuncDef,
+    GenericParam, Hir, IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal,
+    MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp,
+    Variant,
 };
 use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
@@ -2052,9 +2053,15 @@ impl<'a> Checker<'a> {
     }
 
     /// `catch` produces the subject's type, so every arm must unify with
-    /// it (`docs/spec/04-errors.md`); the binding stays `Unknown` until
-    /// error-set inference (M2). Decision: in statement position the
-    /// arm values are discarded like `match` arms.
+    /// it (`docs/spec/04-errors.md`); in statement position the arm
+    /// values are discarded like `match` arms (decision).
+    ///
+    /// The binding is re-typed per arm, mirroring the interpreter's
+    /// per-arm re-bind: each arm narrows `e` to the arm's error type
+    /// (`04-errors.md`, "`e` is bound with the arm's type") *before* the
+    /// guard is checked, so guards see the narrowed binding just as they
+    /// run after the type match at runtime. See
+    /// [`Self::catch_arm_binding_type`] for the narrowing rules.
     fn check_catch(
         &mut self,
         id: ExprId,
@@ -2065,11 +2072,12 @@ impl<'a> Checker<'a> {
     ) -> Type {
         let subject_ty = self.check_expr(subject, expected);
 
-        if let Some(&local) = self.res.catch_bindings.get(&id) {
-            self.tables.local_types.insert(local, Type::Unknown);
-        }
+        for (arm_index, arm) in arms.iter().enumerate() {
+            if let Some(&local) = self.res.catch_bindings.get(&id) {
+                let binding_ty = self.catch_arm_binding_type(id, arm_index, arm);
+                self.tables.local_types.insert(local, binding_ty);
+            }
 
-        for arm in arms {
             if let Some(guard) = arm.guard {
                 self.check_expect(guard, &Type::Bool);
             }
@@ -2088,6 +2096,57 @@ impl<'a> Checker<'a> {
         }
 
         subject_ty
+    }
+
+    /// What the catch binding narrows to in one arm
+    /// (`docs/spec/04-errors.md`, per-arm binding):
+    ///
+    /// - exactly one named type with a recorded resolution → that type
+    ///   (structs/enums, or a primitive — the spec allows throwing
+    ///   `string`/`int`/... values, so primitive arm types are
+    ///   legitimate);
+    /// - a `|` group → `Unknown` (the spec binds "what's common to
+    ///   both"; common-interface narrowing is deferred to error-set
+    ///   work, BRS-22/23);
+    /// - `_`, dotted names (`panics.X` — unresolved until M4), and
+    ///   unresolved names → `Unknown`.
+    fn catch_arm_binding_type(&self, id: ExprId, arm_index: usize, arm: &CatchArm) -> Type {
+        let [CatchType::Named { .. }] = arm.types.as_slice() else {
+            return Type::Unknown;
+        };
+
+        match self.res.catch_arm_types.get(&(id, arm_index, 0)) {
+            Some(&res) => self.catch_type_res_to_type(res),
+            None => Type::Unknown,
+        }
+    }
+
+    /// Converts a resolved arm type without a `TypeExprId` (arm types
+    /// are written bare, so [`Self::conv`] does not apply). A generic
+    /// struct/enum named bare in an arm has no arguments to convert;
+    /// its declared generics become `Unknown` args (decision — user
+    /// error types are typically non-generic). Anything that is not a
+    /// throwable nominal type (interfaces, generic params, non-primitive
+    /// builtins) leaves the binding `Unknown` rather than erroring:
+    /// unreachable/invalid-arm checks need error sets (BRS-22/23).
+    fn catch_type_res_to_type(&self, res: TypeRes) -> Type {
+        match res {
+            TypeRes::Item(item) => match self.hir.item(item) {
+                Item::StructDef(def) => Type::Struct(item, vec![Type::Unknown; def.generics.len()]),
+                Item::EnumDef(def) => Type::Enum(item, vec![Type::Unknown; def.generics.len()]),
+                _ => Type::Unknown,
+            },
+            TypeRes::Builtin(builtin) => match builtin {
+                BuiltinType::Int => Type::Int,
+                BuiltinType::Float => Type::Float,
+                BuiltinType::Bool => Type::Bool,
+                BuiltinType::String => Type::String,
+                BuiltinType::Char => Type::Char,
+                BuiltinType::Unit => Type::Unit,
+                _ => Type::Unknown,
+            },
+            TypeRes::GenericParam { .. } | TypeRes::SelfType => Type::Unknown,
+        }
     }
 
     fn check_arm_body(&mut self, body: &ArmBody, expected: Option<&Type>, used: bool) -> Type {

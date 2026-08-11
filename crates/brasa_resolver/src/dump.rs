@@ -29,6 +29,7 @@ pub fn dump(hir: &Hir, res: &Resolutions) -> String {
     dump_stmt_locals(res, &mut out);
     dump_lambda_params(res, &mut out);
     dump_catch_bindings(hir, res, &mut out);
+    dump_catch_arm_types(hir, res, &mut out);
     dump_constraints(hir, res, &mut out);
     dump_struct_lits(hir, res, &mut out);
     dump_types(hir, res, &mut out);
@@ -327,6 +328,35 @@ fn dump_catch_bindings(hir: &Hir, res: &Resolutions, out: &mut String) {
         })
         .collect();
     section(out, "catch bindings", lines);
+}
+
+fn dump_catch_arm_types(hir: &Hir, res: &Resolutions, out: &mut String) {
+    let mut keys: Vec<&(brasa_hir::ExprId, usize, usize)> = res.catch_arm_types.keys().collect();
+    keys.sort_by_key(|(id, arm, ty)| (id.index(), *arm, *ty));
+
+    let lines = keys
+        .into_iter()
+        .map(|&key| {
+            let (id, arm_index, type_index) = key;
+            let name = match hir.expr(id) {
+                Expr::Catch { arms, .. } => arms
+                    .get(arm_index)
+                    .and_then(|arm| arm.types.get(type_index))
+                    .and_then(|ty| match ty {
+                        brasa_hir::CatchType::Named { name, .. } => Some(name.as_str()),
+                        brasa_hir::CatchType::Wildcard => None,
+                    })
+                    .unwrap_or("<catch-type>"),
+                _ => "<catch-type>",
+            };
+            format!(
+                "e{} arm {arm_index} type {type_index} {name} -> {}",
+                id.index(),
+                type_res_str(hir, res.catch_arm_types[&key])
+            )
+        })
+        .collect();
+    section(out, "catch arm types", lines);
 }
 
 fn dump_constraints(hir: &Hir, res: &Resolutions, out: &mut String) {

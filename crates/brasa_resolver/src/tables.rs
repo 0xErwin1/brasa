@@ -201,6 +201,12 @@ pub struct Resolutions {
     pub lambda_params: HashMap<ExprId, Vec<LocalId>>,
     /// `Expr::Catch` binding sites.
     pub catch_bindings: HashMap<ExprId, LocalId>,
+    /// Resolved bare `CatchType::Named` arm types. `CatchType` lives
+    /// inline in its arm and has no arena id, so the key is positional:
+    /// (catch expr, arm index, index within the arm's `|` group). Dotted
+    /// names (`panics.X`, stdlib errors) are absent — they resolve in M4
+    /// (BRS-24).
+    pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
     /// Function/method parameter lists, aligned with `FuncDef::params`;
     /// `None` marks a `Param::SelfParam` slot (`self` is not a local).
     pub func_params: HashMap<DefRef, Vec<Option<LocalId>>>,

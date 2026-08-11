@@ -784,11 +784,16 @@ impl<'a> Parser<'a> {
         if self.eat(TokenKind::Underscore).is_some() {
             CatchType::Wildcard
         } else {
-            CatchType::Named(self.parse_qualified_type_name())
+            let (name, span) = self.parse_qualified_type_name();
+            CatchType::Named { name, span }
         }
     }
 
-    fn parse_qualified_type_name(&mut self) -> String {
+    /// Returns the joined dotted name and the span covering all of its
+    /// segments (from the first name token through the last).
+    fn parse_qualified_type_name(&mut self) -> (String, Span) {
+        let start = self.span();
+        let mut end = start;
         let mut segments = vec![self.parse_one_name_segment()];
 
         while self.at(TokenKind::Dot) {
@@ -800,10 +805,11 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.bump(); // '.'
+            end = self.span();
             segments.push(self.parse_one_name_segment());
         }
 
-        segments.join(".")
+        (segments.join("."), Span::merge(&start, &end))
     }
 
     fn parse_one_name_segment(&mut self) -> String {

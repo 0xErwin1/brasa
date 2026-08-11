@@ -22,17 +22,19 @@
 //!   the file stem in the value namespace. File imports are not loaded
 //!   or cycle-checked in M1 (the module loader is a later work item);
 //!   the binding is recorded and member access stays opaque.
-//! - `catch` arm types (`CatchType`) are left untouched: error-set
-//!   inference is M2 (`docs/spec/04-errors.md`).
+//! - `catch` arm types (`CatchType`): bare names resolve in the type
+//!   namespace (`docs/spec/04-errors.md`, arms match error types
+//!   nominally); dotted names (`panics.X`, stdlib errors) are skipped
+//!   until the panic/stdlib error namespaces land (M4, BRS-24).
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
-    ArmBody, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir, IfNode,
-    IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId, Stmt,
-    StmtId, TypeExpr, TypeExprId,
+    ArmBody, CatchType, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir,
+    IfNode, IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId,
+    Stmt, StmtId, TypeExpr, TypeExprId,
 };
 use brasa_source::Span;
 
@@ -865,9 +867,37 @@ impl<'h> Resolver<'h> {
                     self.declare_local(binding, false, span, BinderKind::CatchBinding, None);
                 self.res.catch_bindings.insert(id, local);
 
-                // Arm types (`CatchType`) are recorded untouched:
-                // error-set inference is M2 (`docs/spec/04-errors.md`).
-                for arm in arms {
+                // Bare arm type names resolve here; dotted names
+                // (`panics.X`, stdlib errors) are skipped until their
+                // namespaces land (M4, BRS-24). Whatever `lookup_type`
+                // returns is recorded as-is — the type checker decides
+                // what the binding narrows to per arm.
+                for (arm_index, arm) in arms.iter().enumerate() {
+                    for (type_index, arm_type) in arm.types.iter().enumerate() {
+                        let CatchType::Named { name, span } = arm_type else {
+                            continue;
+                        };
+                        if name.contains('.') {
+                            continue;
+                        }
+
+                        match self.lookup_type(name) {
+                            Some(res) => {
+                                self.res
+                                    .catch_arm_types
+                                    .insert((id, arm_index, type_index), res);
+                            }
+                            None => {
+                                self.error(err_at(
+                                    codes::R_UNKNOWN_TYPE,
+                                    *span,
+                                    format!("unknown type `{name}`"),
+                                    "not found in this scope",
+                                ));
+                            }
+                        }
+                    }
+
                     if let Some(guard) = arm.guard {
                         self.resolve_expr(guard);
                     }

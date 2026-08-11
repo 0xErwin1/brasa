@@ -1,0 +1,55 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 risky -> (bool) -> int
+  i3 recover -> (bool) -> int
+  i4 total -> int
+local types
+  l0 flag -> bool
+  l1 flag -> bool
+  l2 e -> unknown
+expr types
+  e0 -> bool
+  e1 -> string
+  e2 -> int
+  e3 -> ParseError
+  e4 -> bool
+  e5 -> bool
+  e6 -> string
+  e7 -> IoError
+  e8 -> int
+  e9 -> (bool) -> int
+  e10 -> bool
+  e11 -> int
+  e12 -> ParseError
+  e13 -> int
+  e14 -> int
+  e15 -> bool
+  e16 -> ParseError
+  e17 -> int
+  e18 -> ParseError
+  e19 -> string
+  e20 -> () -> int
+  e21 -> int
+  e22 -> IoError
+  e23 -> string
+  e24 -> () -> int
+  e25 -> int
+  e26 -> unknown
+  e27 -> unknown
+  e28 -> unknown
+  e29 -> unknown
+  e30 -> unknown
+  e31 -> string
+  e32 -> () -> int
+  e33 -> int
+  e34 -> int
+  e35 -> int
+  e36 -> int
+  e37 -> (bool) -> int
+  e38 -> bool
+  e39 -> int
+  e40 -> int
+  e41 -> int

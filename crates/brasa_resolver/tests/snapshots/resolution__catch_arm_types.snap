@@ -1,0 +1,21 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param n
+  l1 catch e
+func params
+  load -> [l0]
+exprs
+  e0 n -> local l0
+catch bindings
+  e5 e -> l1
+catch arm types
+  e5 arm 0 type 0 NetError -> struct NetError
+  e5 arm 1 type 0 string -> builtin string
+  e5 arm 1 type 1 NetError -> struct NetError
+types
+  t0 string -> builtin string
+  t1 int -> builtin int
+  t2 int -> builtin int

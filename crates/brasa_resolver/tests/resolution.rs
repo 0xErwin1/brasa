@@ -177,6 +177,36 @@ end
 );
 
 resolution_test!(
+    catch_arm_types,
+    r#"
+struct NetError
+  detail: string
+end
+
+def load(n: int): int
+  n catch (e)
+    NetError => 0
+    string | NetError => 1
+    panics.DivisionByZero => 2
+    _ => 3
+  end
+end
+"#
+);
+
+resolution_error_test!(
+    unknown_catch_arm_type,
+    r#"
+def go(n: int): int
+  n catch (e)
+    ParseError => 0
+    _ => 1
+  end
+end
+"#
+);
+
+resolution_test!(
     top_level_order,
     r#"
 def double(n: int): int

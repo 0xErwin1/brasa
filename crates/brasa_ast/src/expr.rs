@@ -78,7 +78,14 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CatchType {
-    Named(String),
+    /// A (possibly dotted) type name, with the span of the full name so
+    /// later phases can point diagnostics at it — `CatchType` lives
+    /// inline in [`CatchArm`] and has no arena id (and therefore no
+    /// side-table span) of its own.
+    Named {
+        name: String,
+        span: Span,
+    },
     Wildcard,
 }
 

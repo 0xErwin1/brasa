@@ -393,7 +393,7 @@ fn dump_expr(hir: &Hir, id: ExprId, depth: usize, out: &mut String) {
 
 fn dump_catch_type(ty: &CatchType) -> String {
     match ty {
-        CatchType::Named(name) => name.clone(),
+        CatchType::Named { name, .. } => name.clone(),
         CatchType::Wildcard => "_".to_string(),
     }
 }

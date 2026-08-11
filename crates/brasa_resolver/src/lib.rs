@@ -20,11 +20,12 @@
 //! scope is a duplicate-definition error, and top-level code sees only
 //! top-level `let`s declared earlier (items are always visible).
 //!
-//! Out of scope for M1: file-import loading and cycle detection (the
-//! module loader is a later work item), `catch` arm type resolution
-//! (error-set inference is M2, `04-errors.md`), and everything
-//! type-shaped (member lookup after `.`, mutability enforcement,
-//! constructor disambiguation by expected type).
+//! Out of scope: file-import loading and cycle detection (the module
+//! loader is a later work item), dotted `catch` arm types (`panics.X`,
+//! stdlib errors — their namespaces are M4, BRS-24; bare arm type names
+//! resolve here, `04-errors.md`), and everything type-shaped (member
+//! lookup after `.`, mutability enforcement, constructor disambiguation
+//! by expected type).
 
 pub mod dump;
 mod resolver;
