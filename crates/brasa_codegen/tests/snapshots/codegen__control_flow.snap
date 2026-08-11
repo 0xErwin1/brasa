@@ -1,0 +1,77 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 0
+  c1  int 1
+  c2  int 5
+  c3  int 2
+  c4  int 3
+  c5  str "big"
+  c6  str "mid"
+  c7  str "small"
+
+== globals ==
+  g0  total
+  g1  n
+  g2  label
+
+== fn0 <toplevel> arity=0 captures=0 locals=1 max_stack=3 ==
+     0  const c0                    ; int 0
+     1  store_global g0             ; total
+     2  const c1                    ; int 1
+     3  const c2                    ; int 5
+     4  make_range inclusive=true
+     5  iter_new
+     6  iter_next 21
+     7  store_local 0
+     8  load_local 0
+     9  const c3                    ; int 2
+    10  rem_int
+    11  const c0                    ; int 0
+    12  eq
+    13  jump_if_false 16
+    14  jump 6
+    15  jump 16
+    16  load_global g0              ; total
+    17  load_local 0
+    18  add_int
+    19  store_global g0             ; total
+    20  jump 6
+    21  const c4                    ; int 3
+    22  store_global g1             ; n
+    23  load_global g1              ; n
+    24  const c0                    ; int 0
+    25  gt
+    26  jump_if_false 38
+    27  load_global g1              ; n
+    28  const c1                    ; int 1
+    29  sub_int
+    30  store_global g1             ; n
+    31  load_global g1              ; n
+    32  const c1                    ; int 1
+    33  eq
+    34  jump_if_false 37
+    35  jump 38
+    36  jump 37
+    37  jump 23
+    38  load_global g0              ; total
+    39  const c2                    ; int 5
+    40  gt
+    41  jump_if_false 44
+    42  const c5                    ; str "big"
+    43  jump 51
+    44  load_global g0              ; total
+    45  const c3                    ; int 2
+    46  gt
+    47  jump_if_false 50
+    48  const c6                    ; str "mid"
+    49  jump 51
+    50  const c7                    ; str "small"
+    51  store_global g2             ; label
+    52  load_global g2              ; label
+    53  call_builtin b0, 1          ; puts
+    54  pop
+    55  load_unit
+    56  ret

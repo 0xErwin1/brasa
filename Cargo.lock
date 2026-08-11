@@ -78,6 +78,8 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 name = "brasa"
 version = "0.1.0"
 dependencies = [
+ "brasa_bytecode",
+ "brasa_codegen",
  "brasa_diagnostics",
  "brasa_errorset",
  "brasa_hir",
@@ -106,6 +108,19 @@ name = "brasa_bytecode"
 version = "0.1.0"
 dependencies = [
  "brasa_source",
+ "insta",
+]
+
+[[package]]
+name = "brasa_codegen"
+version = "0.1.0"
+dependencies = [
+ "brasa_bytecode",
+ "brasa_hir",
+ "brasa_parser",
+ "brasa_resolver",
+ "brasa_source",
+ "brasa_typeck",
  "insta",
 ]
 

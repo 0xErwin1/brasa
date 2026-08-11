@@ -1,0 +1,76 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  float 3.0
+  c1  float 4.0
+  c2  float 6.0
+  c3  str "("
+  c4  str ", "
+  c5  str ")"
+
+== struct Point (fields: [x, y]; methods: [fn1, fn2]; toString: fn2) ==
+
+== globals ==
+  g0  p
+  g1  bound
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=2 ==
+     0  const c0                    ; float 3.0
+     1  const c1                    ; float 4.0
+     2  make_struct s0              ; Point
+     3  store_global g0             ; p
+     4  load_global g0              ; p
+     5  const c2                    ; float 6.0
+     6  set_field 0
+     7  load_global g0              ; p
+     8  call fn1, 1                 ; norm
+     9  call_builtin b0, 1          ; puts
+    10  pop
+    11  load_global g0              ; p
+    12  call_builtin b0, 1          ; puts
+    13  pop
+    14  load_global g0              ; p
+    15  call fn2, 1                 ; toString
+    16  call_builtin b0, 1          ; puts
+    17  pop
+    18  load_global g0              ; p
+    19  bind_method fn1             ; norm
+    20  store_global g1             ; bound
+    21  load_global g1              ; bound
+    22  call_value 0
+    23  call_builtin b0, 1          ; puts
+    24  pop
+    25  load_unit
+    26  ret
+
+== fn1 norm arity=1 captures=0 locals=1 max_stack=3 ==
+     0  load_local 0
+     1  get_field 0
+     2  load_local 0
+     3  get_field 0
+     4  mul_float
+     5  load_local 0
+     6  get_field 1
+     7  load_local 0
+     8  get_field 1
+     9  mul_float
+    10  add_float
+    11  ret
+
+== fn2 toString arity=1 captures=0 locals=1 max_stack=2 ==
+     0  const c3                    ; str "("
+     1  load_local 0
+     2  get_field 0
+     3  to_string
+     4  concat
+     5  const c4                    ; str ", "
+     6  concat
+     7  load_local 0
+     8  get_field 1
+     9  to_string
+    10  concat
+    11  const c5                    ; str ")"
+    12  concat
+    13  ret

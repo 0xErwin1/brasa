@@ -1,0 +1,84 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 2
+  c1  int 3
+  c2  int 4
+  c3  int 1
+  c4  int 7
+  c5  int 10
+  c6  float 1.5
+  c7  float 2.0
+  c8  float 4.0
+  c9  str "bra"
+  c10  str "sa"
+  c11  int 0
+  c12  int 100
+  c13  int 5
+
+== globals ==
+  g0  a
+  g1  b
+  g2  c
+  g3  f
+  g4  neg
+  g5  fneg
+  g6  s
+  g7  cmp
+  g8  negated
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=3 ==
+     0  const c0                    ; int 2
+     1  const c1                    ; int 3
+     2  const c2                    ; int 4
+     3  mul_int
+     4  add_int
+     5  const c3                    ; int 1
+     6  sub_int
+     7  store_global g0             ; a
+     8  const c4                    ; int 7
+     9  const c0                    ; int 2
+    10  rem_int
+    11  store_global g1             ; b
+    12  const c0                    ; int 2
+    13  const c5                    ; int 10
+    14  pow_int
+    15  store_global g2             ; c
+    16  const c6                    ; float 1.5
+    17  const c7                    ; float 2.0
+    18  mul_float
+    19  const c8                    ; float 4.0
+    20  div_float
+    21  store_global g3             ; f
+    22  load_global g0              ; a
+    23  neg_int
+    24  store_global g4             ; neg
+    25  load_global g3              ; f
+    26  neg_float
+    27  store_global g5             ; fneg
+    28  const c9                    ; str "bra"
+    29  const c10                   ; str "sa"
+    30  concat
+    31  store_global g6             ; s
+    32  load_global g0              ; a
+    33  const c5                    ; int 10
+    34  lt
+    35  jump_if_false_or_pop 40
+    36  load_global g1              ; b
+    37  const c11                   ; int 0
+    38  eq
+    39  not
+    40  jump_if_true_or_pop 44
+    41  load_global g2              ; c
+    42  const c12                   ; int 100
+    43  gt
+    44  store_global g7             ; cmp
+    45  load_global g0              ; a
+    46  const c13                   ; int 5
+    47  eq
+    48  not
+    49  store_global g8             ; negated
+    50  load_unit
+    51  ret

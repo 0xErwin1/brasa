@@ -1,0 +1,162 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 2
+  c1  int 3
+  c2  float 10.0
+  c3  str "big circle"
+  c4  str "circle"
+  c5  str "square"
+  c6  str "rect"
+  c7  str "dot"
+  c8  str "no match arm matched the value"
+  c9  int 0
+  c10  str "zero"
+  c11  int 1
+  c12  str "one"
+  c13  str "many"
+
+== enum Shape ==
+  Circle/1
+  Rect/2
+  Dot/0
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=1 ==
+     0  make_enum e0, 2, 0          ; Shape.Dot
+     1  call fn1, 1                 ; describe
+     2  call_builtin b0, 1          ; puts
+     3  pop
+     4  const c0                    ; int 2
+     5  call fn2, 1                 ; label
+     6  call_builtin b0, 1          ; puts
+     7  pop
+     8  const c1                    ; int 3
+     9  wrap_some
+    10  call fn3, 1                 ; unwrap
+    11  call_builtin b0, 1          ; puts
+    12  pop
+    13  load_unit
+    14  ret
+
+== fn1 describe arity=1 captures=0 locals=4 max_stack=3 ==
+     0  load_local 0
+     1  dup
+     2  jump_if_variant_ne 0, 6
+     3  enum_field 0
+     4  store_local 1
+     5  jump 8
+     6  pop
+     7  jump 15
+     8  load_local 1
+     9  const c2                    ; float 10.0
+    10  gt
+    11  jump_if_false 15
+    12  pop
+    13  const c3                    ; str "big circle"
+    14  jump 67
+    15  dup
+    16  jump_if_variant_ne 0, 20
+    17  enum_field 0
+    18  pop
+    19  jump 22
+    20  pop
+    21  jump 25
+    22  pop
+    23  const c4                    ; str "circle"
+    24  jump 67
+    25  dup
+    26  jump_if_variant_ne 1, 33
+    27  dup
+    28  enum_field 0
+    29  store_local 2
+    30  enum_field 1
+    31  store_local 3
+    32  jump 35
+    33  pop
+    34  jump 42
+    35  load_local 2
+    36  load_local 3
+    37  eq
+    38  jump_if_false 42
+    39  pop
+    40  const c5                    ; str "square"
+    41  jump 67
+    42  dup
+    43  jump_if_variant_ne 1, 50
+    44  dup
+    45  enum_field 0
+    46  pop
+    47  enum_field 1
+    48  pop
+    49  jump 52
+    50  pop
+    51  jump 55
+    52  pop
+    53  const c6                    ; str "rect"
+    54  jump 67
+    55  dup
+    56  jump_if_variant_ne 2, 59
+    57  pop
+    58  jump 61
+    59  pop
+    60  jump 64
+    61  pop
+    62  const c7                    ; str "dot"
+    63  jump 67
+    64  pop
+    65  const c8                    ; str "no match arm matched the value"
+    66  call_builtin b11, 1         ; <assert-failed>
+    67  ret
+
+== fn2 label arity=1 captures=0 locals=1 max_stack=3 ==
+     0  load_local 0
+     1  dup
+     2  const c9                    ; int 0
+     3  eq
+     4  jump_if_false 8
+     5  pop
+     6  const c10                   ; str "zero"
+     7  jump 23
+     8  dup
+     9  const c11                   ; int 1
+    10  eq
+    11  jump_if_false 15
+    12  pop
+    13  const c12                   ; str "one"
+    14  jump 23
+    15  dup
+    16  pop
+    17  pop
+    18  const c13                   ; str "many"
+    19  jump 23
+    20  pop
+    21  const c8                    ; str "no match arm matched the value"
+    22  call_builtin b11, 1         ; <assert-failed>
+    23  ret
+
+== fn3 unwrap arity=1 captures=0 locals=2 max_stack=2 ==
+     0  load_local 0
+     1  dup
+     2  jump_if_none 6
+     3  unwrap_some
+     4  store_local 1
+     5  jump 8
+     6  pop
+     7  jump 11
+     8  pop
+     9  load_local 1
+    10  jump 22
+    11  dup
+    12  jump_if_none 15
+    13  pop
+    14  jump 19
+    15  pop
+    16  pop
+    17  const c9                    ; int 0
+    18  jump 22
+    19  pop
+    20  const c8                    ; str "no match arm matched the value"
+    21  call_builtin b11, 1         ; <assert-failed>
+    22  ret

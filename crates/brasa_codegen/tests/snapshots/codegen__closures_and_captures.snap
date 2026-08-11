@@ -1,0 +1,65 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 5
+  c1  int 10
+  c2  int 1
+
+== globals ==
+  g0  add5
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=2 ==
+     0  const c0                    ; int 5
+     1  call fn1, 1                 ; makeAdder
+     2  store_global g0             ; add5
+     3  load_global g0              ; add5
+     4  call fn2, 0                 ; compose
+     5  call_value 1
+     6  call_builtin b0, 1          ; puts
+     7  pop
+     8  load_unit
+     9  ret
+
+== fn1 makeAdder arity=1 captures=0 locals=1 max_stack=1 ==
+     0  load_local 0
+     1  make_closure fn3, 1         ; <lambda>
+     2  ret
+
+== fn2 compose arity=0 captures=0 locals=4 max_stack=2 ==
+     0  const c1                    ; int 10
+     1  store_local 0
+     2  const c2                    ; int 1
+     3  store_local 1
+     4  load_local 0
+     5  load_local 1
+     6  make_closure fn4, 2         ; <lambda>
+     7  store_local 2
+     8  load_local 0
+     9  load_local 2
+    10  make_closure fn5, 2         ; <lambda>
+    11  store_local 3
+    12  load_local 3
+    13  call_value 0
+    14  ret
+
+== fn3 <lambda> arity=1 captures=1 locals=2 max_stack=2 ==
+     0  load_local 0
+     1  load_local 1
+     2  add_int
+     3  ret
+
+== fn4 <lambda> arity=1 captures=2 locals=3 max_stack=2 ==
+     0  load_local 0
+     1  load_local 1
+     2  add_int
+     3  load_local 2
+     4  add_int
+     5  ret
+
+== fn5 <lambda> arity=0 captures=2 locals=2 max_stack=2 ==
+     0  load_local 1
+     1  load_local 0
+     2  call_value 1
+     3  ret

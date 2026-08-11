@@ -114,6 +114,25 @@ fn check_flag_stops_after_typeck_without_output() {
 }
 
 #[test]
+fn dump_bytecode_compiles_a_golden_program() {
+    let output = Command::new(env!("CARGO_BIN_EXE_brasa"))
+        .arg("--dump-bytecode")
+        .arg(program_path("basics.brs"))
+        .output()
+        .expect("failed to run brasa");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("== fn0 <toplevel>"),
+        "expected a disassembly, got: {stdout}"
+    );
+}
+
+#[test]
 fn example_hello() {
     assert_example("hello.brs", "hello, world!\n1 + 1 = 2\n");
 }

@@ -1,0 +1,68 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 41
+  c1  str "no match arm matched the value"
+  c2  int 0
+
+== globals ==
+  g0  maybe
+
+== fn0 <toplevel> arity=0 captures=0 locals=2 max_stack=2 ==
+     0  const c0                    ; int 41
+     1  wrap_some
+     2  store_global g0             ; maybe
+     3  load_global g0              ; maybe
+     4  dup
+     5  jump_if_none 9
+     6  unwrap_some
+     7  store_local 0
+     8  jump 11
+     9  pop
+    10  jump 16
+    11  pop
+    12  load_local 0
+    13  to_string
+    14  wrap_some
+    15  jump 27
+    16  dup
+    17  jump_if_none 20
+    18  pop
+    19  jump 24
+    20  pop
+    21  pop
+    22  load_none
+    23  jump 27
+    24  pop
+    25  const c1                    ; str "no match arm matched the value"
+    26  call_builtin b11, 1         ; <assert-failed>
+    27  call_builtin b0, 1          ; puts
+    28  pop
+    29  load_global g0              ; maybe
+    30  dup
+    31  jump_if_none 35
+    32  unwrap_some
+    33  store_local 1
+    34  jump 37
+    35  pop
+    36  jump 40
+    37  pop
+    38  load_local 1
+    39  jump 51
+    40  dup
+    41  jump_if_none 44
+    42  pop
+    43  jump 48
+    44  pop
+    45  pop
+    46  const c2                    ; int 0
+    47  jump 51
+    48  pop
+    49  const c1                    ; str "no match arm matched the value"
+    50  call_builtin b11, 1         ; <assert-failed>
+    51  call_builtin b0, 1          ; puts
+    52  pop
+    53  load_unit
+    54  ret

@@ -1,0 +1,44 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  str "brasa"
+  c1  int 42
+  c2  str "repo "
+  c3  str " has "
+  c4  str " stars ("
+  c5  int 10
+  c6  str "!)"
+
+== globals ==
+  g0  name
+  g1  stars
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 max_stack=3 ==
+     0  const c0                    ; str "brasa"
+     1  store_global g0             ; name
+     2  const c1                    ; int 42
+     3  store_global g1             ; stars
+     4  const c2                    ; str "repo "
+     5  load_global g0              ; name
+     6  to_string
+     7  concat
+     8  const c3                    ; str " has "
+     9  concat
+    10  load_global g1              ; stars
+    11  to_string
+    12  concat
+    13  const c4                    ; str " stars ("
+    14  concat
+    15  load_global g1              ; stars
+    16  const c5                    ; int 10
+    17  gt
+    18  to_string
+    19  concat
+    20  const c6                    ; str "!)"
+    21  concat
+    22  call_builtin b0, 1          ; puts
+    23  pop
+    24  load_unit
+    25  ret

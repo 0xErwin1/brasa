@@ -1,0 +1,75 @@
+//! HIR→bytecode code generation for Brasa (BRS-27, M3).
+//!
+//! Consumes the checked core HIR — the lowered [`brasa_hir::Hir`], its
+//! roots, the resolver's [`brasa_resolver::Resolutions`], and the
+//! checker's [`brasa_typeck::TypeTables`] — and produces a
+//! [`brasa_bytecode::Module`] per the normative design in
+//! `docs/spec/07-bytecode.md`. The observable-behavior oracle is the
+//! reference tree-walker (`brasa_interp`): where compiled code and the
+//! walker disagree, this crate has a bug.
+//!
+//! Decisions this unit fixes (the spec fixes primitives, not strategy):
+//!
+//! - **Local slots**: every [`brasa_resolver::LocalId`] bound in a
+//!   function maps to a dense frame slot — parameters first (`self` is
+//!   slot 0 in methods), then capture slots, then the remaining locals
+//!   in first-encounter order. Distinct `LocalId`s always get distinct
+//!   slots, so shadowing needs no runtime support.
+//! - **Capture order contract**: a closure captures, in this exact
+//!   order, the enclosing `self` (when the lambda uses it) followed by
+//!   the lambda's free `LocalId`s in ascending `LocalId` order. The
+//!   free set is every local referenced anywhere in the lambda body
+//!   (nested lambdas included) minus every local bound inside it.
+//!   [`brasa_bytecode::Op::MakeClosure`] snapshots the values in that
+//!   order; the VM copies them into the frame's capture slots in the
+//!   same order.
+//! - **`match` compilation**: straightforward left-to-right arm testing
+//!   over the spec's decision-tree primitives (`dup`,
+//!   `jump_if_variant_ne`, `jump_if_none`, `unwrap_some`,
+//!   `tuple_field`/`enum_field`, `eq` + `jump_if_false`). Arms are few
+//!   and shapes shallow in real programs, so a column-reordering
+//!   decision tree buys nothing yet; the primitives leave that door
+//!   open without a format change.
+//! - **Returns** compile to a direct `ret` at each `return` site (no
+//!   shared epilogue); functions without a declared return type emit
+//!   `load_unit` before `ret`.
+//! - **Statically-detected walker fatals** (an unavailable module
+//!   member, a builtin used as a value) compile to the internal
+//!   `<fatal>` registry builtin with the walker's exact message;
+//!   runtime match fall-through and a `for` pattern mismatch compile to
+//!   `<assert-failed>` (`panics.AssertionFailed`), keeping the
+//!   instruction set unchanged (`brasa_bytecode::builtin`).
+
+mod captures;
+mod catch;
+mod context;
+mod depth;
+mod expr;
+mod func;
+mod item;
+mod pattern;
+mod stmt;
+
+use brasa_bytecode::Module;
+use brasa_hir::{Hir, ItemId};
+use brasa_resolver::Resolutions;
+use brasa_typeck::TypeTables;
+
+/// Compiles the checked module rooted at `roots` into a bytecode
+/// [`Module`]: `functions[0]` is the synthetic `<toplevel>` (top-level
+/// statements and top-`let` initializers in source order), followed by
+/// declared functions, struct methods, and lambdas in compile order.
+pub fn compile(
+    hir: &Hir,
+    roots: &[ItemId],
+    resolutions: &Resolutions,
+    types: &TypeTables,
+) -> Module {
+    let mut cx = context::Cx::new(hir, resolutions, types);
+
+    cx.collect(roots);
+    item::compile_toplevel(&mut cx, roots);
+    item::compile_items(&mut cx, roots);
+
+    cx.finish()
+}

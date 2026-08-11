@@ -1,0 +1,133 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  int 5
+  c1  int 3
+  c2  int 8
+  c3  str "ember"
+  c4  str "ash"
+  c5  int 7
+  c6  str " -> "
+  c7  str "abc"
+  c8  int 2
+  c9  int 1
+  c10  str "no match arm matched the value"
+  c11  int 0
+
+== globals ==
+  g0  nums
+  g1  stock
+  g2  doubled
+
+== fn0 <toplevel> arity=0 captures=0 locals=6 max_stack=4 ==
+     0  const c0                    ; int 5
+     1  const c1                    ; int 3
+     2  const c2                    ; int 8
+     3  make_vector 3
+     4  store_global g0             ; nums
+     5  const c3                    ; str "ember"
+     6  const c1                    ; int 3
+     7  const c4                    ; str "ash"
+     8  const c5                    ; int 7
+     9  make_map 2
+    10  store_global g1             ; stock
+    11  load_global g0              ; nums
+    12  iter_new
+    13  iter_next 19
+    14  store_local 0
+    15  load_local 0
+    16  call_builtin b0, 1          ; puts
+    17  pop
+    18  jump 13
+    19  load_global g1              ; stock
+    20  iter_new
+    21  iter_next 37
+    22  dup
+    23  tuple_field 0
+    24  store_local 1
+    25  tuple_field 1
+    26  store_local 2
+    27  load_local 1
+    28  to_string
+    29  const c6                    ; str " -> "
+    30  concat
+    31  load_local 2
+    32  to_string
+    33  concat
+    34  call_builtin b0, 1          ; puts
+    35  pop
+    36  jump 21
+    37  const c7                    ; str "abc"
+    38  iter_new
+    39  iter_next 45
+    40  store_local 3
+    41  load_local 3
+    42  call_builtin b0, 1          ; puts
+    43  pop
+    44  jump 39
+    45  load_global g0              ; nums
+    46  make_closure fn1, 0         ; <lambda>
+    47  call_builtin b36, 2         ; map
+    48  store_global g2             ; doubled
+    49  load_global g2              ; doubled
+    50  call_builtin b32, 1         ; first
+    51  dup
+    52  jump_if_none 56
+    53  unwrap_some
+    54  store_local 4
+    55  jump 58
+    56  pop
+    57  jump 61
+    58  pop
+    59  load_local 4
+    60  jump 73
+    61  dup
+    62  jump_if_none 65
+    63  pop
+    64  jump 70
+    65  pop
+    66  pop
+    67  const c9                    ; int 1
+    68  neg_int
+    69  jump 73
+    70  pop
+    71  const c10                   ; str "no match arm matched the value"
+    72  call_builtin b11, 1         ; <assert-failed>
+    73  call_builtin b0, 1          ; puts
+    74  pop
+    75  load_global g1              ; stock
+    76  const c3                    ; str "ember"
+    77  get_index
+    78  dup
+    79  jump_if_none 83
+    80  unwrap_some
+    81  store_local 5
+    82  jump 85
+    83  pop
+    84  jump 88
+    85  pop
+    86  load_local 5
+    87  jump 99
+    88  dup
+    89  jump_if_none 92
+    90  pop
+    91  jump 96
+    92  pop
+    93  pop
+    94  const c11                   ; int 0
+    95  jump 99
+    96  pop
+    97  const c10                   ; str "no match arm matched the value"
+    98  call_builtin b11, 1         ; <assert-failed>
+    99  call_builtin b0, 1          ; puts
+   100  pop
+   101  load_unit
+   102  ret
+
+== fn1 <lambda> arity=1 captures=0 locals=1 max_stack=2 ==
+     0  load_local 0
+     1  const c8                    ; int 2
+     2  mul_int
+     3  ret

@@ -35,6 +35,11 @@ struct Cli {
     #[arg(long)]
     dump_error_sets: bool,
 
+    /// Print the compiled bytecode disassembly to stdout instead of
+    /// executing the script (`docs/spec/07-bytecode.md`).
+    #[arg(long)]
+    dump_bytecode: bool,
+
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
@@ -148,6 +153,17 @@ fn main() -> ExitCode {
 
     if cli.dump_error_sets {
         println!("{}", brasa_errorset::dump::dump(&lowered.hir, &inferred));
+        return ExitCode::from(0);
+    }
+
+    if cli.dump_bytecode {
+        let module = brasa_codegen::compile(
+            &lowered.hir,
+            &lowered.roots,
+            &resolved.resolutions,
+            &checked.types,
+        );
+        println!("{}", brasa_bytecode::dump::dump(&module));
         return ExitCode::from(0);
     }
 
