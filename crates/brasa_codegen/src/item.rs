@@ -39,7 +39,7 @@ pub(crate) fn compile_toplevel(cx: &mut Cx, roots: &[ItemId]) {
     f.emit(Op::LoadUnit, Span::default());
     f.emit(Op::Ret, Span::default());
 
-    let function = f.finish("<toplevel>".to_string(), 0, 0);
+    let function = f.finish("<toplevel>".to_string(), 0, 0, Span::default());
     cx.define_function(FuncId(0), function);
 }
 
@@ -91,12 +91,16 @@ fn compile_function(cx: &mut Cx, def_ref: DefRef, func_id: FuncId) {
         .cloned()
         .unwrap_or_default();
 
+    let arity = cx.arity(&format!("`{name}`"), params.len(), span);
+
     let mut f = FuncCx::new(cx, FnKind::Func { returns_value });
 
     // Arguments land directly in their parameter slots (`call`'s frame
-    // base is `sp - argc`); a method's `self` is slot 0.
+    // base is `sp - argc`); a method's `self` is slot 0. The position
+    // fits the slot operand: a parameter list longer than `MAX_PARAMS`
+    // has already been reported.
     for (position, param) in params.iter().enumerate() {
-        let slot = SlotIx(u16::try_from(position).expect("parameter slot overflow"));
+        let slot = SlotIx(u16::try_from(position).unwrap_or(u16::MAX));
         match param {
             Some(local) => f.assign_slot(*local, slot),
             None => {
@@ -114,7 +118,6 @@ fn compile_function(cx: &mut Cx, def_ref: DefRef, func_id: FuncId) {
     }
     f.emit(Op::Ret, span);
 
-    let arity = u8::try_from(params.len()).expect("arity overflow");
-    let function = f.finish(name, arity, 0);
+    let function = f.finish(name, arity, 0, span);
     cx.define_function(func_id, function);
 }

@@ -136,6 +136,64 @@ fn deep_if_block_nesting_is_guarded() {
     assert_eq!(result.diagnostics.len(), 1);
 }
 
+// -- (2b) tree-depth guard --------------------------------------------------
+// The parser's recursion counter only sees how deep it descends. These
+// shapes are built by the Pratt/postfix loops instead, so they cost a
+// constant number of parser frames while nesting the tree once per term;
+// every later phase then walks that tree with real recursion. Each case
+// must report `P002` rather than hand a stack-overflowing tree onward.
+// The oversized sources are generated here rather than committed.
+
+fn assert_one_nesting_diagnostic(source: &str) {
+    let result = parse(source);
+    assert_eq!(
+        result.diagnostics.len(),
+        1,
+        "expected exactly one diagnostic, got: {:#?}",
+        result.diagnostics
+    );
+    assert_eq!(result.diagnostics[0].error_code, "P002");
+    assert!(result.diagnostics[0].message.contains("nesting too deep"));
+}
+
+#[test]
+fn left_leaning_operator_chain_is_guarded() {
+    let source = format!("puts {}\n", vec!["1"; 20_000].join("+"));
+    assert_one_nesting_diagnostic(&source);
+}
+
+#[test]
+fn right_leaning_operator_chain_is_guarded() {
+    let source = format!("puts {}1{}\n", "(1+".repeat(20_000), ")".repeat(20_000));
+    assert_one_nesting_diagnostic(&source);
+}
+
+#[test]
+fn deep_method_chain_is_guarded() {
+    let source = format!("let s = \"a\"\nputs s{}\n", ".trim()".repeat(20_000));
+    assert_one_nesting_diagnostic(&source);
+}
+
+#[test]
+fn deep_pipe_chain_is_guarded() {
+    let source = format!(
+        "def id(x: int): int\n  x\nend\n\nputs 1{}\n",
+        " |> id()".repeat(20_000)
+    );
+    assert_one_nesting_diagnostic(&source);
+}
+
+#[test]
+fn deeply_nested_data_literal_is_guarded() {
+    let source = format!("puts {}1{}.len()\n", "[".repeat(20_000), "]".repeat(20_000));
+    assert_one_nesting_diagnostic(&source);
+}
+
+#[test]
+fn a_chain_within_the_limit_still_parses_clean() {
+    assert_clean(&format!("puts {}\n", vec!["1"; 400].join("+")));
+}
+
 // -- (3) unknown escapes are errors, in both strings and chars -------------
 
 #[test]

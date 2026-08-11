@@ -176,14 +176,24 @@ fn main() -> ExitCode {
         return ExitCode::from(0);
     }
 
+    // Code generation runs whatever the backend is: the limits it
+    // reports are properties of the program, not of one backend, so
+    // `--backend=walker` must reject exactly what `--backend=vm`
+    // rejects (`docs/spec/06-diagnostics.md`, code generation).
+    let compiled = brasa_codegen::compile(
+        &lowered.hir,
+        &lowered.roots,
+        &resolved.resolutions,
+        &checked.types,
+    );
+    match render_diagnostics(&compiled.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
+
     if cli.dump_bytecode {
-        let module = brasa_codegen::compile(
-            &lowered.hir,
-            &lowered.roots,
-            &resolved.resolutions,
-            &checked.types,
-        );
-        println!("{}", brasa_bytecode::dump::dump(&module));
+        println!("{}", brasa_bytecode::dump::dump(&compiled.module));
         return ExitCode::from(0);
     }
 
@@ -201,15 +211,7 @@ fn main() -> ExitCode {
             &mut stdout,
             &cli.args,
         ),
-        Backend::Vm => {
-            let module = brasa_codegen::compile(
-                &lowered.hir,
-                &lowered.roots,
-                &resolved.resolutions,
-                &checked.types,
-            );
-            brasa_vm::run(&module, &mut stdout, &cli.args)
-        }
+        Backend::Vm => brasa_vm::run(&compiled.module, &mut stdout, &cli.args),
     };
     let flushed = stdout.flush();
 

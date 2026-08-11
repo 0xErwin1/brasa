@@ -5,6 +5,7 @@
 //! which agree for every checked program.
 
 use brasa_bytecode::{Constant, Op, SlotIx, builtin_def, builtin_id};
+use brasa_diagnostics::codes;
 use brasa_hir::{BinaryOp, Expr, ExprId, ImportPath, Item, ItemId, LambdaBody, UnaryOp};
 use brasa_resolver::{CtorRes, Res, TypeRes};
 use brasa_source::Span;
@@ -13,6 +14,7 @@ use brasa_typeck::{Type, WrapDecision};
 use crate::captures::lambda_captures;
 use crate::catch::compile_catch;
 use crate::func::{FnKind, FuncCx, PLACEHOLDER};
+use crate::limits::MAX_ELEMENTS;
 use crate::pattern::compile_match;
 use crate::stmt::{block_value, if_value};
 
@@ -86,7 +88,7 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
             for &element in &elements {
                 compile_expr(f, element);
             }
-            let n = u16::try_from(elements.len()).expect("vector literal overflow");
+            let n = element_count(f, "vector literal", "elements", elements.len(), span);
             f.emit(Op::MakeVector(n), span);
         }
         Expr::MapLit(pairs) => {
@@ -94,14 +96,14 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
                 compile_expr(f, key);
                 compile_expr(f, value);
             }
-            let n = u16::try_from(pairs.len()).expect("map literal overflow");
+            let n = element_count(f, "map literal", "entries", pairs.len(), span);
             f.emit(Op::MakeMap(n), span);
         }
         Expr::TupleLit(elements) => {
             for &element in &elements {
                 compile_expr(f, element);
             }
-            let n = u16::try_from(elements.len()).expect("tuple literal overflow");
+            let n = element_count(f, "tuple", "elements", elements.len(), span);
             f.emit(Op::MakeTuple(n), span);
         }
         Expr::StructLit { fields, .. } => struct_lit(f, id, &fields, span),
@@ -113,6 +115,20 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
         Expr::Catch { subject, arms, .. } => compile_catch(f, id, subject, &arms, span),
         Expr::EnumCtor { name, args } => enum_ctor(f, id, &name, &args, span),
     }
+}
+
+/// Narrows an aggregate literal's element count to the construction
+/// instruction's operand, reporting the literal that does not fit.
+fn element_count(f: &mut FuncCx, what: &str, unit: &str, count: usize, span: Span) -> u16 {
+    u16::try_from(count).unwrap_or_else(|_| {
+        f.cx.report(
+            codes::C_TOO_MANY_ELEMENTS,
+            format!("{what} has {count} {unit}, but the limit is {MAX_ELEMENTS}"),
+            &format!("too many {unit}"),
+            span,
+        );
+        u16::MAX
+    })
 }
 
 fn ident(f: &mut FuncCx, id: ExprId, name: &str, span: Span) {
@@ -268,7 +284,10 @@ fn struct_field_index(f: &FuncCx, item: ItemId, name: &str) -> Option<u16> {
         return None;
     };
     let index = def.fields.iter().position(|field| field.name == name)?;
-    Some(u16::try_from(index).expect("field index overflow"))
+
+    // A struct whose field count outruns the operand is reported by
+    // `Cx::collect`, before any body is lowered.
+    Some(u16::try_from(index).unwrap_or(u16::MAX))
 }
 
 pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) {
@@ -304,7 +323,7 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
                 compile_expr(f, arg);
             }
             let func = f.cx.func_of_item[&item];
-            let argc = u8::try_from(args.len()).expect("argument count overflow");
+            let argc = f.cx.argc(args.len(), span);
             f.emit(Op::Call { func, argc }, span);
         }
         _ => {
@@ -312,7 +331,7 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
             for &arg in args {
                 compile_expr(f, arg);
             }
-            let argc = u8::try_from(args.len()).expect("argument count overflow");
+            let argc = f.cx.argc(args.len(), span);
             f.emit(Op::CallValue { argc }, span);
         }
     }
@@ -334,7 +353,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
             for &arg in args {
                 compile_expr(f, arg);
             }
-            let argc = u8::try_from(args.len() + 1).expect("argument count overflow");
+            let argc = f.cx.argc(args.len() + 1, span);
             f.emit(Op::Call { func, argc }, span);
             return;
         }
@@ -347,7 +366,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
             for &arg in args {
                 compile_expr(f, arg);
             }
-            let argc = u8::try_from(args.len()).expect("argument count overflow");
+            let argc = f.cx.argc(args.len(), span);
             f.emit(Op::CallValue { argc }, span);
             return;
         }
@@ -380,7 +399,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
             compile_expr(f, arg);
         }
         let name = f.cx.const_str(name);
-        let argc = u8::try_from(args.len() + 1).expect("argument count overflow");
+        let argc = f.cx.argc(args.len() + 1, span);
         f.emit(Op::CallMethodDyn { name, argc }, span);
         return;
     }
@@ -391,7 +410,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
             for &arg in args {
                 compile_expr(f, arg);
             }
-            let argc = u8::try_from(args.len() + 1).expect("argument count overflow");
+            let argc = f.cx.argc(args.len() + 1, span);
             f.emit(Op::CallBuiltin { builtin, argc }, span);
         }
         None => f.emit_fatal(&format!("brasa: unknown builtin method `{name}`"), span),
@@ -423,7 +442,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
             for &arg in args {
                 compile_expr(f, arg);
             }
-            let argc = u8::try_from(args.len()).expect("argument count overflow");
+            let argc = f.cx.argc(args.len(), span);
             f.emit(Op::CallBuiltin { builtin, argc }, span);
             return;
         }
@@ -523,9 +542,9 @@ fn lambda(f: &mut FuncCx, id: ExprId, span: Span) {
     };
 
     let func = f.cx.reserve_function();
-    let arity = u8::try_from(params.len()).expect("lambda arity overflow");
+    let arity = f.cx.arity("lambda", params.len(), span);
     let capture_count =
-        u16::try_from(caps.locals.len() + usize::from(caps.uses_self)).expect("capture overflow");
+        f.cx.capture_count(caps.locals.len() + usize::from(caps.uses_self), span);
 
     // Compile the lambda body into its own function. Frame layout:
     // parameters, then captures (`self` first when captured, then the
@@ -533,11 +552,10 @@ fn lambda(f: &mut FuncCx, id: ExprId, span: Span) {
     // contract), then the remaining locals.
     let function = {
         let mut sub = FuncCx::new(&mut *f.cx, FnKind::Lambda);
+        // The position fits the slot operand: a parameter list longer
+        // than `MAX_PARAMS` has already been reported just above.
         for (position, &local) in params.iter().enumerate() {
-            sub.assign_slot(
-                local,
-                SlotIx(u16::try_from(position).expect("slot overflow")),
-            );
+            sub.assign_slot(local, SlotIx(u16::try_from(position).unwrap_or(u16::MAX)));
         }
 
         if caps.uses_self {
@@ -553,7 +571,7 @@ fn lambda(f: &mut FuncCx, id: ExprId, span: Span) {
             LambdaBody::Block(block) => block_value(&mut sub, block, span),
         }
         sub.emit(Op::Ret, span);
-        sub.finish("<lambda>".to_string(), arity, capture_count)
+        sub.finish("<lambda>".to_string(), arity, capture_count, span)
     };
     f.cx.define_function(func, function);
 
@@ -663,11 +681,15 @@ fn enum_ctor(f: &mut FuncCx, id: ExprId, name: &str, args: &[ExprId], span: Span
                 compile_expr(f, arg);
             }
             let enum_id = f.cx.enum_of_item[&enum_item];
+            // An enum with more variants than the operand indexes is
+            // reported by `Cx::collect`, before any body is lowered.
+            let variant = u16::try_from(variant_index).unwrap_or(u16::MAX);
+            let argc = f.cx.argc(args.len(), span);
             f.emit(
                 Op::MakeEnum {
                     enum_id,
-                    variant: u16::try_from(variant_index).expect("variant overflow"),
-                    argc: u8::try_from(args.len()).expect("payload overflow"),
+                    variant,
+                    argc,
                 },
                 span,
             );

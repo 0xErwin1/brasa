@@ -60,7 +60,10 @@ pub fn parse(source: &str, file: FileId) -> ParseResult {
     let mut parser = Parser::new(tokens, source);
 
     let roots = parser.parse_program();
+    let too_deep = deep_tree_diagnostic(&parser);
+
     let mut diagnostics = parser.diagnostics;
+    diagnostics.extend(too_deep);
 
     for err in &lex_errors {
         diagnostics.push(Diagnostic::new(
@@ -82,6 +85,41 @@ pub fn parse(source: &str, file: FileId) -> ParseResult {
     }
 }
 
+/// Reports a tree that no later phase could walk, if the parse built one.
+///
+/// [`Parser::enter_recursion`] bounds how deep the *parser* descends,
+/// which is not the same thing as how deep the tree it produces is: the
+/// Pratt loops build left-leaning chains (`1 + 1 + 1 + ...`, `x.f().f()...`,
+/// `a |> f() |> f()...`) iteratively, so an arbitrarily deep tree costs
+/// the parser a constant number of frames. Every later phase walks that
+/// tree with real recursion, so the depth actually built is what has to
+/// be bounded, and it is checked here against the same limit.
+///
+/// Skipped once the parser is poisoned: the recursion guard has already
+/// reported this exact problem, and the truncated tree left behind says
+/// nothing useful about depth.
+fn deep_tree_diagnostic(parser: &Parser<'_>) -> Option<Diagnostic> {
+    if parser.poisoned {
+        return None;
+    }
+
+    let (span, depth) = parser.ast.deepest_node()?;
+    if depth <= MAX_RECURSION_DEPTH {
+        return None;
+    }
+
+    Some(
+        Diagnostic::new(
+            Severity::Error,
+            format!("nesting too deep (limit {MAX_RECURSION_DEPTH})"),
+            codes::P_NESTING_TOO_DEEP.to_string(),
+            span,
+        )
+        .with_label(span, format!("nested {depth} levels deep here"))
+        .with_note("split the expression up, binding intermediate results with `let`".to_string()),
+    )
+}
+
 /// Final backstop against diagnostic cascades: drops any diagnostic that
 /// repeats the exact `(message, primary_span)` of one already kept.
 ///
@@ -96,8 +134,13 @@ fn dedup_identical_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
     diagnostics.retain(|d| seen.insert((d.message.clone(), d.primary_span)));
 }
 
-/// Upper bound on mutual recursion depth across expressions, statements,
-/// types, and patterns; see [`Parser::enter_recursion`].
+/// Upper bound on nesting depth, enforced twice against the same number:
+/// as the parser descends ([`Parser::enter_recursion`]) and against the
+/// tree it ends up building ([`deep_tree_diagnostic`]). Neither check
+/// subsumes the other — the parser can descend without deepening the
+/// tree (`((((1))))`), and it can deepen the tree without descending
+/// (`1 + 1 + 1 + ...`) — and both bound real recursion, the parser's own
+/// in the first case and every later phase's in the second.
 ///
 /// 420 rather than a rounder number like 500: each nesting level costs
 /// several real Rust stack frames (`parse_pipe` -> `parse_bp` ->

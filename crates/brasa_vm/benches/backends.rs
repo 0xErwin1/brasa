@@ -63,12 +63,18 @@ fn frontend(
 /// fast panic path.
 fn compile(source: &str) -> Compiled {
     let (lowered, resolved, checked) = frontend(source);
-    let module = brasa_codegen::compile(
+    let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
     );
+    assert!(
+        compiled.diagnostics.is_empty(),
+        "{:?}",
+        compiled.diagnostics
+    );
+    let module = compiled.module;
     let compiled = Compiled {
         lowered,
         resolved,
@@ -156,12 +162,18 @@ fn cold_start(criterion: &mut Criterion) {
     group.bench_function("vm", |b| {
         b.iter(|| {
             let (lowered, resolved, checked) = frontend(source);
-            let module = brasa_codegen::compile(
+            let compiled = brasa_codegen::compile(
                 &lowered.hir,
                 &lowered.roots,
                 &resolved.resolutions,
                 &checked.types,
             );
+            assert!(
+                compiled.diagnostics.is_empty(),
+                "{:?}",
+                compiled.diagnostics
+            );
+            let module = compiled.module;
             let mut out = std::io::sink();
             brasa_vm::run(&module, &mut out, &[])
         })

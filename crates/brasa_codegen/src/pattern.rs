@@ -163,7 +163,8 @@ fn compile_pattern_test(f: &mut FuncCx, pattern: PatternId, fails: &mut Vec<Code
                 f.emit(Op::Pop, span);
             }
             Some(CtorRes::EnumVariant { variant_index, .. }) => {
-                let variant = u16::try_from(variant_index).expect("variant overflow");
+                // Reported by `Cx::collect` before any body is lowered.
+                let variant = u16::try_from(variant_index).unwrap_or(u16::MAX);
                 let wrong_variant = f.emit(
                     Op::JumpIfVariantNe {
                         variant,
@@ -202,7 +203,7 @@ fn compound_test(
         }
         Some((&last, init)) => {
             for (index, &element) in init.iter().enumerate() {
-                let index = u16::try_from(index).expect("element index overflow");
+                let index = u16::try_from(index).unwrap_or(u16::MAX);
                 f.emit(Op::Dup, span);
                 f.emit(project(index), span);
                 compile_pattern_test(f, element, &mut dirty);
@@ -210,7 +211,7 @@ fn compound_test(
 
             // The last projection consumes the container, so its
             // sub-test fails are already clean.
-            let index = u16::try_from(init.len()).expect("element index overflow");
+            let index = u16::try_from(init.len()).unwrap_or(u16::MAX);
             f.emit(project(index), span);
             compile_pattern_test(f, last, fails);
         }

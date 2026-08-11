@@ -52,12 +52,18 @@ fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> 
     );
     let walker_stdout = String::from_utf8(walker_out).expect("walker output is UTF-8");
 
-    let module = brasa_codegen::compile(
+    let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
     );
+    assert!(
+        compiled.diagnostics.is_empty(),
+        "{:?}",
+        compiled.diagnostics
+    );
+    let module = compiled.module;
     let mut vm_out = Vec::new();
     let vm_outcome = brasa_vm::run_with_depth(&module, &mut vm_out, max_depth, args);
     let vm_stdout = String::from_utf8(vm_out).expect("VM output is UTF-8");
@@ -1895,12 +1901,18 @@ fn run_vm_into<W: std::io::Write + Send>(source: &str, out: &mut W) -> Outcome {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let module = brasa_codegen::compile(
+    let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
     );
+    assert!(
+        compiled.diagnostics.is_empty(),
+        "{:?}",
+        compiled.diagnostics
+    );
+    let module = compiled.module;
     brasa_vm::run(&module, out, &[])
 }
 

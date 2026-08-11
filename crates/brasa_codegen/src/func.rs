@@ -5,10 +5,12 @@
 use std::collections::HashMap;
 
 use brasa_bytecode::{Chunk, CodeIx, Constant, Function, Handler, Op, SlotIx, builtin_id};
+use brasa_diagnostics::codes;
 use brasa_source::Span;
 
 use crate::context::Cx;
 use crate::depth;
+use crate::limits::{MAX_BINDINGS, MAX_OPERAND_STACK};
 
 /// Placeholder target for jumps patched after their target is known. A
 /// forgotten patch shows up as an obviously-wrong `4294967295` in the
@@ -51,6 +53,9 @@ pub(crate) struct FuncCx<'a, 'c> {
     pub(crate) handlers: Vec<Handler>,
     slots: HashMap<brasa_resolver::LocalId, SlotIx>,
     next_slot: u16,
+    /// Set once this frame runs out of slots. Reported once, at
+    /// [`FuncCx::finish`], where the function's name and span are known.
+    slots_exhausted: bool,
     /// Where `self` lives: slot 0 in methods, a capture slot in lambdas
     /// that capture it, absent elsewhere.
     pub(crate) self_slot: Option<SlotIx>,
@@ -66,6 +71,7 @@ impl<'a, 'c> FuncCx<'a, 'c> {
             handlers: Vec::new(),
             slots: HashMap::new(),
             next_slot: 0,
+            slots_exhausted: false,
             self_slot: None,
             loops: Vec::new(),
         }
@@ -89,7 +95,7 @@ impl<'a, 'c> FuncCx<'a, 'c> {
     /// positions are fixed by the frame layout).
     pub(crate) fn assign_slot(&mut self, local: brasa_resolver::LocalId, slot: SlotIx) {
         self.slots.insert(local, slot);
-        self.next_slot = self.next_slot.max(slot.0 + 1);
+        self.next_slot = self.next_slot.max(slot.0.saturating_add(1));
     }
 
     /// The frame slot of a local, allocated on first encounter.
@@ -113,7 +119,10 @@ impl<'a, 'c> FuncCx<'a, 'c> {
     /// A fresh anonymous slot (struct-literal reordering scratch).
     pub(crate) fn alloc_slot(&mut self) -> SlotIx {
         let slot = SlotIx(self.next_slot);
-        self.next_slot = self.next_slot.checked_add(1).expect("frame slot overflow");
+        match self.next_slot.checked_add(1) {
+            Some(next) => self.next_slot = next,
+            None => self.slots_exhausted = true,
+        }
         slot
     }
 
@@ -157,8 +166,38 @@ impl<'a, 'c> FuncCx<'a, 'c> {
     /// Runs the operand-depth pass (fixing handler depths and computing
     /// `max_stack`), attaches the handlers, and builds the final
     /// [`Function`].
-    pub(crate) fn finish(mut self, name: String, arity: u8, captures: u16) -> Function {
-        let max_stack = depth::finalize(self.chunk.ops(), &mut self.handlers, &self.cx.structs);
+    ///
+    /// The depth pass is skipped once any limit has been reported: the
+    /// clamped operands left behind no longer describe consistent stack
+    /// effects, and the module they belong to is discarded anyway.
+    pub(crate) fn finish(mut self, name: String, arity: u8, captures: u16, span: Span) -> Function {
+        if self.slots_exhausted {
+            self.cx.report(
+                codes::C_TOO_MANY_BINDINGS,
+                format!("`{name}` needs more than {MAX_BINDINGS} local slots"),
+                "too many local bindings",
+                span,
+            );
+        }
+
+        let max_stack = if self.cx.diagnostics.is_empty() {
+            match depth::finalize(self.chunk.ops(), &mut self.handlers, &self.cx.structs) {
+                Ok(max_stack) => max_stack,
+                Err(needed) => {
+                    self.cx.report(
+                        codes::C_EXPRESSION_TOO_COMPLEX,
+                        format!(
+                            "`{name}` needs {needed} operand-stack slots, but the limit is {MAX_OPERAND_STACK}"
+                        ),
+                        "expression too complex",
+                        span,
+                    );
+                    u16::MAX
+                }
+            }
+        } else {
+            0
+        };
 
         for handler in self.handlers.drain(..) {
             self.chunk.push_handler(handler);

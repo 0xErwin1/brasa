@@ -47,13 +47,27 @@ mod depth;
 mod expr;
 mod func;
 mod item;
+mod limits;
 mod pattern;
 mod stmt;
 
 use brasa_bytecode::Module;
+use brasa_diagnostics::Diagnostic;
 use brasa_hir::{Hir, ItemId};
 use brasa_resolver::Resolutions;
 use brasa_typeck::TypeTables;
+
+/// The outcome of one compilation: the module, and every bytecode limit
+/// the program broke (`crate::limits`).
+///
+/// `diagnostics` is empty for every program that fits the instruction
+/// set. When it is not, `module` is empty and must not be executed: the
+/// limits are checked while lowering, and lowering clamps what it cannot
+/// encode so one run can report them all.
+pub struct CompileResult {
+    pub module: Module,
+    pub diagnostics: Vec<Diagnostic>,
+}
 
 /// Compiles the checked module rooted at `roots` into a bytecode
 /// [`Module`]: `functions[0]` is the synthetic `<toplevel>` (top-level
@@ -64,12 +78,18 @@ pub fn compile(
     roots: &[ItemId],
     resolutions: &Resolutions,
     types: &TypeTables,
-) -> Module {
+) -> CompileResult {
     let mut cx = context::Cx::new(hir, resolutions, types);
 
     cx.collect(roots);
-    item::compile_toplevel(&mut cx, roots);
-    item::compile_items(&mut cx, roots);
+
+    // Bodies are lowered against the shapes and slot maps `collect`
+    // assigned, so a shape that already broke a limit would have every
+    // body reporting the same cause again, at worse spans.
+    if cx.diagnostics.is_empty() {
+        item::compile_toplevel(&mut cx, roots);
+        item::compile_items(&mut cx, roots);
+    }
 
     cx.finish()
 }

@@ -3,7 +3,8 @@
 //! This is the machine-facing side of the public registry in
 //! `docs/spec/06-diagnostics.md`; the spec table and these constants must
 //! stay in sync. Codes follow `<PhaseLetter><3 digits>` (`L` lexer, `P`
-//! parser, `R` resolver, `T` type checker, `E` error-sets; `X` is
+//! parser, `R` resolver, `T` type checker, `E` error-sets, `C` code
+//! generation; `X` is
 //! reserved), are append-only, and are never renumbered or reused after
 //! removal. Every
 //! emission site names one of these constants instead of writing the code
@@ -186,6 +187,27 @@ pub const E_UNDECLARED_THROW: &str = "E004";
 /// is non-empty, or open (and therefore unverifiable).
 pub const E_THROWS_NEVER_VIOLATED: &str = "E005";
 
+// --- code generation (C) ---
+
+/// A call with more arguments than an instruction's `argc` operand can
+/// carry, receiver included.
+pub const C_TOO_MANY_ARGUMENTS: &str = "C001";
+/// A function, method, lambda, or enum variant declaring more
+/// parameters than a frame's `arity` operand can carry.
+pub const C_TOO_MANY_PARAMETERS: &str = "C002";
+/// A vector, map, or tuple literal with more elements than the
+/// construction instruction's count operand can carry.
+pub const C_TOO_MANY_ELEMENTS: &str = "C003";
+/// A struct with more fields, or an enum with more variants, than the
+/// field/variant operands can index.
+pub const C_TOO_MANY_MEMBERS: &str = "C004";
+/// More bindings than the slot operands can address: local slots in one
+/// function, module globals, or values captured by one closure.
+pub const C_TOO_MANY_BINDINGS: &str = "C005";
+/// A function body needing more operand-stack slots than a frame can
+/// reserve.
+pub const C_EXPRESSION_TOO_COMPLEX: &str = "C006";
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -254,14 +276,20 @@ mod tests {
         super::E_UNVERIFIABLE_EXHAUSTIVENESS,
         super::E_UNDECLARED_THROW,
         super::E_THROWS_NEVER_VIOLATED,
+        super::C_TOO_MANY_ARGUMENTS,
+        super::C_TOO_MANY_PARAMETERS,
+        super::C_TOO_MANY_ELEMENTS,
+        super::C_TOO_MANY_MEMBERS,
+        super::C_TOO_MANY_BINDINGS,
+        super::C_EXPRESSION_TOO_COMPLEX,
     ];
 
-    /// The spec's `^[LPRTE]\d{3}$` shape, checked without a regex crate.
+    /// The spec's `^[LPRTEC]\d{3}$` shape, checked without a regex crate.
     fn has_valid_format(code: &str) -> bool {
         let bytes = code.as_bytes();
 
         bytes.len() == 4
-            && matches!(bytes[0], b'L' | b'P' | b'R' | b'T' | b'E')
+            && matches!(bytes[0], b'L' | b'P' | b'R' | b'T' | b'E' | b'C')
             && bytes[1..].iter().all(u8::is_ascii_digit)
     }
 
@@ -279,7 +307,7 @@ mod tests {
         for code in ALL {
             assert!(
                 has_valid_format(code),
-                "code {code} does not match ^[LPRTE][0-9]{{3}}$"
+                "code {code} does not match ^[LPRTEC][0-9]{{3}}$"
             );
         }
     }

@@ -44,12 +44,18 @@ fn compile_source(name: &str, source: &str) -> String {
         checked.diagnostics
     );
 
-    let module = brasa_codegen::compile(
+    let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
     );
+    assert!(
+        compiled.diagnostics.is_empty(),
+        "{:?}",
+        compiled.diagnostics
+    );
+    let module = compiled.module;
     brasa_bytecode::dump::dump(&module)
 }
 

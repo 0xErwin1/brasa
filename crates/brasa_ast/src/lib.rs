@@ -13,6 +13,7 @@
 //! String interning is likewise out of scope: names are plain `String`
 //! for now.
 
+pub mod depth;
 pub mod expr;
 pub mod item;
 pub mod pattern;
@@ -44,8 +45,12 @@ pub type Block = Vec<StmtId>;
 pub struct Ast {
     exprs: Store<Expr>,
     expr_spans: Vec<Span>,
+    /// Tree depth per expression, filled at allocation time; see
+    /// [`crate::depth`] for why later phases need it.
+    expr_depths: Vec<u32>,
     stmts: Store<Stmt>,
     stmt_spans: Vec<Span>,
+    stmt_depths: Vec<u32>,
     items: Store<Item>,
     item_spans: Vec<Span>,
     patterns: Store<Pattern>,
@@ -65,8 +70,10 @@ impl Ast {
         Self {
             exprs: Store::new(),
             expr_spans: Vec::new(),
+            expr_depths: Vec::new(),
             stmts: Store::new(),
             stmt_spans: Vec::new(),
+            stmt_depths: Vec::new(),
             items: Store::new(),
             item_spans: Vec::new(),
             patterns: Store::new(),
@@ -77,8 +84,11 @@ impl Ast {
     }
 
     pub fn alloc_expr(&mut self, expr: Expr, span: Span) -> ExprId {
+        let depth = depth::of_expr(self, &expr);
+
         let id = self.exprs.alloc(expr);
         self.expr_spans.push(span);
+        self.expr_depths.push(depth);
         id
     }
 
@@ -90,9 +100,17 @@ impl Ast {
         self.expr_spans[id.index() as usize]
     }
 
+    /// The depth of the subtree rooted at `id`: a leaf is 1.
+    pub fn expr_depth(&self, id: ExprId) -> u32 {
+        self.expr_depths[id.index() as usize]
+    }
+
     pub fn alloc_stmt(&mut self, stmt: Stmt, span: Span) -> StmtId {
+        let depth = depth::of_stmt(self, &stmt);
+
         let id = self.stmts.alloc(stmt);
         self.stmt_spans.push(span);
+        self.stmt_depths.push(depth);
         id
     }
 
@@ -102,6 +120,33 @@ impl Ast {
 
     pub fn span_of_stmt(&self, id: StmtId) -> Span {
         self.stmt_spans[id.index() as usize]
+    }
+
+    /// The depth of the subtree rooted at `id`: a statement with no
+    /// nested expression or statement is 1.
+    pub fn stmt_depth(&self, id: StmtId) -> u32 {
+        self.stmt_depths[id.index() as usize]
+    }
+
+    /// The deepest node in the tree with the span to report it at, or
+    /// `None` for an empty tree. Callers use this to reject a program
+    /// whose tree would overflow the native stack in a later phase.
+    pub fn deepest_node(&self) -> Option<(Span, u32)> {
+        let exprs = self
+            .expr_depths
+            .iter()
+            .zip(&self.expr_spans)
+            .map(|(depth, span)| (*depth, *span));
+        let stmts = self
+            .stmt_depths
+            .iter()
+            .zip(&self.stmt_spans)
+            .map(|(depth, span)| (*depth, *span));
+
+        exprs
+            .chain(stmts)
+            .max_by_key(|(depth, _)| *depth)
+            .map(|(depth, span)| (span, depth))
     }
 
     pub fn alloc_item(&mut self, item: Item, span: Span) -> ItemId {

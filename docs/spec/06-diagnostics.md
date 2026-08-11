@@ -49,6 +49,7 @@ Format: `<PhaseLetter><3 digits>` — e.g. `P001`, `R004`, `T012`.
 | `R` | resolver |
 | `T` | type checker |
 | `E` | error-sets |
+| `C` | code generation |
 | `X` | execution/VM (reserved, M3+) |
 
 Rules:
@@ -107,6 +108,18 @@ Rules:
 | `P007` | invalid integer literal | `integer literal out of range` |
 | `P008` | duplicate struct-literal field | ``duplicate field `x` in struct literal`` |
 | `P009` | interpolation not allowed | `interpolation is not allowed here` |
+
+Notes on kind boundaries:
+
+- `P002` bounds **nesting depth**, whichever way a program reaches it:
+  how deep the parser itself descends, and how deep the tree it builds
+  turns out to be. The two are not the same measurement. A left-leaning
+  chain (`1 + 1 + 1 + ...`, `x.f().f()...`, `a |> f() |> f()...`) is
+  built by a loop, so it costs the parser a constant number of frames
+  while nesting the tree one level per term; every phase after the
+  parser walks that tree with real recursion, so the depth actually
+  built is bounded too. One limit, one code, one wording: the depth
+  reported is the program's, not any one phase's.
 
 ### Resolver (`R`)
 
@@ -256,6 +269,43 @@ Notes on kind boundaries:
 - `E005` backs two wordings under one kind: a concrete violation
   (`throws never` with a non-empty set) and the unverifiable case
   (`throws never` with an open set).
+
+### Code generation (`C`)
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `C001` | too many arguments | `call takes 300 arguments, but the limit is 255` |
+| `C002` | too many parameters | ``` `wide` takes 300 parameters, but the limit is 255 ``` |
+| `C003` | too many elements in a literal | `vector literal has 70000 elements, but the limit is 65535` |
+| `C004` | too many fields or variants | ``` struct `Wide` has 70000 fields, but the limit is 65535 ``` |
+| `C005` | too many bindings | ``` `f` needs more than 65535 local slots ``` |
+| `C006` | expression too complex | ``` `f` needs 70100 operand-stack slots, but the limit is 65535 ``` |
+
+Notes on kind boundaries:
+
+- Every `C` limit is **inherent to the instruction set** in
+  `07-bytecode.md`, never a policy choice: `argc` and `arity` are `u8`
+  operands, and slot, count, field, and variant operands are `u16`. Each
+  message therefore states the exact limit, and no `C` diagnostic is
+  raised for a limit a program can satisfy by being written differently
+  within the same shape.
+- Limits behind a `u32` operand (the constant pool, the function table,
+  struct/enum tables, code indices) are **not** checked and have no code:
+  filling one takes upwards of four billion entries, which exhausts
+  memory long before the index runs out.
+- `C001` covers every call shape — direct, indirect, builtin, dynamic
+  method, and enum construction — and counts the receiver, because the
+  instruction's `argc` does. `C002` covers the declaration side for
+  functions, methods, lambdas, and enum variants.
+- `C005` covers the three slot spaces that share one width: local slots
+  in one frame, module globals, and one closure's captures.
+- `C006` is the operand stack a single frame needs, which no individual
+  literal or call limit bounds on its own: a wide literal beside other
+  live values can require more slots than any one of them.
+- The `C` phase runs for **both** backends. The limits are properties of
+  the program and its bytecode encoding, not of one execution strategy,
+  so `--backend=walker` rejects exactly what `--backend=vm` rejects even
+  though the walker never runs the module.
 
 ## Deferred (M5)
 

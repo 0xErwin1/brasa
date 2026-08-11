@@ -39,12 +39,18 @@ fn run_hot_gc(source: &str, expected_stdout: &str) -> RunStats {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let module = brasa_codegen::compile(
+    let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
     );
+    assert!(
+        compiled.diagnostics.is_empty(),
+        "{:?}",
+        compiled.diagnostics
+    );
+    let module = compiled.module;
 
     let mut out = Vec::new();
     let (outcome, stats) = run_with_gc_threshold(&module, &mut out, TINY_GC_THRESHOLD);

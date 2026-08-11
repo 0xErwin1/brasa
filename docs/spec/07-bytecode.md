@@ -28,6 +28,13 @@ primitives those units need.
 | Jumps | Absolute instruction indices (`CodeIx`, an index into the `Vec<Op>`), patched by the code generator | Word-code makes relative offsets pointless; absolute indices make the disassembly and handler tables directly readable |
 | Dispatch | Plain `match` over `Op` in the VM loop (BRS-28) | The criterion contract (below) is walker-vs-VM, not VM-vs-Lua; threaded dispatch is a later optimization if ever needed |
 
+These operand widths are the compiler's limits, not just its encoding:
+an `argc`/`arity` operand caps a call and a parameter list at 255, and
+the `u16` operands cap literal element counts, struct fields, enum
+variants, local slots, globals, and captures at 65535 each. A program
+that does not fit is rejected at compile time with a `C` diagnostic
+(`06-diagnostics.md`), on both backends, never truncated and never run.
+
 ### Module execution
 
 A compiled module is a `Module` (format below). Entry convention:

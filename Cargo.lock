@@ -147,6 +147,7 @@ name = "brasa_codegen"
 version = "0.1.0"
 dependencies = [
  "brasa_bytecode",
+ "brasa_diagnostics",
  "brasa_hir",
  "brasa_parser",
  "brasa_resolver",

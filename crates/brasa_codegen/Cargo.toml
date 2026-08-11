@@ -8,6 +8,7 @@ edition.workspace = true
 
 [dependencies]
 brasa_source = { workspace = true }
+brasa_diagnostics = { workspace = true }
 brasa_hir = { workspace = true }
 brasa_resolver = { workspace = true }
 brasa_typeck = { workspace = true }

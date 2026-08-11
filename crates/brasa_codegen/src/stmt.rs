@@ -143,7 +143,7 @@ fn assign(f: &mut FuncCx, target: ExprId, value: ExprId, span: Span) {
                         .fields
                         .iter()
                         .position(|field| field.name == name)
-                        .map(|i| u16::try_from(i).expect("field index overflow")),
+                        .map(|i| u16::try_from(i).unwrap_or(u16::MAX)),
                     _ => None,
                 },
                 _ => None,

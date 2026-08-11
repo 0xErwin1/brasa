@@ -17,11 +17,21 @@
 
 use brasa_bytecode::{CodeIx, Handler, Op, StructShape};
 
-/// Fixes every handler's `depth` and returns the chunk's `max_stack`.
-pub(crate) fn finalize(code: &[Op], handlers: &mut [Handler], structs: &[StructShape]) -> u16 {
-    let mut depths: Vec<Option<u16>> = vec![None; code.len()];
-    let mut max = 0u16;
-    let mut work: Vec<(usize, u16)> = vec![(0, 0)];
+/// Fixes every handler's `depth` and returns the chunk's `max_stack`,
+/// or the depth actually needed when that exceeds what a frame can
+/// reserve ([`crate::limits::MAX_OPERAND_STACK`]).
+///
+/// Depths are tracked as `u32` so the limit is reported rather than hit:
+/// one operand on the stack costs at least one instruction, and a chunk
+/// is indexed by `u32`, so no chunk can ask for more than `u32::MAX`.
+pub(crate) fn finalize(
+    code: &[Op],
+    handlers: &mut [Handler],
+    structs: &[StructShape],
+) -> Result<u16, u32> {
+    let mut depths: Vec<Option<u32>> = vec![None; code.len()];
+    let mut max = 0u32;
+    let mut work: Vec<(usize, u32)> = vec![(0, 0)];
     let mut seeded = vec![false; handlers.len()];
 
     loop {
@@ -57,7 +67,7 @@ pub(crate) fn finalize(code: &[Op], handlers: &mut [Handler], structs: &[StructS
                 continue;
             }
             if let Some(depth) = depths[handler.start.0 as usize] {
-                handler.depth = depth;
+                handler.depth = u16::try_from(depth).unwrap_or(u16::MAX);
                 seeded[h_ix] = true;
 
                 let dispatch = depth + 1;
@@ -72,11 +82,17 @@ pub(crate) fn finalize(code: &[Op], handlers: &mut [Handler], structs: &[StructS
         }
     }
 
-    max
+    u16::try_from(max).map_err(|_| max)
 }
 
-fn apply(depth: u16, delta: i32) -> u16 {
-    u16::try_from(i32::from(depth) + delta).expect("operand depth underflow")
+/// A depth below zero would mean the generated code pops what it never
+/// pushed, which is a code-generator bug rather than anything a program
+/// can ask for; release builds clamp instead of aborting a user's run.
+fn apply(depth: u32, delta: i32) -> u32 {
+    let next = i64::from(depth) + i64::from(delta);
+    debug_assert!(next >= 0, "operand depth underflow");
+
+    u32::try_from(next.max(0)).unwrap_or(u32::MAX)
 }
 
 /// The successors of one instruction as depth deltas: the fall-through
@@ -164,9 +180,11 @@ fn net_effect(op: &Op, structs: &[StructShape]) -> i32 {
 
         Op::MakeVector(n) | Op::MakeTuple(n) => 1 - i32::from(n),
         Op::MakeMap(n) => 1 - 2 * i32::from(n),
+        // The field count fits an `i32` because a struct that broke
+        // `MAX_MEMBERS` is reported before any body is lowered.
         Op::MakeStruct(s) => {
             let fields = structs[s.0 as usize].fields.len();
-            1 - i32::try_from(fields).expect("field count overflow")
+            1 - i32::try_from(fields).unwrap_or(i32::MAX)
         }
         Op::MakeEnum { argc, .. } => 1 - i32::from(argc),
         Op::MakeClosure { captures, .. } => 1 - i32::from(captures),

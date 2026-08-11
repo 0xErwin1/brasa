@@ -12,15 +12,25 @@ use brasa_bytecode::{
     ConstId, ConstPool, Constant, EnumId, EnumShape, FuncId, Function, GlobalIx, Module, StructId,
     StructShape, Variant,
 };
+use brasa_diagnostics::{Diagnostic, codes};
 use brasa_hir::{Hir, Item, ItemId};
 use brasa_resolver::Resolutions;
+use brasa_source::Span;
 use brasa_typeck::TypeTables;
+
+use crate::CompileResult;
+use crate::limits::{self, MAX_ARGS, MAX_BINDINGS, MAX_MEMBERS, MAX_PARAMS};
 
 pub(crate) struct Cx<'a> {
     pub(crate) hir: &'a Hir,
     pub(crate) res: &'a Resolutions,
     pub(crate) types: &'a TypeTables,
     pub(crate) pool: ConstPool,
+    /// Every bytecode limit this module breaks. A non-empty list makes
+    /// [`Cx::finish`] discard the module: the values narrowed past their
+    /// operands were clamped to keep lowering going, so the code emitted
+    /// after the first report is not runnable.
+    pub(crate) diagnostics: Vec<Diagnostic>,
     /// Function slots, reserved by `collect` (and lambdas mid-compile)
     /// and filled by `define_function`.
     functions: Vec<Option<Function>>,
@@ -41,6 +51,7 @@ impl<'a> Cx<'a> {
             res,
             types,
             pool: ConstPool::new(),
+            diagnostics: Vec::new(),
             functions: Vec::new(),
             func_of_item: HashMap::new(),
             func_of_method: HashMap::new(),
@@ -51,6 +62,52 @@ impl<'a> Cx<'a> {
             enums: Vec::new(),
             globals: Vec::new(),
         }
+    }
+
+    pub(crate) fn report(&mut self, code: &str, message: String, label: &str, span: Span) {
+        self.diagnostics
+            .push(limits::error(code, message, label.to_string(), span));
+    }
+
+    /// Narrows an argument count to the `argc` operand, reporting the
+    /// call that does not fit.
+    pub(crate) fn argc(&mut self, count: usize, span: Span) -> u8 {
+        u8::try_from(count).unwrap_or_else(|_| {
+            self.report(
+                codes::C_TOO_MANY_ARGUMENTS,
+                format!("call takes {count} arguments, but the limit is {MAX_ARGS}"),
+                "too many arguments",
+                span,
+            );
+            u8::MAX
+        })
+    }
+
+    /// Narrows a parameter count to a frame's `arity`, reporting the
+    /// declaration that does not fit.
+    pub(crate) fn arity(&mut self, what: &str, count: usize, span: Span) -> u8 {
+        u8::try_from(count).unwrap_or_else(|_| {
+            self.report(
+                codes::C_TOO_MANY_PARAMETERS,
+                format!("{what} takes {count} parameters, but the limit is {MAX_PARAMS}"),
+                "too many parameters",
+                span,
+            );
+            u8::MAX
+        })
+    }
+
+    /// Narrows a captured-value count to `make_closure`'s operand.
+    pub(crate) fn capture_count(&mut self, count: usize, span: Span) -> u16 {
+        u16::try_from(count).unwrap_or_else(|_| {
+            self.report(
+                codes::C_TOO_MANY_BINDINGS,
+                format!("closure captures {count} values, but the limit is {MAX_BINDINGS}"),
+                "too many captured values",
+                span,
+            );
+            u16::MAX
+        })
     }
 
     /// Reserves a function-table slot and returns its id.
@@ -88,6 +145,18 @@ impl<'a> Cx<'a> {
                         StructId(u32::try_from(self.structs.len()).expect("struct table overflow"));
                     self.struct_of_item.insert(item_id, struct_id);
 
+                    if def.fields.len() > MAX_MEMBERS {
+                        let (name, count) = (&def.name, def.fields.len());
+                        self.diagnostics.push(limits::error(
+                            codes::C_TOO_MANY_MEMBERS,
+                            format!(
+                                "struct `{name}` has {count} fields, but the limit is {MAX_MEMBERS}"
+                            ),
+                            "too many fields".to_string(),
+                            self.hir.span_of_item(item_id),
+                        ));
+                    }
+
                     let mut methods = Vec::with_capacity(def.methods.len());
                     let mut to_string = None;
                     for (index, method) in def.methods.iter().enumerate() {
@@ -111,20 +180,57 @@ impl<'a> Cx<'a> {
                         EnumId(u32::try_from(self.enums.len()).expect("enum table overflow"));
                     self.enum_of_item.insert(item_id, enum_id);
 
+                    let span = self.hir.span_of_item(item_id);
+                    if def.variants.len() > MAX_MEMBERS {
+                        let (name, count) = (&def.name, def.variants.len());
+                        self.diagnostics.push(limits::error(
+                            codes::C_TOO_MANY_MEMBERS,
+                            format!(
+                                "enum `{name}` has {count} variants, but the limit is {MAX_MEMBERS}"
+                            ),
+                            "too many variants".to_string(),
+                            span,
+                        ));
+                    }
+
+                    let mut variants = Vec::with_capacity(def.variants.len());
+                    for variant in &def.variants {
+                        let arity = u8::try_from(variant.fields.len()).unwrap_or_else(|_| {
+                            let (name, count) = (&variant.name, variant.fields.len());
+                            self.diagnostics.push(limits::error(
+                                codes::C_TOO_MANY_PARAMETERS,
+                                format!(
+                                    "variant `{name}` takes {count} parameters, but the limit is {MAX_PARAMS}"
+                                ),
+                                "too many parameters".to_string(),
+                                span,
+                            ));
+                            u8::MAX
+                        });
+                        variants.push(Variant {
+                            name: variant.name.clone(),
+                            arity,
+                        });
+                    }
+
                     self.enums.push(EnumShape {
                         name: def.name.clone(),
-                        variants: def
-                            .variants
-                            .iter()
-                            .map(|v| Variant {
-                                name: v.name.clone(),
-                                arity: u8::try_from(v.fields.len()).expect("payload overflow"),
-                            })
-                            .collect(),
+                        variants,
                     });
                 }
                 Item::TopLet(top_let) => {
-                    let ix = GlobalIx(u16::try_from(self.globals.len()).expect("global overflow"));
+                    // Reported once, at the first global that does not
+                    // fit: every later one breaks the same limit for the
+                    // same reason.
+                    if self.globals.len() == MAX_BINDINGS + 1 {
+                        self.diagnostics.push(limits::error(
+                            codes::C_TOO_MANY_BINDINGS,
+                            format!("the module defines more than {MAX_BINDINGS} globals"),
+                            "too many globals".to_string(),
+                            self.hir.span_of_item(item_id),
+                        ));
+                    }
+                    let ix = GlobalIx(u16::try_from(self.globals.len()).unwrap_or(u16::MAX));
                     self.global_of_item.insert(item_id, ix);
                     self.globals.push(top_let.let_stmt.name.clone());
                 }
@@ -133,17 +239,36 @@ impl<'a> Cx<'a> {
         }
     }
 
-    pub(crate) fn finish(self) -> Module {
-        Module {
-            constants: self.pool,
-            functions: self
-                .functions
-                .into_iter()
-                .map(|f| f.expect("every reserved function is defined"))
-                .collect(),
-            structs: self.structs,
-            enums: self.enums,
-            globals: self.globals,
+    /// Builds the module, or an empty one when a limit was reported:
+    /// past a clamped operand the emitted code no longer describes the
+    /// program, so it must never reach a backend.
+    pub(crate) fn finish(self) -> CompileResult {
+        if !self.diagnostics.is_empty() {
+            return CompileResult {
+                module: Module {
+                    constants: ConstPool::new(),
+                    functions: Vec::new(),
+                    structs: Vec::new(),
+                    enums: Vec::new(),
+                    globals: Vec::new(),
+                },
+                diagnostics: self.diagnostics,
+            };
+        }
+
+        CompileResult {
+            module: Module {
+                constants: self.pool,
+                functions: self
+                    .functions
+                    .into_iter()
+                    .map(|f| f.expect("every reserved function is defined"))
+                    .collect(),
+                structs: self.structs,
+                enums: self.enums,
+                globals: self.globals,
+            },
+            diagnostics: Vec::new(),
         }
     }
 }
