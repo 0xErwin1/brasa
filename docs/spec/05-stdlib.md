@@ -35,6 +35,29 @@ Highest priority.
 - Built-in regex: `match?(re)`, `captures(re)` (-> Option<Vector<string>>),
   `replaceRe(re, with)`, `scan(re)`.
 
+Signatures closed in M4 (BRS-31):
+
+- `bytes` returns `Vector<int>`: the string's UTF-8 byte values
+  (0..=255). Scalar-indexed views stay with `chars`/`slice`/`len`.
+- `padStart(width, pad)` / `padEnd(width, pad)`: `width` counts Unicode
+  scalars, like `len`. The pad string repeats cyclically and is
+  truncated so the result lands exactly on `width`; a string already
+  at or past `width`, or an empty `pad`, returns the string unchanged.
+- `reverse` reverses Unicode scalars (no grapheme clusters), consistent
+  with `chars`.
+- The regex methods take the pattern as a plain string in Rust `regex`
+  crate syntax. An invalid pattern throws the native
+  `string.RegexError` — a recoverable scripting error, alongside
+  `string.ParseError` in the closed native-error list.
+- `captures(re)` returns `None` when nothing matches; on a match the
+  vector holds the full match first (group 0), then every capture
+  group in order, with the empty string for a group that did not
+  participate.
+- `replaceRe(re, with)` replaces every non-overlapping match; the
+  replacement expands `$1`/`${name}` group references, with `$$` as a
+  literal `$` (the `regex` crate's `replace_all` semantics).
+- `scan(re)` returns every non-overlapping full match, in order.
+
 ## `std::re`
 
 Compiled regexes for reuse: `re.compile(pattern)`, `Regex` type with the

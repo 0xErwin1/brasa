@@ -74,6 +74,9 @@ pub(crate) struct Vm<'a> {
     consts: Vec<Value>,
     pub(crate) out: &'a mut dyn Write,
     max_depth: usize,
+    /// Per-run cache of compiled regex patterns for the string regex
+    /// methods, keyed by the pattern text (mirrors the walker's cache).
+    pub(crate) regex_cache: std::collections::HashMap<String, regex::Regex>,
 }
 
 impl<'a> Vm<'a> {
@@ -105,6 +108,7 @@ impl<'a> Vm<'a> {
             consts,
             out,
             max_depth,
+            regex_cache: std::collections::HashMap::new(),
         }
     }
 

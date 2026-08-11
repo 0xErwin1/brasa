@@ -118,6 +118,9 @@ pub(crate) struct Interp<'a> {
     /// Active function names, outermost first.
     stack: Vec<String>,
     max_depth: usize,
+    /// Per-run cache of compiled regex patterns for the string regex
+    /// methods (`docs/spec/05-stdlib.md`), keyed by the pattern text.
+    pub(crate) regex_cache: HashMap<String, regex::Regex>,
 }
 
 impl<'a> Interp<'a> {
@@ -136,6 +139,7 @@ impl<'a> Interp<'a> {
             out,
             stack: Vec::new(),
             max_depth,
+            regex_cache: HashMap::new(),
         }
     }
 

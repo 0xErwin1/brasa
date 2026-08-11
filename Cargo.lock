@@ -198,6 +198,7 @@ dependencies = [
  "brasa_resolver",
  "brasa_source",
  "brasa_typeck",
+ "regex",
 ]
 
 [[package]]
@@ -275,6 +276,7 @@ dependencies = [
  "brasa_source",
  "brasa_typeck",
  "criterion",
+ "regex",
 ]
 
 [[package]]

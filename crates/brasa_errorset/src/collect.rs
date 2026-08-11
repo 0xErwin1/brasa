@@ -12,6 +12,7 @@
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
 //! | stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
+//! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
 //! | immediately-invoked lambda literal | that lambda's set |
 //! | anything else (local, parameter, `TopLet`, struct field, or generic receiver holding a function) | opens the set — indirect calls are unknowable until BRS-25's per-call-site precision |
@@ -30,7 +31,9 @@ use brasa_hir::{
     ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, ItemId, LambdaBody, Stmt,
     StmtId,
 };
-use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, TypeRes};
+use brasa_resolver::{
+    BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
+};
 use brasa_typeck::{Type, TypeTables};
 
 use crate::{ErrorSet, ErrorTag, Primitive, check};
@@ -310,12 +313,19 @@ impl<'a> Collector<'a> {
                 set.union_with(&self.args(args));
                 set.union_with(&self.struct_method(item, name));
             }
-            // The two throwing builtin methods: parse failure raises
-            // the native `string.ParseError` (BRS-41), so a
-            // string-receiver call contributes its opaque tag.
+            // The throwing builtin methods: parse failure raises the
+            // native `string.ParseError` (BRS-41), so a string-receiver
+            // call contributes its opaque tag.
             Some(Type::String) if matches!(name, "toInt" | "toFloat") => {
                 set.union_with(&self.args(args));
                 set.tags.insert(ErrorTag::Opaque(STRING_PARSE_ERROR));
+            }
+            // The regex methods (BRS-31) raise the native
+            // `string.RegexError` when the pattern argument is not a
+            // valid regex.
+            Some(Type::String) if matches!(name, "match?" | "captures" | "replaceRe" | "scan") => {
+                set.union_with(&self.args(args));
+                set.tags.insert(ErrorTag::Opaque(STRING_REGEX_ERROR));
             }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, and enums (whose only member is the

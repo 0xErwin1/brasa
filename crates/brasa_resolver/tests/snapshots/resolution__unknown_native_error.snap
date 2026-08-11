@@ -9,5 +9,5 @@ expression: rendered
    │     ─────┬─────  
    │          ╰─────── no such stdlib error
    │ 
-   │ Note: known stdlib errors: string.ParseError
+   │ Note: known stdlib errors: string.ParseError, string.RegexError
 ───╯

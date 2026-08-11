@@ -136,7 +136,8 @@ Notes on kind boundaries:
   codes.
 - `R011` and `R012` cover the closed builtin `catch`-arm namespaces:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
-  stdlib-error names (`string.ParseError`, `05-stdlib.md`) — both
+  stdlib-error names (`string.ParseError`, `string.RegexError`,
+  `05-stdlib.md`) — both
   builtin, no import needed. Dotted arm names in other roots (`fs.`,
   `proc.`, `json.`) are not yet checked — their namespaces land in M4.
 

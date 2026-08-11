@@ -355,6 +355,27 @@ end
 "#
 );
 
+errorset_test!(
+    native_regex_error_tags_and_subtraction,
+    r#"
+def hasWord(s: string, pattern: string): bool
+  s.match?(pattern)
+end
+
+def lenient(s: string, pattern: string): bool
+  s.match?(pattern) catch (e)
+    string.RegexError => false
+  end
+end
+
+def scrubbed(s: string): string
+  s.replaceRe("[0-9]+", "*") catch_all (e)
+    string.RegexError => s
+  end
+end
+"#
+);
+
 errorset_error_test!(
     e001_unreachable_native_arm,
     r#"

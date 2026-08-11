@@ -36,7 +36,7 @@ mod tables;
 
 pub use tables::{
     BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, NATIVE_ERRORS,
-    PANIC_UNION, Res, Resolutions, STRING_PARSE_ERROR, TypeRes,
+    PANIC_UNION, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
 };
 
 use brasa_diagnostics::Diagnostic;

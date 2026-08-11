@@ -20,6 +20,27 @@
 //!   the `int` bounds, `NaN` becomes `0`.
 //! - `reverse`, `map`, `filter`, and `sortBy` return new vectors;
 //!   `push`/`pop` mutate in place.
+//!
+//! M4 string-surface decisions (BRS-31, `docs/spec/05-stdlib.md`):
+//!
+//! - `bytes` yields the UTF-8 byte values as ints (0..=255).
+//!   `string.reverse` reverses Unicode scalars (no grapheme handling,
+//!   consistent with `chars`/`len`). `trimStart`/`trimEnd` strip
+//!   Unicode whitespace like `trim`.
+//! - `padStart(width, pad)`/`padEnd(width, pad)` count Unicode scalars
+//!   like `len`; the pad string repeats cyclically and is truncated to
+//!   land exactly on `width`; a string already at/over `width` or an
+//!   empty `pad` returns the string unchanged.
+//! - The regex methods take the pattern as a plain string in Rust
+//!   `regex`-crate syntax; an invalid pattern throws the native
+//!   `string.RegexError`. Compiled patterns are cached per run, keyed
+//!   by the pattern text.
+//! - `captures` returns the full match first (group 0), then every
+//!   capture group in order; a non-participating group is the empty
+//!   string. `replaceRe` replaces every non-overlapping match and
+//!   expands `$1`/`${name}` group references (with `$$` as a literal
+//!   `$`) in the replacement, the `regex` crate's `replace_all`
+//!   semantics. `scan` returns every non-overlapping full match.
 //! - `sortBy` is a stable sort; keys must be `int`, `float`, `string`,
 //!   or `char`, and a `NaN` float key panics with
 //!   `panics.AssertionFailed` (`docs/spec/03-types.md`, float rules).
@@ -27,7 +48,7 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use brasa_resolver::STRING_PARSE_ERROR;
+use brasa_resolver::{STRING_PARSE_ERROR, STRING_REGEX_ERROR};
 
 use crate::interp::{EvalResult, Interp, PanicKind, Signal};
 use crate::value::{Value, value_cmp, value_eq};
@@ -90,6 +111,21 @@ impl Interp<'_> {
         }
     }
 
+    /// Compiles `pattern` through the per-run cache; an invalid pattern
+    /// throws the native `string.RegexError`. `regex::Regex` clones
+    /// share the compiled program, so handing out clones is cheap.
+    fn compile_regex(&mut self, pattern: &str) -> Result<regex::Regex, Signal> {
+        if let Some(re) = self.regex_cache.get(pattern) {
+            return Ok(re.clone());
+        }
+
+        let re = regex::Regex::new(pattern).map_err(|_| {
+            self.native_error(STRING_REGEX_ERROR, format!("invalid regex {pattern:?}"))
+        })?;
+        self.regex_cache.insert(pattern.to_string(), re.clone());
+        Ok(re)
+    }
+
     fn string_builtin(&mut self, s: &str, name: &str, args: &[Value]) -> EvalResult {
         match (name, args) {
             ("len", []) => Ok(Value::Int(s.chars().count() as i64)),
@@ -100,6 +136,9 @@ impl Interp<'_> {
                 Ok(Value::Int(s.matches(needle.as_ref()).count() as i64))
             }
             ("trim", []) => Ok(Value::str(s.trim())),
+            ("trimStart", []) => Ok(Value::str(s.trim_start())),
+            ("trimEnd", []) => Ok(Value::str(s.trim_end())),
+            ("reverse", []) => Ok(Value::str(s.chars().rev().collect::<String>())),
             ("toUpper", []) => Ok(Value::str(s.to_uppercase())),
             ("toLower", []) => Ok(Value::str(s.to_lowercase())),
             ("contains?", [Value::Str(needle)]) => Ok(Value::Bool(s.contains(needle.as_ref()))),
@@ -117,6 +156,9 @@ impl Interp<'_> {
             }
             ("lines", []) => Ok(Value::vector(s.lines().map(Value::str).collect())),
             ("chars", []) => Ok(Value::vector(s.chars().map(Value::Char).collect())),
+            ("bytes", []) => Ok(Value::vector(
+                s.bytes().map(|b| Value::Int(b as i64)).collect(),
+            )),
             ("slice", [Value::Int(from), Value::Int(to)]) => {
                 let len = s.chars().count() as i64;
                 let from = (*from).clamp(0, len) as usize;
@@ -133,8 +175,50 @@ impl Interp<'_> {
                 }
                 Ok(Value::str(s.repeat(*n as usize)))
             }
+            ("padStart" | "padEnd", [Value::Int(width), Value::Str(pad)]) => {
+                let len = s.chars().count();
+                if *width <= len as i64 || pad.is_empty() {
+                    return Ok(Value::str(s));
+                }
+
+                let missing = *width as usize - len;
+                let filler: String = pad.chars().cycle().take(missing).collect();
+                let text = if name == "padStart" {
+                    format!("{filler}{s}")
+                } else {
+                    format!("{s}{filler}")
+                };
+                Ok(Value::str(text))
+            }
             ("replace", [Value::Str(from), Value::Str(to)]) => {
                 Ok(Value::str(s.replace(from.as_ref(), to.as_ref())))
+            }
+            ("match?", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                Ok(Value::Bool(re.is_match(s)))
+            }
+            ("captures", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                match re.captures(s) {
+                    Some(caps) => {
+                        let groups: Vec<Value> = caps
+                            .iter()
+                            .map(|group| Value::str(group.map_or("", |m| m.as_str())))
+                            .collect();
+                        Ok(Value::some(Value::vector(groups)))
+                    }
+                    None => Ok(Value::NONE),
+                }
+            }
+            ("replaceRe", [Value::Str(pattern), Value::Str(with)]) => {
+                let re = self.compile_regex(pattern)?;
+                Ok(Value::str(re.replace_all(s, with.as_ref())))
+            }
+            ("scan", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                Ok(Value::vector(
+                    re.find_iter(s).map(|m| Value::str(m.as_str())).collect(),
+                ))
             }
             ("find", [Value::Str(needle)]) => match s.find(needle.as_ref()) {
                 Some(byte_index) => {

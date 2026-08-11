@@ -186,6 +186,78 @@ puts "hello".find("llo") ?? -1
 }
 
 #[test]
+fn string_cutting_cleanup_and_padding() {
+    assert_success(
+        r##"
+puts "brasa".reverse()
+puts "ñandú".reverse()
+puts "  pad  ".trimStart() + "|"
+puts "  pad  ".trimEnd() + "|"
+puts "7".padStart(3, "0")
+puts "7".padEnd(3, "0")
+puts "abc".padStart(2, "0")
+puts "ñu".padStart(4, "ab")
+puts "x".padEnd(6, "ab")
+puts "x".padStart(3, "")
+let w = -2
+puts "x".padStart(w, "0")
+puts "ñandú".bytes()
+puts "".bytes()
+puts "".split(",")
+puts "a".split("")
+"##,
+        "asarb\núdnañ\npad  |\n  pad|\n007\n700\nabc\nabñu\nxababa\nx\nx\n[195, 177, 97, 110, 100, 195, 186]\n[]\n[\"\"]\n[\"a\"]\n",
+    );
+}
+
+// --- built-in regex ----------------------------------------------------
+
+#[test]
+fn regex_methods_agree() {
+    assert_success(
+        r##"
+puts "hello world".match?("wor..")
+puts "hello".match?("^h.*o$")
+puts "hello".match?("[0-9]+")
+puts "2026-08-11".captures("([0-9]+)-([0-9]+)-([0-9]+)")
+puts "ab".captures("a(x)?(b)")
+puts "abc".captures("[0-9]")
+puts "a1b22c".replaceRe("[0-9]+", "#")
+puts "john smith".replaceRe("(\\w+) (\\w+)", "$2 $1")
+puts "cost: 5$".replaceRe("[0-9]", "$$")
+puts "a1b22c333".scan("[0-9]+")
+puts "abc".scan("[0-9]+")
+puts "ab".scan("x*")
+puts "ñandú".scan("[añú]")
+"##,
+        "true\ntrue\nfalse\nSome([\"2026-08-11\", \"2026\", \"08\", \"11\"])\nSome([\"ab\", \"\", \"b\"])\nNone\na#b#c\nsmith john\ncost: $$\n[\"1\", \"22\", \"333\"]\n[]\n[\"\", \"\", \"\"]\n[\"ñ\", \"a\", \"ú\"]\n",
+    );
+}
+
+#[test]
+fn invalid_regex_throws_the_native_regex_error() {
+    assert_success(
+        r##"
+let ok = "abc".match?("[") catch (e)
+  string.RegexError => false
+end
+puts ok
+let n = "abc".scan("(").len() catch (e)
+  string.RegexError => e.len()
+end
+puts n
+"##,
+        "false\n17\n",
+    );
+
+    let (outcome, _) = assert_parity("puts \"abc\".scan(\"(\")\n");
+    let Outcome::Error { message } = outcome else {
+        panic!("expected an error, got {outcome:?}");
+    };
+    assert_eq!(message, "error: string.RegexError: invalid regex \"(\"");
+}
+
+#[test]
 fn to_int_and_to_float_parse_errors_match() {
     assert_success(
         r##"

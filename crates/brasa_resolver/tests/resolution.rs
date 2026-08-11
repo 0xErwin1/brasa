@@ -206,6 +206,17 @@ end
 "#
 );
 
+resolution_test!(
+    catch_arm_regex_error,
+    r#"
+def matches(s: string): bool
+  s.match?("[a-z]+") catch (e)
+    string.RegexError => false
+  end
+end
+"#
+);
+
 resolution_error_test!(
     unknown_native_error,
     r#"

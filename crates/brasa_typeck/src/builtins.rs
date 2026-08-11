@@ -68,17 +68,33 @@ fn string_method(name: &str) -> Option<MethodSig> {
     match name {
         "len" => Some(sig(vec![], Type::Int)),
         "count" => Some(sig(vec![Type::String], Type::Int)),
-        "trim" | "toUpper" | "toLower" => Some(sig(vec![], Type::String)),
+        "trim" | "trimStart" | "trimEnd" | "toUpper" | "toLower" | "reverse" => {
+            Some(sig(vec![], Type::String))
+        }
         "contains?" | "startsWith?" | "endsWith?" => Some(sig(vec![Type::String], Type::Bool)),
         "split" => Some(sig(vec![Type::String], Type::vector(Type::String))),
         "lines" => Some(sig(vec![], Type::vector(Type::String))),
         "chars" => Some(sig(vec![], Type::vector(Type::Char))),
+        // `bytes` yields the UTF-8 byte values (0..=255) as ints
+        // (`docs/spec/05-stdlib.md`).
+        "bytes" => Some(sig(vec![], Type::vector(Type::Int))),
         "slice" => Some(sig(vec![Type::Int, Type::Int], Type::String)),
         "repeat" => Some(sig(vec![Type::Int], Type::String)),
+        "padStart" | "padEnd" => Some(sig(vec![Type::Int, Type::String], Type::String)),
         "replace" => Some(sig(vec![Type::String, Type::String], Type::String)),
         "find" => Some(sig(vec![Type::String], Type::option(Type::Int))),
         "toInt" => Some(sig(vec![], Type::Int)),
         "toFloat" => Some(sig(vec![], Type::Float)),
+        // Built-in regex (`docs/spec/05-stdlib.md`): the pattern is a
+        // plain string until `std::re` lands; an invalid pattern throws
+        // the native `string.RegexError` at runtime.
+        "match?" => Some(sig(vec![Type::String], Type::Bool)),
+        "captures" => Some(sig(
+            vec![Type::String],
+            Type::option(Type::vector(Type::String)),
+        )),
+        "replaceRe" => Some(sig(vec![Type::String, Type::String], Type::String)),
+        "scan" => Some(sig(vec![Type::String], Type::vector(Type::String))),
         _ => None,
     }
 }
@@ -161,6 +177,50 @@ mod tests {
 
         let slice = method(&Type::String, "slice").expect("slice exists");
         assert_eq!(slice.params, vec![Type::Int, Type::Int]);
+    }
+
+    #[test]
+    fn string_methods_from_the_m4_surface() {
+        let bytes = method(&Type::String, "bytes").expect("bytes exists");
+        assert!(bytes.params.is_empty());
+        assert!(matches!(&bytes.ret, RetRule::Fixed(t) if *t == Type::vector(Type::Int)));
+
+        let reverse = method(&Type::String, "reverse").expect("reverse exists");
+        assert!(reverse.params.is_empty());
+        assert!(matches!(&reverse.ret, RetRule::Fixed(t) if *t == Type::String));
+
+        for name in ["trimStart", "trimEnd"] {
+            let m = method(&Type::String, name).expect("trim variants exist");
+            assert!(m.params.is_empty());
+            assert!(matches!(&m.ret, RetRule::Fixed(t) if *t == Type::String));
+        }
+
+        for name in ["padStart", "padEnd"] {
+            let m = method(&Type::String, name).expect("pad variants exist");
+            assert_eq!(m.params, vec![Type::Int, Type::String]);
+            assert!(matches!(&m.ret, RetRule::Fixed(t) if *t == Type::String));
+        }
+    }
+
+    #[test]
+    fn regex_methods_signatures() {
+        let matches = method(&Type::String, "match?").expect("match? exists");
+        assert_eq!(matches.params, vec![Type::String]);
+        assert!(matches!(&matches.ret, RetRule::Fixed(t) if *t == Type::Bool));
+
+        let captures = method(&Type::String, "captures").expect("captures exists");
+        assert_eq!(captures.params, vec![Type::String]);
+        assert!(
+            matches!(&captures.ret, RetRule::Fixed(t) if *t == Type::option(Type::vector(Type::String)))
+        );
+
+        let replace_re = method(&Type::String, "replaceRe").expect("replaceRe exists");
+        assert_eq!(replace_re.params, vec![Type::String, Type::String]);
+        assert!(matches!(&replace_re.ret, RetRule::Fixed(t) if *t == Type::String));
+
+        let scan = method(&Type::String, "scan").expect("scan exists");
+        assert_eq!(scan.params, vec![Type::String]);
+        assert!(matches!(&scan.ret, RetRule::Fixed(t) if *t == Type::vector(Type::String)));
     }
 
     #[test]

@@ -148,6 +148,11 @@ pub const PANIC_UNION: &[&str] = &[
 /// (`docs/spec/05-stdlib.md`: `toInt`/`toFloat` throw it).
 pub const STRING_PARSE_ERROR: &str = "string.ParseError";
 
+/// The canonical qualified name of the native `string` regex error
+/// (`docs/spec/05-stdlib.md`: the regex methods throw it when the
+/// pattern argument is not a valid regex).
+pub const STRING_REGEX_ERROR: &str = "string.RegexError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
@@ -157,7 +162,7 @@ pub const STRING_PARSE_ERROR: &str = "string.ParseError";
 /// `proc`, and `json` errors; other dotted roots stay unchecked until
 /// then. Unlike panics, these ARE errors: they appear in error-sets and
 /// `_` catches them (`docs/spec/04-errors.md`).
-pub const NATIVE_ERRORS: &[&str] = &[STRING_PARSE_ERROR];
+pub const NATIVE_ERRORS: &[&str] = &[STRING_PARSE_ERROR, STRING_REGEX_ERROR];
 
 /// What a value-namespace reference resolved to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

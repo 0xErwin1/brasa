@@ -113,6 +113,17 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("has?"),
     // Set methods.
     method("add"),
+    // M4 string surface (BRS-31): appended, never reordered. `reverse`
+    // already exists above (ids are shared across receiver kinds).
+    method("bytes"),
+    method("trimStart"),
+    method("trimEnd"),
+    method("padStart"),
+    method("padEnd"),
+    method("match?"),
+    method("captures"),
+    method("replaceRe"),
+    method("scan"),
 ];
 
 /// Looks up a builtin by its stable name.

@@ -8,6 +8,10 @@ clap = { version = "4.5", features = ["derive"] }
 insta = { version = "1.43", features = ["yaml"] }
 criterion = "0.8"
 ariadne = "0.5"
+# Built-in string regex methods (`docs/spec/05-stdlib.md`): pinned to
+# the 1.x line, linear-time engine, same syntax the spec promises for
+# `std::re`.
+regex = "1.13"
 
 brasa_arena = { path = "crates/brasa_arena" }
 brasa_source = { path = "crates/brasa_source" }

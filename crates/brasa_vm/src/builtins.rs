@@ -16,6 +16,10 @@ use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
 /// (mirrors `brasa_resolver::STRING_PARSE_ERROR`).
 const STRING_PARSE_ERROR: &str = "string.ParseError";
 
+/// The canonical qualified name of the native `string` regex error
+/// (mirrors `brasa_resolver::STRING_REGEX_ERROR`).
+const STRING_REGEX_ERROR: &str = "string.RegexError";
+
 impl Vm<'_> {
     /// Receiver-less builtins: the prelude printers, `std::math`
     /// members, and the internal failure raisers.
@@ -131,6 +135,20 @@ impl Vm<'_> {
         }
     }
 
+    /// Compiles `pattern` through the per-run cache; an invalid pattern
+    /// throws the native `string.RegexError`. Mirrors the walker's
+    /// `compile_regex` exactly, message included.
+    fn compile_regex(&mut self, pattern: &str) -> Result<regex::Regex, Signal> {
+        if let Some(re) = self.regex_cache.get(pattern) {
+            return Ok(re.clone());
+        }
+
+        let re = regex::Regex::new(pattern)
+            .map_err(|_| native_error(STRING_REGEX_ERROR, format!("invalid regex {pattern:?}")))?;
+        self.regex_cache.insert(pattern.to_string(), re.clone());
+        Ok(re)
+    }
+
     fn string_builtin(&mut self, s: &str, name: &str, args: &[Value]) -> VmResult {
         match (name, args) {
             ("len", []) => Ok(Value::Int(s.chars().count() as i64)),
@@ -141,6 +159,9 @@ impl Vm<'_> {
                 Ok(Value::Int(s.matches(needle.as_ref()).count() as i64))
             }
             ("trim", []) => Ok(Value::str(s.trim())),
+            ("trimStart", []) => Ok(Value::str(s.trim_start())),
+            ("trimEnd", []) => Ok(Value::str(s.trim_end())),
+            ("reverse", []) => Ok(Value::str(s.chars().rev().collect::<String>())),
             ("toUpper", []) => Ok(Value::str(s.to_uppercase())),
             ("toLower", []) => Ok(Value::str(s.to_lowercase())),
             ("contains?", [Value::Str(needle)]) => Ok(Value::Bool(s.contains(needle.as_ref()))),
@@ -158,6 +179,9 @@ impl Vm<'_> {
             }
             ("lines", []) => Ok(self.heap.alloc_vector(s.lines().map(Value::str).collect())),
             ("chars", []) => Ok(self.heap.alloc_vector(s.chars().map(Value::Char).collect())),
+            ("bytes", []) => Ok(self
+                .heap
+                .alloc_vector(s.bytes().map(|b| Value::Int(b as i64)).collect())),
             ("slice", [Value::Int(from), Value::Int(to)]) => {
                 let len = s.chars().count() as i64;
                 let from = (*from).clamp(0, len) as usize;
@@ -174,8 +198,49 @@ impl Vm<'_> {
                 }
                 Ok(Value::str(s.repeat(*n as usize)))
             }
+            ("padStart" | "padEnd", [Value::Int(width), Value::Str(pad)]) => {
+                let len = s.chars().count();
+                if *width <= len as i64 || pad.is_empty() {
+                    return Ok(Value::str(s));
+                }
+
+                let missing = *width as usize - len;
+                let filler: String = pad.chars().cycle().take(missing).collect();
+                let text = if name == "padStart" {
+                    format!("{filler}{s}")
+                } else {
+                    format!("{s}{filler}")
+                };
+                Ok(Value::str(text))
+            }
             ("replace", [Value::Str(from), Value::Str(to)]) => {
                 Ok(Value::str(s.replace(from.as_ref(), to.as_ref())))
+            }
+            ("match?", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                Ok(Value::Bool(re.is_match(s)))
+            }
+            ("captures", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                match re.captures(s) {
+                    Some(caps) => {
+                        let groups: Vec<Value> = caps
+                            .iter()
+                            .map(|group| Value::str(group.map_or("", |m| m.as_str())))
+                            .collect();
+                        Ok(Value::some(self.heap.alloc_vector(groups)))
+                    }
+                    None => Ok(Value::NONE),
+                }
+            }
+            ("replaceRe", [Value::Str(pattern), Value::Str(with)]) => {
+                let re = self.compile_regex(pattern)?;
+                Ok(Value::str(re.replace_all(s, with.as_ref())))
+            }
+            ("scan", [Value::Str(pattern)]) => {
+                let re = self.compile_regex(pattern)?;
+                let matches = re.find_iter(s).map(|m| Value::str(m.as_str())).collect();
+                Ok(self.heap.alloc_vector(matches))
             }
             ("find", [Value::Str(needle)]) => match s.find(needle.as_ref()) {
                 Some(byte_index) => {
