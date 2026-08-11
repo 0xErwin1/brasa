@@ -1,0 +1,39 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `Vector<string>` or `string`, found `int`
+   ╭─[ proc_module_call_errors.brs:4:10 ]
+   │
+ 4 │ proc.run(42)
+   │          ─┬  
+   │           ╰── expected `Vector<string>` or `string`
+───╯
+[T005] Error: wrong number of arguments: expected 1 to 2, found 3
+   ╭─[ proc_module_call_errors.brs:5:1 ]
+   │
+ 5 │ proc.run(["true"], "x", "y")
+   │ ──────────────┬──────────────  
+   │               ╰──────────────── expected 1 to 2 argument(s)
+───╯
+[T001] Error: mismatched types: expected `string`, found `int`
+   ╭─[ proc_module_call_errors.brs:6:12 ]
+   │
+ 6 │ proc.shell(123)
+   │            ─┬─  
+   │             ╰─── expected `string`
+───╯
+[T007] Error: module `proc` has no member `nope`
+   ╭─[ proc_module_call_errors.brs:7:1 ]
+   │
+ 7 │ proc.nope()
+   │ ──────┬─────  
+   │       ╰─────── unknown member
+───╯
+[T007] Error: no method `bogus` on `Output`
+   ╭─[ proc_module_call_errors.brs:9:11 ]
+   │
+ 9 │ let bad = r.bogus
+   │           ────┬───  
+   │               ╰───── unknown method
+───╯

@@ -43,10 +43,21 @@ pub enum Type {
     Set(Box<Type>),
     Option(Box<Type>),
     Tuple(Vec<Type>),
-    Fn { params: Vec<Type>, ret: Box<Type> },
+    Fn {
+        params: Vec<Type>,
+        ret: Box<Type>,
+    },
     Struct(ItemId, Vec<Type>),
     Enum(ItemId, Vec<Type>),
-    Generic { owner: DefRef, index: usize },
+    Generic {
+        owner: DefRef,
+        index: usize,
+    },
+    /// The compiler-known `Output` record returned by the `std::proc`
+    /// runners (`docs/spec/05-stdlib.md`, BRS-32): exactly the fields
+    /// `stdout: string`, `stderr: string`, `code: int`. Native — not
+    /// user-constructible and not a pattern.
+    ProcOutput,
 }
 
 /// How one `Expr::OptionWrap` node resolved: `?.` flattens, so the
@@ -119,6 +130,7 @@ impl Type {
                 }
             }
             Type::Generic { owner, index } => generic_name(hir, *owner, *index),
+            Type::ProcOutput => "Output".to_string(),
         }
     }
 }

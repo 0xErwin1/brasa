@@ -1025,3 +1025,48 @@ def runThrough(f: () -> int): int throws never
 end
 "#
 );
+
+errorset_test!(
+    proc_runners_tag_the_set,
+    r#"
+import std::proc
+
+def runIt(): string
+  proc.run(["true"]).stdout
+end
+
+def shellIt(): string
+  proc.shell("true").stdout
+end
+
+def tried(): int
+  proc.tryRun(["true"]).code
+end
+
+def caught(): string
+  proc.run(["true"]).stdout catch (e)
+    proc.NonZeroExit => e
+  end
+end
+
+def fullyCaught(): string
+  proc.shell("true").stdout catch (e)
+    proc.NonZeroExit => e
+    proc.SpawnError => e
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e001_unreachable_proc_arm,
+    r#"
+import std::proc
+
+def calm(): int
+  proc.tryRun(["true"]).code catch (e)
+    proc.NonZeroExit => -1
+  end
+end
+"#
+);

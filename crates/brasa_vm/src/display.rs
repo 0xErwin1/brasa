@@ -129,6 +129,16 @@ impl<'a> Vm<'a> {
             // nominal tag itself, producing `error: string.ParseError:
             // <message>` without duplication.
             Value::NativeError { message, .. } => Ok(message.to_string()),
+            // The `Output` record renders like a struct
+            // (`docs/spec/05-stdlib.md`, BRS-32).
+            Value::ProcOutput(output) => {
+                let stdout = self.render(&Value::Str(output.stdout.clone()), true, depth + 1)?;
+                let stderr = self.render(&Value::Str(output.stderr.clone()), true, depth + 1)?;
+                Ok(format!(
+                    "Output {{ stdout: {stdout}, stderr: {stderr}, code: {} }}",
+                    output.code
+                ))
+            }
             Value::Caught(_) | Value::Iter(_) => {
                 unreachable!("internal values never render")
             }

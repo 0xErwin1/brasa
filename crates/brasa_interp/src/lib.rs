@@ -17,6 +17,7 @@
 
 mod builtins;
 mod interp;
+pub mod proc_env;
 mod value;
 
 pub use value::Value;
@@ -60,14 +61,25 @@ pub enum Outcome {
 }
 
 /// Runs the program rooted at `roots`, writing its output to `out`.
+/// `args` are the script's trailing CLI arguments, served by
+/// `env.args()` (`docs/spec/05-stdlib.md`, BRS-32).
 pub fn run<W: Write + Send>(
     hir: &Hir,
     roots: &[ItemId],
     resolutions: &Resolutions,
     types: &TypeTables,
     out: &mut W,
+    args: &[String],
 ) -> Outcome {
-    run_with_depth(hir, roots, resolutions, types, out, DEFAULT_MAX_CALL_DEPTH)
+    run_with_depth(
+        hir,
+        roots,
+        resolutions,
+        types,
+        out,
+        DEFAULT_MAX_CALL_DEPTH,
+        args,
+    )
 }
 
 /// [`run`] with an explicit call-depth limit; exceeding it raises a
@@ -79,13 +91,14 @@ pub fn run_with_depth<W: Write + Send>(
     types: &TypeTables,
     out: &mut W,
     max_depth: usize,
+    args: &[String],
 ) -> Outcome {
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("brasa-interp".to_string())
             .stack_size(INTERP_STACK_SIZE)
             .spawn_scoped(scope, move || {
-                let mut interp = Interp::new(hir, resolutions, types, out, max_depth);
+                let mut interp = Interp::new(hir, resolutions, types, out, max_depth, args);
                 let result = interp.run_program(roots);
                 finish(&mut interp, result)
             })

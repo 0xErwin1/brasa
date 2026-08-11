@@ -154,6 +154,75 @@ fn set_method(elem: &Type, name: &str) -> Option<MethodSig> {
     }
 }
 
+/// One parameter of a stdlib module member.
+pub enum ModuleParam {
+    /// An ordinary parameter of a fixed type.
+    Ty(Type),
+    /// A `std::proc` command: `Vector<string>` (the primary argv form)
+    /// or `string` (whitespace-split sugar) —
+    /// `docs/spec/05-stdlib.md`.
+    Command,
+}
+
+/// One stdlib module member signature: required parameters, optional
+/// trailing parameters, and the fixed result type.
+pub struct ModuleSig {
+    pub required: Vec<ModuleParam>,
+    pub optional: Vec<ModuleParam>,
+    pub ret: Type,
+}
+
+/// Looks up `module.name` for the std modules whose signatures have
+/// closed (`docs/spec/05-stdlib.md`, BRS-32: `proc` and `env`).
+/// Returns `None` for members of modules that are still open — the
+/// checker stays silent on those until they close.
+pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
+    let msig = |required: Vec<ModuleParam>, optional: Vec<ModuleParam>, ret: Type| ModuleSig {
+        required,
+        optional,
+        ret,
+    };
+
+    match (module, name) {
+        // Every runner takes an optional trailing stdin string and
+        // returns `Output`.
+        ("proc", "run" | "tryRun") => Some(msig(
+            vec![ModuleParam::Command],
+            vec![ModuleParam::Ty(Type::String)],
+            Type::ProcOutput,
+        )),
+        ("proc", "shell") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![ModuleParam::Ty(Type::String)],
+            Type::ProcOutput,
+        )),
+        ("env", "get") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::option(Type::String),
+        )),
+        ("env", "set") => Some(msig(
+            vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::Unit,
+        )),
+        ("env", "vars") => Some(msig(
+            vec![],
+            vec![],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        )),
+        ("env", "args") => Some(msig(vec![], vec![], Type::vector(Type::String))),
+        _ => None,
+    }
+}
+
+/// Whether `module` is a std module whose member signatures have
+/// closed: an unknown member on a closed module is an error, while
+/// open modules stay `Unknown`-typed until they close during M4.
+pub fn module_closed(module: &str) -> bool {
+    matches!(module, "proc" | "env")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{RetRule, method};

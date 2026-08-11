@@ -66,6 +66,20 @@ pub enum Value {
         name: &'static str,
         message: Rc<str>,
     },
+    /// The `std::proc` `Output` record (BRS-32,
+    /// `docs/spec/05-stdlib.md`): captured stdout/stderr plus the exit
+    /// code. Immutable after construction, so a shared `Rc` clone is
+    /// indistinguishable from a copy.
+    ProcOutput(Rc<OutputValue>),
+}
+
+/// The fields of a [`Value::ProcOutput`], in declaration order
+/// (`stdout`, `stderr`, `code`).
+#[derive(Debug)]
+pub struct OutputValue {
+    pub stdout: Rc<str>,
+    pub stderr: Rc<str>,
+    pub code: i64,
 }
 
 #[derive(Debug)]
@@ -192,6 +206,9 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
         (Value::Closure(x), Value::Closure(y)) => Rc::ptr_eq(x, y),
         (Value::BoundMethod(x), Value::BoundMethod(y)) => Rc::ptr_eq(x, y),
         (Value::BoundBuiltin(x), Value::BoundBuiltin(y)) => Rc::ptr_eq(x, y),
+        (Value::ProcOutput(x), Value::ProcOutput(y)) => {
+            x.stdout == y.stdout && x.stderr == y.stderr && x.code == y.code
+        }
         _ => false,
     }
 }

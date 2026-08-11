@@ -1,0 +1,55 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 out -> Output
+  i3 combined -> string
+  i4 next -> int
+  i5 sugared -> string
+  i6 piped -> string
+  i7 home -> Option<string>
+  i9 all -> Map<string, string>
+  i10 args -> Vector<string>
+expr types
+  e0 -> unknown
+  e1 -> unknown
+  e2 -> string
+  e3 -> Vector<string>
+  e4 -> Output
+  e5 -> Output
+  e6 -> string
+  e7 -> Output
+  e8 -> string
+  e9 -> string
+  e10 -> Output
+  e11 -> int
+  e12 -> int
+  e13 -> int
+  e14 -> unknown
+  e15 -> unknown
+  e16 -> string
+  e17 -> string
+  e18 -> Output
+  e19 -> string
+  e20 -> unknown
+  e21 -> unknown
+  e22 -> string
+  e23 -> string
+  e24 -> Output
+  e25 -> string
+  e26 -> unknown
+  e27 -> unknown
+  e28 -> string
+  e29 -> Option<string>
+  e30 -> unknown
+  e31 -> unknown
+  e32 -> string
+  e33 -> string
+  e34 -> unit
+  e35 -> unknown
+  e36 -> unknown
+  e37 -> Map<string, string>
+  e38 -> unknown
+  e39 -> unknown
+  e40 -> Vector<string>

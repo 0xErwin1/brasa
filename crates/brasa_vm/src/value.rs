@@ -73,6 +73,20 @@ pub enum Value {
     /// INTERNAL: a `for` loop iterator (`iter_new` / `iter_next`).
     /// Never observable in the language.
     Iter(MutHandle<IterState>),
+    /// The `std::proc` `Output` record (BRS-32,
+    /// `docs/spec/05-stdlib.md`): captured stdout/stderr plus the exit
+    /// code. Frozen at construction and free of heap references, so a
+    /// plain [`Handle`] is a precise collector for it.
+    ProcOutput(Handle<OutputValue>),
+}
+
+/// The fields of a [`Value::ProcOutput`], in declaration order
+/// (`stdout`, `stderr`, `code`).
+#[derive(Debug)]
+pub struct OutputValue {
+    pub stdout: Handle<str>,
+    pub stderr: Handle<str>,
+    pub code: i64,
 }
 
 #[derive(Debug)]
@@ -264,6 +278,9 @@ pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
         (Value::Closure(x), Value::Closure(y)) => Rc::ptr_eq(x, y),
         (Value::BoundMethod(x), Value::BoundMethod(y)) => Rc::ptr_eq(x, y),
         (Value::BoundBuiltin(x), Value::BoundBuiltin(y)) => Rc::ptr_eq(x, y),
+        (Value::ProcOutput(x), Value::ProcOutput(y)) => {
+            x.stdout == y.stdout && x.stderr == y.stderr && x.code == y.code
+        }
         _ => false,
     }
 }

@@ -153,16 +153,46 @@ pub const STRING_PARSE_ERROR: &str = "string.ParseError";
 /// pattern argument is not a valid regex).
 pub const STRING_REGEX_ERROR: &str = "string.RegexError";
 
+/// The canonical qualified name of the native `proc` non-zero-exit
+/// error (`docs/spec/05-stdlib.md`: `proc.run`/`proc.shell` throw it
+/// when the child exits with a non-zero code).
+pub const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
+
+/// The canonical qualified name of the native `proc` spawn error
+/// (`docs/spec/05-stdlib.md`: every runner throws it when the child
+/// cannot start — missing binary, permission denied, empty command).
+pub const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
 /// dotted `catch` arm names in these namespaces against it, the
 /// error-set pass tags native throwers with these names, and the
-/// interpreter raises them verbatim. M4 extends it with the `fs`,
-/// `proc`, and `json` errors; other dotted roots stay unchecked until
-/// then. Unlike panics, these ARE errors: they appear in error-sets and
-/// `_` catches them (`docs/spec/04-errors.md`).
-pub const NATIVE_ERRORS: &[&str] = &[STRING_PARSE_ERROR, STRING_REGEX_ERROR];
+/// interpreter raises them verbatim. M4 extends it with the `fs` and
+/// `json` errors; other dotted roots stay unchecked until then. Unlike
+/// panics, these ARE errors: they appear in error-sets and `_` catches
+/// them (`docs/spec/04-errors.md`).
+pub const NATIVE_ERRORS: &[&str] = &[
+    STRING_PARSE_ERROR,
+    STRING_REGEX_ERROR,
+    PROC_NON_ZERO_EXIT,
+    PROC_SPAWN_ERROR,
+];
+
+/// Whether a dotted `catch`-arm name lives in a native-error namespace
+/// that has landed (one of the roots appearing in [`NATIVE_ERRORS`]).
+/// Names in landed namespaces are validated against the closed list;
+/// other dotted roots (`fs.`, `json.`) stay unchecked until their
+/// modules land.
+pub fn native_error_namespace_landed(name: &str) -> bool {
+    let Some((root, _)) = name.split_once('.') else {
+        return false;
+    };
+
+    NATIVE_ERRORS
+        .iter()
+        .any(|error| error.split_once('.').is_some_and(|(ns, _)| ns == root))
+}
 
 /// What a value-namespace reference resolved to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,8 +270,8 @@ pub struct Resolutions {
     /// `panics.X` names live in [`Resolutions::catch_arm_panics`],
     /// stdlib-native error names in
     /// [`Resolutions::catch_arm_native_errors`]; dotted names in
-    /// namespaces that have not landed yet (`fs.`, `proc.`, `json.`)
-    /// are absent until M4.
+    /// namespaces that have not landed yet (`fs.`, `json.`) are absent
+    /// until they close during M4.
     pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
     /// `catch` arm names matching a member of the closed panic union
     /// ([`PANIC_UNION`]), keyed like [`Resolutions::catch_arm_types`];

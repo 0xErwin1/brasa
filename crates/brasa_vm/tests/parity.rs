@@ -10,6 +10,12 @@ use brasa_interp::Outcome;
 /// runs it on both backends with the given call-depth limit, asserting
 /// identical outcome and stdout; returns the shared result.
 fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String) {
+    assert_parity_configured(source, max_depth, &[])
+}
+
+/// [`assert_parity_with_depth`] with explicit script arguments, served
+/// by `env.args()` (BRS-32).
+fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> (Outcome, String) {
     let mut sources = brasa_source::SourceMap::new();
     let file = sources.add_file("parity.brs", source.to_string());
 
@@ -42,6 +48,7 @@ fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String)
         &checked.types,
         &mut walker_out,
         max_depth,
+        args,
     );
     let walker_stdout = String::from_utf8(walker_out).expect("walker output is UTF-8");
 
@@ -52,7 +59,7 @@ fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String)
         &checked.types,
     );
     let mut vm_out = Vec::new();
-    let vm_outcome = brasa_vm::run_with_depth(&module, &mut vm_out, max_depth);
+    let vm_outcome = brasa_vm::run_with_depth(&module, &mut vm_out, max_depth, args);
     let vm_stdout = String::from_utf8(vm_out).expect("VM output is UTF-8");
 
     assert_eq!(
@@ -64,9 +71,9 @@ fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String)
     // Hot-GC leg (BRS-30): the same module under a tiny allocation
     // threshold, so collections fire constantly mid-run. GC pressure
     // must never change observable behavior. `run_with_gc_threshold`
-    // has no depth parameter, so the depth-limited tests keep only the
-    // default-threshold comparison above.
-    if max_depth == brasa_vm::DEFAULT_MAX_CALL_DEPTH {
+    // has no depth or args parameter, so the depth-limited and
+    // args-carrying tests keep only the default comparison above.
+    if max_depth == brasa_vm::DEFAULT_MAX_CALL_DEPTH && args.is_empty() {
         let mut hot_out = Vec::new();
         let (hot_outcome, _) = brasa_vm::run_with_gc_threshold(&module, &mut hot_out, 8);
         let hot_stdout = String::from_utf8(hot_out).expect("hot-GC VM output is UTF-8");
@@ -1344,7 +1351,7 @@ fn run_vm_into<W: std::io::Write + Send>(source: &str, out: &mut W) -> Outcome {
         &resolved.resolutions,
         &checked.types,
     );
-    brasa_vm::run(&module, out)
+    brasa_vm::run(&module, out, &[])
 }
 
 #[test]
@@ -1379,4 +1386,155 @@ fn other_write_errors_stay_fatal() {
         panic!("expected an error outcome, got {outcome:?}");
     };
     assert!(message.contains("failed to write output"), "{message}");
+}
+
+// --- std::proc + std::env (BRS-32) -------------------------------------
+
+#[test]
+fn proc_run_captures_stdout_stderr_and_code() {
+    assert_success(
+        r##"
+import std::proc
+let out = proc.run(["/bin/sh", "-c", "printf hi; printf err 1>&2"])
+puts out.stdout
+puts out.stderr
+puts out.code
+puts out
+"##,
+        "hi\nerr\n0\nOutput { stdout: \"hi\", stderr: \"err\", code: 0 }\n",
+    );
+}
+
+#[test]
+fn proc_run_string_sugar_splits_on_whitespace() {
+    assert_success(
+        r##"
+import std::proc
+puts proc.run("echo hi").stdout.trim()
+"##,
+        "hi\n",
+    );
+}
+
+#[test]
+fn proc_run_non_zero_exit_throws_a_catchable_native_error() {
+    assert_success(
+        r##"
+import std::proc
+let message = proc.run(["/bin/sh", "-c", "printf boom 1>&2; exit 3"]).stdout catch (e)
+  proc.NonZeroExit => e
+end
+puts message
+"##,
+        "command `/bin/sh -c printf boom 1>&2; exit 3` exited with code 3: boom\n",
+    );
+
+    let (outcome, _) =
+        assert_parity("import std::proc\nputs proc.run([\"/bin/sh\", \"-c\", \"exit 7\"])\n");
+    let Outcome::Error { message } = outcome else {
+        panic!("expected an error, got {outcome:?}");
+    };
+    assert_eq!(
+        message,
+        "error: proc.NonZeroExit: command `/bin/sh -c exit 7` exited with code 7"
+    );
+}
+
+#[test]
+fn proc_try_run_reports_the_code_without_throwing() {
+    assert_success(
+        r##"
+import std::proc
+puts proc.tryRun(["/bin/sh", "-c", "exit 5"]).code
+puts proc.tryRun(["/bin/sh", "-c", "kill -9 $$"]).code
+puts proc.tryRun("true").code
+puts proc.tryRun("false").code
+"##,
+        "5\n137\n0\n1\n",
+    );
+}
+
+#[test]
+fn proc_stdin_round_trips_through_cat() {
+    assert_success(
+        r##"
+import std::proc
+puts proc.run(["cat"], "hello\nworld").stdout
+puts proc.run(["cat"], "").stdout + "|"
+"##,
+        "hello\nworld\n|\n",
+    );
+}
+
+#[test]
+fn proc_shell_runs_a_pipeline() {
+    assert_success(
+        r##"
+import std::proc
+puts proc.shell("printf 'a\nb\nc' | wc -l").stdout.trim()
+puts proc.shell("cat | wc -c", "1234").stdout.trim()
+"##,
+        "2\n4\n",
+    );
+}
+
+#[test]
+fn proc_spawn_failures_throw_spawn_error() {
+    assert_success(
+        r##"
+import std::proc
+let missing = proc.run(["/definitely/not/a/real/brasa-binary"]).stdout catch (e)
+  proc.SpawnError => "missing"
+end
+puts missing
+let empty = proc.tryRun("").stdout catch (e)
+  proc.SpawnError => e
+end
+puts empty
+"##,
+        "missing\nempty command\n",
+    );
+}
+
+#[test]
+fn env_get_set_and_vars_agree() {
+    assert_success(
+        r##"
+import std::env
+puts env.get("BRASA_PARITY_DEFINITELY_MISSING")
+env.set("BRASA_PARITY_VAR", "v1")
+puts env.get("BRASA_PARITY_VAR")
+puts env.vars().get("BRASA_PARITY_VAR")
+"##,
+        "None\nSome(\"v1\")\nSome(\"v1\")\n",
+    );
+}
+
+#[test]
+fn env_set_overrides_reach_spawned_children() {
+    assert_success(
+        r##"
+import std::proc
+import std::env
+env.set("BRASA_PARITY_CHILD", "inherited")
+puts proc.shell("printf %s \"$BRASA_PARITY_CHILD\"").stdout
+"##,
+        "inherited\n",
+    );
+}
+
+#[test]
+fn env_args_are_the_script_arguments() {
+    let args = vec!["alpha".to_string(), "beta gamma".to_string()];
+    let (outcome, stdout) = assert_parity_configured(
+        "import std::env\nputs env.args()\n",
+        brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+        &args,
+    );
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(stdout, "[\"alpha\", \"beta gamma\"]\n");
+
+    let (outcome, stdout) = assert_parity("import std::env\nputs env.args()\n");
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(stdout, "[]\n");
 }

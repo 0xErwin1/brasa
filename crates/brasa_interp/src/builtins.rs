@@ -48,10 +48,15 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use brasa_resolver::{STRING_PARSE_ERROR, STRING_REGEX_ERROR};
+use brasa_resolver::{
+    PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, STRING_PARSE_ERROR, STRING_REGEX_ERROR,
+};
 
 use crate::interp::{EvalResult, Interp, PanicKind, Signal};
-use crate::value::{Value, value_cmp, value_eq};
+use crate::proc_env::{
+    env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
+};
+use crate::value::{OutputValue, Value, value_cmp, value_eq};
 
 impl Interp<'_> {
     pub(crate) fn call_builtin(&mut self, recv: Value, name: &str, args: Vec<Value>) -> EvalResult {
@@ -74,6 +79,27 @@ impl Interp<'_> {
             Value::Vector(_) => self.vector_builtin(&recv, name, args),
             Value::Map(_) => self.map_builtin(&recv, name, &args),
             Value::Set(_) => self.set_builtin(&recv, name, &args),
+            Value::ProcOutput(output) => {
+                let output = output.clone();
+                self.proc_output_builtin(&output, name, &args)
+            }
+            _ => Err(self.builtin_error(name)),
+        }
+    }
+
+    /// The `Output` record's field accessors (BRS-32,
+    /// `docs/spec/05-stdlib.md`): receiver-only builtins that yield the
+    /// field value, matching the field-read path in `eval_field`.
+    fn proc_output_builtin(
+        &mut self,
+        output: &OutputValue,
+        name: &str,
+        args: &[Value],
+    ) -> EvalResult {
+        match (name, args) {
+            ("stdout", []) => Ok(Value::Str(output.stdout.clone())),
+            ("stderr", []) => Ok(Value::Str(output.stderr.clone())),
+            ("code", []) => Ok(Value::Int(output.code)),
             _ => Err(self.builtin_error(name)),
         }
     }
@@ -422,6 +448,106 @@ impl Interp<'_> {
             _ => Err(self.builtin_error(name)),
         }
     }
+
+    // --- std::proc + std::env (BRS-32, `docs/spec/05-stdlib.md`) -----
+
+    /// The `std::proc` runners: `run`/`tryRun` take an argv vector (the
+    /// primary form) or a whitespace-split string (sugar); `shell` runs
+    /// the line via `/bin/sh -c`. Every runner accepts an optional
+    /// trailing stdin string piped to the child; without it the child
+    /// reads an empty stdin. `run`/`shell` throw `proc.NonZeroExit` on
+    /// a non-zero exit; every runner throws `proc.SpawnError` when the
+    /// child cannot start.
+    pub(crate) fn proc_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        if !matches!(name, "run" | "tryRun" | "shell") {
+            return Err(self.fatal(format!("brasa: unknown member `{name}` on module `proc`")));
+        }
+
+        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `proc.{name}`"));
+        let (cmd, stdin) = match args.as_slice() {
+            [cmd] => (cmd, None),
+            [cmd, Value::Str(text)] => (cmd, Some(text.clone())),
+            _ => return Err(invalid()),
+        };
+
+        let (argv, shown) = match (name, cmd) {
+            ("shell", Value::Str(line)) => (shell_argv(line), line.to_string()),
+            ("shell", _) => return Err(invalid()),
+            (_, Value::Str(line)) => {
+                let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+                let shown = argv.join(" ");
+                (argv, shown)
+            }
+            (_, Value::Vector(items)) => {
+                let mut argv = Vec::with_capacity(items.borrow().len());
+                for item in items.borrow().iter() {
+                    match item {
+                        Value::Str(s) => argv.push(s.to_string()),
+                        _ => return Err(invalid()),
+                    }
+                }
+                let shown = argv.join(" ");
+                (argv, shown)
+            }
+            _ => return Err(invalid()),
+        };
+
+        let output = run_command(&argv, stdin.as_deref(), &self.env_overlay)
+            .map_err(|message| self.native_error(PROC_SPAWN_ERROR, message))?;
+
+        if name != "tryRun" && output.code != 0 {
+            let message = non_zero_exit_message(&shown, &output);
+            return Err(self.native_error(PROC_NON_ZERO_EXIT, message));
+        }
+
+        Ok(Value::ProcOutput(Rc::new(OutputValue {
+            stdout: Rc::from(output.stdout),
+            stderr: Rc::from(output.stderr),
+            code: output.code,
+        })))
+    }
+
+    /// The `std::env` members: the process environment merged with the
+    /// `env.set` overlay (`docs/spec/05-stdlib.md`, BRS-32).
+    pub(crate) fn env_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        match (name, args.as_slice()) {
+            ("get", [Value::Str(key)]) => {
+                let value = self
+                    .env_overlay
+                    .get(key.as_ref())
+                    .cloned()
+                    .or_else(|| env_lookup(key));
+                Ok(match value {
+                    Some(value) => Value::some(Value::str(value)),
+                    None => Value::NONE,
+                })
+            }
+            ("set", [Value::Str(key), Value::Str(value)]) => {
+                if !valid_env_name(key) {
+                    return Err(self.fatal(format!(
+                        "brasa: invalid environment variable name {:?} in `env.set`",
+                        key.as_ref()
+                    )));
+                }
+                self.env_overlay.insert(key.to_string(), value.to_string());
+                Ok(Value::Unit)
+            }
+            ("vars", []) => {
+                let entries: Vec<(Value, Value)> = merged_env(&self.env_overlay)
+                    .into_iter()
+                    .map(|(key, value)| (Value::str(key), Value::str(value)))
+                    .collect();
+                Ok(Value::Map(Rc::new(std::cell::RefCell::new(entries))))
+            }
+            ("args", []) => Ok(Value::vector(
+                self.script_args.iter().map(Value::str).collect(),
+            )),
+            ("get" | "set" | "vars" | "args", _) => {
+                Err(self.fatal(format!("brasa: invalid argument(s) to `env.{name}`")))
+            }
+            _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `env`"))),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -450,7 +576,7 @@ mod tests {
         let res = Resolutions::default();
         let types = TypeTables::default();
         let mut out = Vec::new();
-        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16);
+        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16, &[]);
 
         let set = set_of(vec![Value::Int(1)]);
 
@@ -490,7 +616,7 @@ mod tests {
         let res = Resolutions::default();
         let types = TypeTables::default();
         let mut out = Vec::new();
-        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16);
+        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16, &[]);
 
         let set = set_of(vec![Value::Int(2), Value::Int(1)]);
         let text = interp.display(&set).expect("display succeeds");

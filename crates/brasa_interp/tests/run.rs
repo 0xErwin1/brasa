@@ -39,6 +39,7 @@ fn run_into<W: Write + Send>(source: &str, out: &mut W, max_depth: usize) -> Out
         &checked.types,
         out,
         max_depth,
+        &[],
     )
 }
 

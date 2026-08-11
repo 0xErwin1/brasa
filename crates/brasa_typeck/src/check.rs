@@ -25,9 +25,9 @@ use std::collections::{HashMap, HashSet};
 use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, BinaryOp, CatchArm, CatchType, Constraint, EnumDef, Expr, ExprId, FuncDef,
-    GenericParam, Hir, IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal,
-    MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp,
-    Variant,
+    GenericParam, Hir, IfNode, IfaceMember, ImportPath, Item, ItemId, LambdaBody, LambdaParam,
+    Literal, MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId,
+    UnaryOp, Variant,
 };
 use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
@@ -904,13 +904,8 @@ impl<'a> Checker<'a> {
         args: &[ExprId],
     ) -> Type {
         if self.is_module_ref(recv) {
-            // Stdlib module members close in M4; stay silent until then.
             self.check_expr(recv, None);
-            self.tables.expr_types.insert(callee, Type::Unknown);
-            for &arg in args {
-                self.check_expr(arg, None);
-            }
-            return Type::Unknown;
+            return self.check_module_call(span, callee, recv, name, args);
         }
 
         let recv_ty = self.check_expr(recv, None);
@@ -982,6 +977,113 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// A member call on a std module handle. Modules whose signatures
+    /// have closed (`proc`, `env` — BRS-32) check like builtin methods:
+    /// arity within the required..=required+optional range, arguments
+    /// against their declared types, result the declared type. Every
+    /// other module (and file imports) stays `Unknown`-typed until its
+    /// signatures close during M4.
+    fn check_module_call(
+        &mut self,
+        span: Span,
+        callee: ExprId,
+        recv: ExprId,
+        name: &str,
+        args: &[ExprId],
+    ) -> Type {
+        let unknown = |checker: &mut Self| {
+            checker.tables.expr_types.insert(callee, Type::Unknown);
+            for &arg in args {
+                checker.check_expr(arg, None);
+            }
+            Type::Unknown
+        };
+
+        let Some(module) = self.std_module_of(recv) else {
+            return unknown(self);
+        };
+
+        let Some(sig) = builtins::module_member(&module, name) else {
+            if builtins::module_closed(&module) {
+                self.error(err_at(
+                    codes::T_UNKNOWN_MEMBER,
+                    span,
+                    format!("module `{module}` has no member `{name}`"),
+                    "unknown member",
+                ));
+            }
+            return unknown(self);
+        };
+
+        let (min, max) = (sig.required.len(), sig.required.len() + sig.optional.len());
+        if args.len() < min || args.len() > max {
+            let expected = if min == max {
+                format!("{min}")
+            } else {
+                format!("{min} to {max}")
+            };
+            self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "wrong number of arguments: expected {expected}, found {}",
+                    args.len()
+                ),
+                &format!("expected {expected} argument(s)"),
+            ));
+        }
+
+        let params = sig.required.iter().chain(sig.optional.iter());
+        for (&arg, param) in args.iter().zip(params) {
+            match param {
+                builtins::ModuleParam::Ty(ty) => {
+                    let ty = ty.clone();
+                    self.check_expect(arg, &ty);
+                }
+                builtins::ModuleParam::Command => {
+                    let found = self.check_expr(arg, None);
+                    let accepted = unify(&found, &Type::String).is_some()
+                        || unify(&found, &Type::vector(Type::String)).is_some();
+                    if !accepted {
+                        let found = found.display(self.hir);
+                        let arg_span = self.hir.span_of_expr(arg);
+                        self.error(err_at(
+                            codes::T_MISMATCHED_TYPES,
+                            arg_span,
+                            format!(
+                                "mismatched types: expected `Vector<string>` or `string`, \
+                                 found `{found}`"
+                            ),
+                            "expected `Vector<string>` or `string`",
+                        ));
+                    }
+                }
+            }
+        }
+        for &arg in args.iter().skip(max) {
+            self.check_expr(arg, None);
+        }
+
+        self.tables.expr_types.insert(callee, Type::Unknown);
+        sig.ret
+    }
+
+    /// The module name of a `Res::Module` receiver when it is a
+    /// `std::` import; `None` for file imports.
+    fn std_module_of(&self, recv: ExprId) -> Option<String> {
+        let Some(&Res::Module(item)) = self.res.expr_res.get(&recv) else {
+            return None;
+        };
+        let Item::Import(import) = self.hir.item(item) else {
+            return None;
+        };
+
+        match &import.path {
+            ImportPath::Std(segments) => segments.last().cloned(),
+            ImportPath::File(_) => None,
+        }
+    }
+
     fn check_field(&mut self, id: ExprId, recv: ExprId, name: &str) -> Type {
         if self.is_module_ref(recv) {
             self.check_expr(recv, None);
@@ -1023,6 +1125,16 @@ impl<'a> Checker<'a> {
         }
         if let Type::Generic { owner, index } = recv {
             return self.lookup_generic_member(*owner, *index, recv, name);
+        }
+        // The `Output` record's closed field set
+        // (`docs/spec/05-stdlib.md`, BRS-32); everything else on it is
+        // the universal `toString` or missing.
+        if let Type::ProcOutput = recv {
+            match name {
+                "stdout" | "stderr" => return Member::Value(Type::String),
+                "code" => return Member::Value(Type::Int),
+                _ => {}
+            }
         }
 
         if let Some(sig) = builtins::method(recv, name) {

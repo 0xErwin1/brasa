@@ -9,7 +9,11 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use crate::value::{Value, value_cmp, value_eq};
+use brasa_interp::proc_env::{
+    env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
+};
+
+use crate::value::{OutputValue, Value, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
 
 /// The canonical qualified name of the native `string` parse error
@@ -19,6 +23,14 @@ const STRING_PARSE_ERROR: &str = "string.ParseError";
 /// The canonical qualified name of the native `string` regex error
 /// (mirrors `brasa_resolver::STRING_REGEX_ERROR`).
 const STRING_REGEX_ERROR: &str = "string.RegexError";
+
+/// The canonical qualified name of the native `proc` non-zero-exit
+/// error (mirrors `brasa_resolver::PROC_NON_ZERO_EXIT`).
+const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
+
+/// The canonical qualified name of the native `proc` spawn error
+/// (mirrors `brasa_resolver::PROC_SPAWN_ERROR`).
+const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
 
 impl Vm<'_> {
     /// Receiver-less builtins: the prelude printers, `std::math`
@@ -57,10 +69,122 @@ impl Vm<'_> {
                 Some(Value::Str(detail)) => Err(self.panic(ASSERTION_FAILED, detail.to_string())),
                 _ => unreachable!("<assert-failed> always receives a detail string"),
             },
-            _ => match name.strip_prefix("math.") {
-                Some(member) => self.math_call(member, args),
-                None => unreachable!("unknown free builtin `{name}`"),
-            },
+            _ => {
+                if let Some(member) = name.strip_prefix("math.") {
+                    self.math_call(member, args)
+                } else if let Some(member) = name.strip_prefix("proc.") {
+                    self.proc_call(member, args)
+                } else if let Some(member) = name.strip_prefix("env.") {
+                    self.env_call(member, args)
+                } else {
+                    unreachable!("unknown free builtin `{name}`")
+                }
+            }
+        }
+    }
+
+    /// The `std::proc` runners, ported from the walker's `proc_call`
+    /// (BRS-32, `docs/spec/05-stdlib.md`): `run`/`tryRun` take an argv
+    /// vector or a whitespace-split string, `shell` runs via
+    /// `/bin/sh -c`; every runner accepts an optional trailing stdin
+    /// string. `run`/`shell` throw `proc.NonZeroExit` on a non-zero
+    /// exit; every runner throws `proc.SpawnError` when the child
+    /// cannot start.
+    fn proc_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        if !matches!(name, "run" | "tryRun" | "shell") {
+            return Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `proc`"
+            )));
+        }
+
+        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `proc.{name}`"));
+        let (cmd, stdin) = match args.as_slice() {
+            [cmd] => (cmd, None),
+            [cmd, Value::Str(text)] => (cmd, Some(text.clone())),
+            _ => return Err(invalid()),
+        };
+
+        let (argv, shown) = match (name, cmd) {
+            ("shell", Value::Str(line)) => (shell_argv(line), line.to_string()),
+            ("shell", _) => return Err(invalid()),
+            (_, Value::Str(line)) => {
+                let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+                let shown = argv.join(" ");
+                (argv, shown)
+            }
+            (_, Value::Vector(items)) => {
+                let items = self.heap.vector(*items).borrow().clone();
+                let mut argv = Vec::with_capacity(items.len());
+                for item in &items {
+                    match item {
+                        Value::Str(s) => argv.push(s.to_string()),
+                        _ => return Err(invalid()),
+                    }
+                }
+                let shown = argv.join(" ");
+                (argv, shown)
+            }
+            _ => return Err(invalid()),
+        };
+
+        let output = run_command(&argv, stdin.as_deref(), &self.env_overlay)
+            .map_err(|message| native_error(PROC_SPAWN_ERROR, message))?;
+
+        if name != "tryRun" && output.code != 0 {
+            let message = non_zero_exit_message(&shown, &output);
+            return Err(native_error(PROC_NON_ZERO_EXIT, message));
+        }
+
+        Ok(Value::ProcOutput(Rc::new(OutputValue {
+            stdout: Rc::from(output.stdout),
+            stderr: Rc::from(output.stderr),
+            code: output.code,
+        })))
+    }
+
+    /// The `std::env` members, ported from the walker's `env_call`
+    /// (BRS-32, `docs/spec/05-stdlib.md`): the process environment
+    /// merged with the `env.set` overlay.
+    fn env_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("get", [Value::Str(key)]) => {
+                let value = self
+                    .env_overlay
+                    .get(key.as_ref())
+                    .cloned()
+                    .or_else(|| env_lookup(key));
+                Ok(match value {
+                    Some(value) => Value::some(Value::str(value)),
+                    None => Value::NONE,
+                })
+            }
+            ("set", [Value::Str(key), Value::Str(value)]) => {
+                if !valid_env_name(key) {
+                    return Err(Signal::Fatal(format!(
+                        "brasa: invalid environment variable name {:?} in `env.set`",
+                        key.as_ref()
+                    )));
+                }
+                self.env_overlay.insert(key.to_string(), value.to_string());
+                Ok(Value::Unit)
+            }
+            ("vars", []) => {
+                let entries: Vec<(Value, Value)> = merged_env(&self.env_overlay)
+                    .into_iter()
+                    .map(|(key, value)| (Value::str(key), Value::str(value)))
+                    .collect();
+                Ok(self.heap.alloc_map(entries))
+            }
+            ("args", []) => {
+                let args = self.script_args.iter().map(Value::str).collect();
+                Ok(self.heap.alloc_vector(args))
+            }
+            ("get" | "set" | "vars" | "args", _) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `env.{name}`"
+            ))),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `env`"
+            ))),
         }
     }
 
@@ -112,6 +236,10 @@ impl Vm<'_> {
             Value::Vector(_) => self.vector_builtin(&recv, name, args),
             Value::Map(_) => self.map_builtin(&recv, name, &args),
             Value::Set(_) => self.set_builtin(&recv, name, &args),
+            Value::ProcOutput(output) => {
+                let output = output.clone();
+                proc_output_builtin(&output, name, &args)
+            }
             _ => Err(builtin_error(name)),
         }
     }
@@ -484,6 +612,18 @@ impl Vm<'_> {
             )),
             _ => Err(builtin_error(name)),
         }
+    }
+}
+
+/// The `Output` record's field accessors (BRS-32,
+/// `docs/spec/05-stdlib.md`): receiver-only builtins that yield the
+/// field value, matching the walker's `proc_output_builtin`.
+fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmResult {
+    match (name, args) {
+        ("stdout", []) => Ok(Value::Str(output.stdout.clone())),
+        ("stderr", []) => Ok(Value::Str(output.stderr.clone())),
+        ("code", []) => Ok(Value::Int(output.code)),
+        _ => Err(builtin_error(name)),
     }
 }
 

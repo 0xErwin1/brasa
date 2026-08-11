@@ -1,0 +1,11 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E001] Error: unreachable `catch` arm: `proc.NonZeroExit` is not in the error-set here
+   ╭─[ e001_unreachable_proc_arm.brs:6:5 ]
+   │
+ 6 │     proc.NonZeroExit => -1
+   │     ────────┬───────  
+   │             ╰───────── this expression cannot throw `proc.NonZeroExit`
+───╯

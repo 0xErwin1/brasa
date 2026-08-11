@@ -10,7 +10,9 @@
 //! | direct `FuncDef` item | that item's current set |
 //! | declared struct method | that method's current set |
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
-//! | stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
+//! | `proc.run` / `proc.shell` | the `Opaque("proc.NonZeroExit")` and `Opaque("proc.SpawnError")` tags (BRS-32) |
+//! | `proc.tryRun` | the `Opaque("proc.SpawnError")` tag only — it never throws `NonZeroExit` |
+//! | any other stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
@@ -28,11 +30,12 @@ use std::collections::HashMap;
 
 use brasa_diagnostics::Diagnostic;
 use brasa_hir::{
-    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, ItemId, LambdaBody, Stmt,
-    StmtId,
+    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, ImportPath, Item, ItemId,
+    LambdaBody, Stmt, StmtId,
 };
 use brasa_resolver::{
-    BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
+    BuiltinType, DefRef, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions,
+    STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
 };
 use brasa_typeck::{Type, TypeTables};
 
@@ -299,10 +302,29 @@ impl<'a> Collector<'a> {
 
     fn method_call(&mut self, recv: ExprId, name: &str, args: &[ExprId]) -> ErrorSet {
         if self.is_module_ref(recv) {
-            // Stdlib module members are native and throw nothing in M2
-            // (`docs/spec/05-stdlib.md`); their signatures close in M4
-            // (BRS-41), when throwing members become [`ErrorTag`]s.
-            return self.args(args);
+            // The `std::proc` runners are the throwing module members
+            // whose signatures have closed (BRS-32,
+            // `docs/spec/05-stdlib.md`): `run`/`shell` raise
+            // `proc.NonZeroExit` on a non-zero exit and every runner
+            // raises `proc.SpawnError` when the child cannot start.
+            // Members of still-open modules are native and throw
+            // nothing until their signatures close during M4.
+            let mut set = self.args(args);
+
+            if self.std_module_of(recv).as_deref() == Some("proc") {
+                match name {
+                    "run" | "shell" => {
+                        set.tags.insert(ErrorTag::Opaque(PROC_NON_ZERO_EXIT));
+                        set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
+                    }
+                    "tryRun" => {
+                        set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
+                    }
+                    _ => {}
+                }
+            }
+
+            return set;
         }
 
         let mut set = self.expr(recv);
@@ -328,8 +350,9 @@ impl<'a> Collector<'a> {
                 set.tags.insert(ErrorTag::Opaque(STRING_REGEX_ERROR));
             }
             // Builtin receivers: primitives, containers, ranges,
-            // options, tuples, and enums (whose only member is the
-            // derived `toString`). Every other builtin method throws
+            // options, tuples, enums (whose only member is the derived
+            // `toString`), and the `proc` `Output` record (fields plus
+            // `toString` only). Every other builtin method throws
             // nothing in M2; only function arguments they may invoke
             // contribute (HOF transparency).
             Some(
@@ -345,7 +368,8 @@ impl<'a> Collector<'a> {
                 | Type::Set(_)
                 | Type::Option(_)
                 | Type::Tuple(_)
-                | Type::Enum(_, _),
+                | Type::Enum(_, _)
+                | Type::ProcOutput,
             ) => set.union_with(&self.hof_args(args)),
             // A generic receiver dispatches through its constraint
             // (indirect until BRS-25's per-call-site inheritance), and
@@ -441,8 +465,7 @@ impl<'a> Collector<'a> {
     ///   this pass never reads) subtract nothing: panics are not in
     ///   error-sets (`docs/spec/04-errors.md`);
     /// - dotted names in namespaces that have not landed (`fs.`,
-    ///   `proc.`, `json.` — M4) and unresolved arm names subtract
-    ///   nothing.
+    ///   `json.` — M4) and unresolved arm names subtract nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set
@@ -495,6 +518,22 @@ impl<'a> Collector<'a> {
     fn is_module_ref(&self, expr: ExprId) -> bool {
         matches!(self.hir.expr(expr), Expr::Ident(_))
             && matches!(self.res.expr_res.get(&expr), Some(Res::Module(_)))
+    }
+
+    /// The module name of a `Res::Module` receiver when it is a
+    /// `std::` import; `None` for file imports.
+    fn std_module_of(&self, recv: ExprId) -> Option<String> {
+        let Some(&Res::Module(item)) = self.res.expr_res.get(&recv) else {
+            return None;
+        };
+        let Item::Import(import) = self.hir.item(item) else {
+            return None;
+        };
+
+        match &import.path {
+            ImportPath::Std(segments) => segments.last().cloned(),
+            ImportPath::File(_) => None,
+        }
     }
 }
 

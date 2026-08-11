@@ -1,0 +1,10 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  runIt -> {proc.NonZeroExit, proc.SpawnError}
+  shellIt -> {proc.NonZeroExit, proc.SpawnError}
+  tried -> {proc.SpawnError}
+  caught -> {proc.SpawnError}
+  fullyCaught -> {}

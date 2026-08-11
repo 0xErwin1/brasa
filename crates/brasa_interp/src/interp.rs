@@ -24,8 +24,9 @@
 //!   stack.
 //! - The `catch` binding for a panic arm is the panic's detail message
 //!   as a `string` (panics carry no user payload in M1).
-//! - Stdlib modules other than `std::math` (and every file import) are
-//!   not loaded in M1: touching a member is a clean runtime error.
+//! - Stdlib modules other than `std::math` (M1), `std::proc`, and
+//!   `std::env` (M4, BRS-32) — and every file import — are not loaded
+//!   yet: touching a member is a clean runtime error.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -121,6 +122,14 @@ pub(crate) struct Interp<'a> {
     /// Per-run cache of compiled regex patterns for the string regex
     /// methods (`docs/spec/05-stdlib.md`), keyed by the pattern text.
     pub(crate) regex_cache: HashMap<String, regex::Regex>,
+    /// The script's trailing CLI arguments, served by `env.args()`
+    /// (BRS-32, `docs/spec/05-stdlib.md`).
+    pub(crate) script_args: Vec<String>,
+    /// `env.set` overrides (BRS-32): merged over the process
+    /// environment by `env.get`/`env.vars` and passed to every child
+    /// spawned through `std::proc`. The host process's own environment
+    /// block is never mutated.
+    pub(crate) env_overlay: HashMap<String, String>,
 }
 
 impl<'a> Interp<'a> {
@@ -130,6 +139,7 @@ impl<'a> Interp<'a> {
         types: &'a TypeTables,
         out: &'a mut dyn Write,
         max_depth: usize,
+        args: &[String],
     ) -> Self {
         Interp {
             hir,
@@ -140,6 +150,8 @@ impl<'a> Interp<'a> {
             stack: Vec::new(),
             max_depth,
             regex_cache: HashMap::new(),
+            script_args: args.to_vec(),
+            env_overlay: HashMap::new(),
         }
     }
 
@@ -190,7 +202,7 @@ impl<'a> Interp<'a> {
         })
     }
 
-    fn fatal(&self, message: impl Into<String>) -> Signal {
+    pub(crate) fn fatal(&self, message: impl Into<String>) -> Signal {
         Signal::Fatal(message.into())
     }
 
@@ -1067,6 +1079,7 @@ impl<'a> Interp<'a> {
             Value::Struct(s) => self.item_name(s.item),
             Value::Enum(e) => self.item_name(e.item),
             Value::NativeError { name, .. } => name.to_string(),
+            Value::ProcOutput(_) => "Output".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }
@@ -1317,9 +1330,9 @@ impl<'a> Interp<'a> {
 
     // --- modules -------------------------------------------------------
 
-    /// Member calls on module handles. Only `std::math` executes in M1;
-    /// every other module reports a clean runtime error (module loading
-    /// lands after M1, stdlib module signatures close in M4).
+    /// Member calls on module handles. `std::math` (M1), `std::proc`,
+    /// and `std::env` (M4, BRS-32) execute; every other module reports
+    /// a clean runtime error until its signatures close during M4.
     fn module_call(&mut self, item: ItemId, name: &str, args: Vec<Value>) -> EvalResult {
         let Item::Import(import) = self.hir.item(item) else {
             return Err(self.fatal("brasa: module handle is not an import"));
@@ -1333,8 +1346,13 @@ impl<'a> Interp<'a> {
                 .unwrap_or_else(|| path.clone()),
         };
 
-        if matches!(&import.path, ImportPath::Std(_)) && module == "math" {
-            return self.math_call(name, args);
+        if matches!(&import.path, ImportPath::Std(_)) {
+            match module.as_str() {
+                "math" => return self.math_call(name, args),
+                "proc" => return self.proc_call(name, args),
+                "env" => return self.env_call(name, args),
+                _ => {}
+            }
         }
 
         Err(self.fatal(format!(
@@ -1400,6 +1418,17 @@ impl<'a> Interp<'a> {
                 })));
             }
             return Err(self.fatal(format!("brasa: unknown member `{name}`")));
+        }
+
+        // The `Output` record's field reads (BRS-32,
+        // `docs/spec/05-stdlib.md`) yield the field value directly.
+        if let Value::ProcOutput(output) = &recv {
+            match name {
+                "stdout" => return Ok(Value::Str(output.stdout.clone())),
+                "stderr" => return Ok(Value::Str(output.stderr.clone())),
+                "code" => return Ok(Value::Int(output.code)),
+                _ => {}
+            }
         }
 
         // A builtin method accessed without calling it becomes a bound
@@ -1561,6 +1590,16 @@ impl<'a> Interp<'a> {
             // prepends the nominal tag itself, producing
             // `error: string.ParseError: <message>` without duplication.
             Value::NativeError { message, .. } => Ok(message.to_string()),
+            // The `Output` record renders like a struct
+            // (`docs/spec/05-stdlib.md`, BRS-32).
+            Value::ProcOutput(output) => {
+                let stdout = self.render(&Value::Str(output.stdout.clone()), true, depth + 1)?;
+                let stderr = self.render(&Value::Str(output.stderr.clone()), true, depth + 1)?;
+                Ok(format!(
+                    "Output {{ stdout: {stdout}, stderr: {stderr}, code: {} }}",
+                    output.code
+                ))
+            }
         }
     }
 

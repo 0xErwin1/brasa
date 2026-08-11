@@ -284,7 +284,8 @@ impl Heap {
             | Value::Range { .. }
             | Value::Option(None)
             | Value::Func(_)
-            | Value::NativeError { .. } => {}
+            | Value::NativeError { .. }
+            | Value::ProcOutput(_) => {}
         }
     }
 }

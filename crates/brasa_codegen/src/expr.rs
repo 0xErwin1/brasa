@@ -391,8 +391,8 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
             .unwrap_or_else(|| path.clone()),
     };
 
-    if is_std && module == "math" {
-        if let Some(builtin) = builtin_id(&format!("math.{name}")) {
+    if is_std && matches!(module.as_str(), "math" | "proc" | "env") {
+        if let Some(builtin) = builtin_id(&format!("{module}.{name}")) {
             for &arg in args {
                 compile_expr(f, arg);
             }
@@ -407,7 +407,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
             f.emit(Op::Pop, span);
         }
         f.emit_fatal(
-            &format!("brasa: unknown member `{name}` on module `math`"),
+            &format!("brasa: unknown member `{name}` on module `{module}`"),
             span,
         );
         return;
@@ -455,6 +455,18 @@ fn field(f: &mut FuncCx, recv: ExprId, name: &str, span: Span) {
         }
 
         f.emit_fatal(&format!("brasa: unknown member `{name}`"), span);
+        return;
+    }
+
+    // A field read on the `proc` `Output` record (BRS-32,
+    // `docs/spec/05-stdlib.md`): the accessor is a receiver-only
+    // builtin call yielding the field value directly.
+    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::ProcOutput))
+        && matches!(name, "stdout" | "stderr" | "code")
+    {
+        let builtin = builtin_id(name).expect("Output field accessors are registered");
+        compile_expr(f, recv);
+        f.emit(Op::CallBuiltin { builtin, argc: 1 }, span);
         return;
     }
 

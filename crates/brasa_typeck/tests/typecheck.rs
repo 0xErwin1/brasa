@@ -811,3 +811,46 @@ def misuse(a: Option<int>, b: Option<int>): int
 end
 "#
 );
+
+typecheck_test!(
+    proc_and_env_module_signatures,
+    r#"
+import std::proc
+import std::env
+
+let out = proc.tryRun(["true"])
+let combined = out.stdout + out.stderr
+let next = out.code + 1
+let sugared = proc.run("echo hi", "stdin").stdout
+let piped = proc.shell("wc -l", "a\nb\n").stdout
+let home = env.get("HOME")
+env.set("BRASA_T", "v")
+let all = env.vars()
+let args = env.args()
+"#
+);
+
+typecheck_error_test!(
+    proc_module_call_errors,
+    r#"
+import std::proc
+
+proc.run(42)
+proc.run(["true"], "x", "y")
+proc.shell(123)
+proc.nope()
+let r = proc.tryRun(["true"])
+let bad = r.bogus
+"#
+);
+
+typecheck_error_test!(
+    env_module_call_errors,
+    r#"
+import std::env
+
+env.get()
+env.set("A", 1)
+env.unknown("x")
+"#
+);

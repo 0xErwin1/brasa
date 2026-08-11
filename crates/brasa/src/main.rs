@@ -199,6 +199,7 @@ fn main() -> ExitCode {
             &resolved.resolutions,
             &checked.types,
             &mut stdout,
+            &cli.args,
         ),
         Backend::Vm => {
             let module = brasa_codegen::compile(
@@ -207,7 +208,7 @@ fn main() -> ExitCode {
                 &resolved.resolutions,
                 &checked.types,
             );
-            brasa_vm::run(&module, &mut stdout)
+            brasa_vm::run(&module, &mut stdout, &cli.args)
         }
     };
     let flushed = stdout.flush();

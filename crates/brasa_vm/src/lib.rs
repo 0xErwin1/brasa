@@ -68,15 +68,22 @@ pub struct RunStats {
 }
 
 /// Runs `<toplevel>` (functions[0]) and then the module's `main` if the
-/// file defines one, writing program output to `out`.
-pub fn run<W: Write + Send>(module: &Module, out: &mut W) -> Outcome {
-    run_with_depth(module, out, DEFAULT_MAX_CALL_DEPTH)
+/// file defines one, writing program output to `out`. `args` are the
+/// script's trailing CLI arguments, served by `env.args()`
+/// (`docs/spec/05-stdlib.md`, BRS-32).
+pub fn run<W: Write + Send>(module: &Module, out: &mut W, args: &[String]) -> Outcome {
+    run_with_depth(module, out, DEFAULT_MAX_CALL_DEPTH, args)
 }
 
 /// [`run`] with an explicit call-depth limit; exceeding it raises a
 /// `panics.StackOverflow` panic instead of overflowing the Rust stack.
-pub fn run_with_depth<W: Write + Send>(module: &Module, out: &mut W, max_depth: usize) -> Outcome {
-    run_configured(module, out, max_depth, DEFAULT_GC_THRESHOLD).0
+pub fn run_with_depth<W: Write + Send>(
+    module: &Module,
+    out: &mut W,
+    max_depth: usize,
+    args: &[String],
+) -> Outcome {
+    run_configured(module, out, max_depth, DEFAULT_GC_THRESHOLD, args).0
 }
 
 /// [`run`] with an explicit GC allocation threshold: the collector arms
@@ -87,7 +94,7 @@ pub fn run_with_gc_threshold<W: Write + Send>(
     out: &mut W,
     gc_threshold: usize,
 ) -> (Outcome, RunStats) {
-    run_configured(module, out, DEFAULT_MAX_CALL_DEPTH, gc_threshold)
+    run_configured(module, out, DEFAULT_MAX_CALL_DEPTH, gc_threshold, &[])
 }
 
 fn run_configured<W: Write + Send>(
@@ -95,13 +102,14 @@ fn run_configured<W: Write + Send>(
     out: &mut W,
     max_depth: usize,
     gc_threshold: usize,
+    args: &[String],
 ) -> (Outcome, RunStats) {
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("brasa-vm".to_string())
             .stack_size(VM_STACK_SIZE)
             .spawn_scoped(scope, move || {
-                let mut vm = vm::Vm::new(module, out, max_depth, gc_threshold);
+                let mut vm = vm::Vm::new(module, out, max_depth, gc_threshold, args);
                 let outcome = vm.run();
                 (outcome, vm.run_stats())
             })

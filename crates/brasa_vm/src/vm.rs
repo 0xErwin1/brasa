@@ -77,6 +77,14 @@ pub(crate) struct Vm<'a> {
     /// Per-run cache of compiled regex patterns for the string regex
     /// methods, keyed by the pattern text (mirrors the walker's cache).
     pub(crate) regex_cache: std::collections::HashMap<String, regex::Regex>,
+    /// The script's trailing CLI arguments, served by `env.args()`
+    /// (BRS-32, `docs/spec/05-stdlib.md`).
+    pub(crate) script_args: Vec<String>,
+    /// `env.set` overrides (BRS-32): merged over the process
+    /// environment by `env.get`/`env.vars` and passed to every child
+    /// spawned through `std::proc`. The host process's own environment
+    /// block is never mutated (mirrors the walker's overlay).
+    pub(crate) env_overlay: std::collections::HashMap<String, String>,
 }
 
 impl<'a> Vm<'a> {
@@ -85,6 +93,7 @@ impl<'a> Vm<'a> {
         out: &'a mut dyn Write,
         max_depth: usize,
         gc_threshold: usize,
+        args: &[String],
     ) -> Vm<'a> {
         let mut interner = Interner::default();
         let consts = module
@@ -109,6 +118,8 @@ impl<'a> Vm<'a> {
             out,
             max_depth,
             regex_cache: std::collections::HashMap::new(),
+            script_args: args.to_vec(),
+            env_overlay: std::collections::HashMap::new(),
         }
     }
 
@@ -1160,6 +1171,7 @@ impl<'a> Vm<'a> {
                 .clone(),
             Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
             Value::NativeError { name, .. } => name.to_string(),
+            Value::ProcOutput(_) => "Output".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }

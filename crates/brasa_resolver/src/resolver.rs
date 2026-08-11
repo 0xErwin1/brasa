@@ -43,7 +43,7 @@ use brasa_source::Span;
 
 use crate::tables::{
     BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, NATIVE_ERRORS,
-    PANIC_UNION, Res, Resolutions, TypeRes,
+    PANIC_UNION, Res, Resolutions, TypeRes, native_error_namespace_landed,
 };
 
 /// Which position a constructor name was written in. The builtin `Set`
@@ -56,7 +56,9 @@ enum CtorPosition {
 }
 
 /// The std modules that exist in v1 (`docs/spec/05-stdlib.md`).
-pub(crate) const STD_MODULES: &[&str] = &["fs", "io", "json", "math", "proc", "rand", "re", "time"];
+pub(crate) const STD_MODULES: &[&str] = &[
+    "env", "fs", "io", "json", "math", "proc", "rand", "re", "time",
+];
 
 pub(crate) fn builtin_value(name: &str) -> Option<BuiltinValue> {
     match name {
@@ -924,12 +926,13 @@ impl<'h> Resolver<'h> {
                 // Bare arm type names resolve here; `panics.X` names
                 // check against the builtin closed panic union (BRS-24,
                 // `docs/spec/04-errors.md` — no import needed, like the
-                // prelude); `string.X` names check against the closed
+                // prelude); names in landed native-error namespaces
+                // (`string.`, `proc.`) check against the closed
                 // native-error list (BRS-41); other dotted names
-                // (`fs.`, `proc.`, `json.`) are skipped until their
-                // namespaces land (M4). Whatever `lookup_type` returns
-                // is recorded as-is — the type checker decides what the
-                // binding narrows to per arm.
+                // (`fs.`, `json.`) are skipped until their namespaces
+                // land (M4). Whatever `lookup_type` returns is recorded
+                // as-is — the type checker decides what the binding
+                // narrows to per arm.
                 for (arm_index, arm) in arms.iter().enumerate() {
                     for (type_index, arm_type) in arm.types.iter().enumerate() {
                         let CatchType::Named { name, span } = arm_type else {
@@ -938,7 +941,7 @@ impl<'h> Resolver<'h> {
                         if name.contains('.') {
                             if name.starts_with("panics.") {
                                 self.resolve_panic_arm(id, arm_index, type_index, name, *span);
-                            } else if name.starts_with("string.") {
+                            } else if native_error_namespace_landed(name) {
                                 self.resolve_native_error_arm(
                                     id, arm_index, type_index, name, *span,
                                 );
@@ -1014,8 +1017,9 @@ impl<'h> Resolver<'h> {
         }
     }
 
-    /// A `string.`-qualified `catch` arm name: the native-error list is
-    /// closed (`docs/spec/05-stdlib.md`), so the name either matches a
+    /// A `catch` arm name in a landed native-error namespace
+    /// (`string.`, `proc.`): the native-error list is closed
+    /// (`docs/spec/05-stdlib.md`), so the name either matches a
     /// member of [`NATIVE_ERRORS`] — recorded in
     /// `catch_arm_native_errors` with the canonical `&'static str` — or
     /// is an `R012` error. Mirrors [`Self::resolve_panic_arm`].

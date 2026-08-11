@@ -124,6 +124,19 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("captures"),
     method("replaceRe"),
     method("scan"),
+    // M4 `std::proc` + `std::env` (BRS-32): appended, never reordered.
+    free("proc.run"),
+    free("proc.tryRun"),
+    free("proc.shell"),
+    free("env.get"),
+    free("env.set"),
+    free("env.vars"),
+    free("env.args"),
+    // The `Output` record's field reads, dispatched on the receiver's
+    // runtime kind like every method-style builtin.
+    method("stdout"),
+    method("stderr"),
+    method("code"),
 ];
 
 /// Looks up a builtin by its stable name.
