@@ -1,0 +1,93 @@
+{
+  "nodes": {
+    "devtools": {
+      "inputs": {
+        "helpers": "helpers",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1749513600,
+        "narHash": "sha256-3nDdKKUmFCRHJ6cVBiqrHbYtx9nDdKKUmFCRHJ6cVBg=",
+        "ref": "refs/heads/main",
+        "rev": "b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80",
+        "type": "git",
+        "url": "https://git.example.org/infra/devtools.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://git.example.org/infra/devtools.git"
+      }
+    },
+    "helpers": {
+      "locked": {
+        "lastModified": 1735689600,
+        "narHash": "sha256-1aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcd=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "localsrc": {
+      "locked": {
+        "lastModified": 1751328000,
+        "narHash": "sha256-9zYxWvUtSrQpOnMlKjIhGfEdCbA9876543210zyxw=",
+        "path": "./vendor/localsrc",
+        "type": "path"
+      },
+      "original": {
+        "path": "./vendor/localsrc",
+        "type": "path"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1735689600,
+        "narHash": "sha256-1aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcd=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "devtools": "devtools",
+        "localsrc": "localsrc",
+        "nixpkgs": "nixpkgs",
+        "vendor": "vendor"
+      }
+    },
+    "vendor": {
+      "locked": {
+        "lastModified": 1753747200,
+        "narHash": "sha256-QwErTyUiOpAsDfGhJkLzXcVbNm0987654321QwEr=",
+        "owner": "brasa-lang",
+        "repo": "vendor-pins",
+        "rev": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "type": "gitlab"
+      },
+      "original": {
+        "owner": "brasa-lang",
+        "repo": "vendor-pins",
+        "type": "gitlab"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

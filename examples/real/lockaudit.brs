@@ -27,6 +27,12 @@ end
 
 let pruned = Set([".git", ".direnv", "target", "result", "node_modules"])
 
+# `fs.isDir?` follows symlinks, so a link pointing back at an ancestor
+# would make the descent recurse until the stack overflows. A depth bound
+# is the cheap fix: `fs.abs` is purely lexical, so a visited set built
+# from it would not even recognize the revisited directory.
+let maxDepth = 32
+
 # `fs.ls` on an unreadable directory is a dead end, not a failure of the
 # audit, so it degrades to "no entries".
 def entries(dir: string): Vector<string>
@@ -40,7 +46,11 @@ end
 
 # `fs.walk` has no way to skip a subtree, and a repository root holds
 # `target/` and `.git/`, so the descent is hand-rolled to prune them.
-def collectLocks(dir: string, found: Vector<string>)
+def collectLocks(dir: string, found: Vector<string>, depth: int)
+  if depth > maxDepth
+    return
+  end
+
   let lock = fs.join(dir, "flake.lock")
 
   if fs.isFile?(lock)
@@ -51,7 +61,7 @@ def collectLocks(dir: string, found: Vector<string>)
     let child = fs.join(dir, name)
 
     if !pruned.has?(name) && fs.isDir?(child)
-      collectLocks(child, found)
+      collectLocks(child, found, depth + 1)
     end
   end
 end
@@ -95,6 +105,16 @@ def followsIn(node: Json): int
   count
 end
 
+# The flake's own inputs, as opposed to every node in the graph: a
+# transitively-resolved dependency is a node too, but nothing the root
+# flake declares.
+def directInputs(nodes: Map<string, Json>): int
+  let noInputs: Map<string, Json> = {}
+  let inputs = nodes["root"]["inputs"].asObject() ?? noInputs
+
+  inputs.len()
+end
+
 def widest(rows: Vector<Input>): int
   rows.map(|r| r.name.len()).reduce(0, |widest, len| math.max(widest, len))
 end
@@ -109,6 +129,16 @@ def duplicates(revs: Map<string, Vector<string>>): Vector<Duplicate>
   end
 
   dupes.sortBy(|d| d.rev)
+end
+
+# A count with its noun, pluralized by the plain English rule. Written
+# out because there is no formatting helper in the stdlib to lean on.
+def count(n: int, noun: string): string
+  if n == 1
+    "#{n} #{noun}"
+  else
+    "#{n} #{noun}s"
+  end
 end
 
 def audit(path: string, root: string)
@@ -128,7 +158,7 @@ def audit(path: string, root: string)
     path
   end
 
-  puts "#{shown}  (lock version #{data["version"].asInt() ?? 0}, #{nodes.len() - 1} inputs, #{follows} follows edges)"
+  puts "#{shown}  (lock version #{data["version"].asInt() ?? 0}, #{count(directInputs(nodes), "direct input")}, #{count(nodes.len() - 1, "locked node")}, #{count(follows, "follows edge")})"
 
   let revs: Map<string, Vector<string>> = {}
   let rows: Vector<Input> = []
@@ -186,7 +216,7 @@ def main()
   let root = env.args().first() ?? env.cwd()
   let locks: Vector<string> = []
 
-  collectLocks(root, locks)
+  collectLocks(root, locks, 0)
 
   if locks.len() == 0
     puts "no flake.lock under #{root}"

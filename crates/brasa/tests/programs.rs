@@ -30,11 +30,6 @@ fn run_with_backend_args(path: &PathBuf, backend: &str, args: &[PathBuf]) -> Out
         .expect("failed to run brasa")
 }
 
-/// The repository root, as the scripts under `examples/real/` receive it.
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn program_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/programs")
@@ -324,29 +319,29 @@ server errors by endpoint:
     );
 }
 
+/// Runs against a committed fixture rather than this repository's own
+/// `flake.lock`: the real lock moves with every `nix flake update`, and
+/// the fixture is built to hit the branches it never did (an unpinned
+/// input, two inputs on one revision, a non-github/gitlab origin, a
+/// `follows` edge, and a transitively-resolved node so the direct-input
+/// count differs from the node count).
 #[test]
 fn example_real_lockaudit() {
     let expected = "\
-flake.lock  (lock version 7, 16 inputs, 16 follows edges)
-  cachix         a66a440  2026-04-29  github:cachix/cachix
-  crate2nix      ba5dd39  2026-02-27  github:rossng/crate2nix
-  devenv         4158f6b  2026-08-09  github:cachix/devenv
-  flake-compat   5edf11c  2025-12-29  github:edolstra/flake-compat
-  flake-parts    f7c1a2d  2026-05-13  github:hercules-ci/flake-parts
-  ghostty        88b4cd0  2026-07-21  github:ghostty-org/ghostty
-  git-hooks      9f7e991  2026-07-01  github:cachix/git-hooks.nix
-  nix            5940732  2026-08-09  github:cachix/nix
-  nixd           a64cd33  2026-07-13  github:nix-community/nixd
-  nixpkgs        80bdc1e  2026-03-04  github:NixOS/nixpkgs
-  nixpkgs-src    3e41b24  2026-06-16  github:NixOS/nixpkgs
-  nixpkgs-src_2  2438956  2026-08-03  github:NixOS/nixpkgs
-  nixpkgs_2      12866ae  2026-06-22  github:cachix/devenv-nixpkgs
-  nixpkgs_3      6d5d03d  2026-08-04  github:cachix/devenv-nixpkgs
-  rust-overlay   13139ae  2026-07-01  github:oxalica/rust-overlay
-  treefmt-nix    db94781  2026-05-31  github:numtide/treefmt-nix
-  no duplicated revisions
+flake.lock  (lock version 7, 4 direct inputs, 5 locked nodes, 1 follows edge)
+  devtools  b7c8d9e  2025-06-10  git:https://git.example.org/infra/devtools.git
+  helpers   a1b2c3d  2025-01-01  github:NixOS/nixpkgs
+  nixpkgs   a1b2c3d  2025-01-01  github:NixOS/nixpkgs
+  vendor    c3d4e5f  2025-07-29  gitlab:brasa-lang/vendor-pins
+  unpinned inputs: localsrc
+  duplicated revisions:
+    a1b2c3d  helpers nixpkgs
 ";
-    assert_example_args("real/lockaudit.brs", &[repo_root()], expected);
+    assert_example_args(
+        "real/lockaudit.brs",
+        &[example_path("real/data/lockfixture")],
+        expected,
+    );
 }
 
 /// `gitreport.brs` reports on the live repository, so its counts move

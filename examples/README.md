@@ -37,8 +37,11 @@ Run them as:
 brasa examples/real/logstat.brs examples/real/data/access.log
 brasa examples/real/gitreport.brs v0.1.0
 brasa examples/real/lockaudit.brs .
+brasa examples/real/lockaudit.brs examples/real/data/lockfixture
 ```
 
 `logstat.brs` and `lockaudit.brs` are pinned byte-for-byte in
-`crates/brasa/tests/programs.rs`. `gitreport.brs` reads the live
-repository, so only its shape is pinned there.
+`crates/brasa/tests/programs.rs`, each against a committed fixture under
+`real/data/` so the expectation never moves with unrelated repository
+changes. `gitreport.brs` reads the live repository, so only its shape is
+pinned there.
