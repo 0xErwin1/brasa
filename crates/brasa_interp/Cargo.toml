@@ -12,6 +12,7 @@ brasa_resolver = { workspace = true }
 brasa_typeck = { workspace = true }
 regex = { workspace = true }
 glob = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 brasa_source = { workspace = true }

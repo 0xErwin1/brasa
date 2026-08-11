@@ -425,6 +425,27 @@ impl<'a> Checker<'a> {
             }
             Expr::Field { .. } | Expr::Index { .. } => {
                 let target_ty = self.check_expr(target, None);
+
+                // A `Json` tree is immutable after `parse` (BRS-34,
+                // `docs/spec/05-stdlib.md`), so a `Json` index is never
+                // an assignment target.
+                if let Expr::Index { recv, .. } = hir.expr(target) {
+                    let json_recv = match self.tables.expr_types.get(recv) {
+                        Some(Type::Json) => true,
+                        Some(Type::Option(inner)) => **inner == Type::Json,
+                        _ => false,
+                    };
+
+                    if json_recv {
+                        self.error(err_at(
+                            codes::T_CANNOT_ASSIGN,
+                            span,
+                            "cannot assign into a `Json` value".to_string(),
+                            "`Json` is immutable",
+                        ));
+                    }
+                }
+
                 self.check_expect(value, &target_ty);
             }
             _ => {
@@ -1590,6 +1611,19 @@ impl<'a> Checker<'a> {
                 self.check_expect(index, &key);
                 Type::Option(value)
             }
+            // `Json[string]`/`Json[int] -> Option<Json>` — indexing is
+            // total: a missing member, an out-of-range position, or a
+            // node of the wrong kind is `None`, never a panic. Chains
+            // flatten: indexing an `Option<Json>` propagates `None`
+            // (BRS-34, `docs/spec/05-stdlib.md`).
+            Type::Json => {
+                self.check_json_index(index);
+                Type::option(Type::Json)
+            }
+            Type::Option(inner) if *inner == Type::Json => {
+                self.check_json_index(index);
+                Type::option(Type::Json)
+            }
             Type::String => {
                 self.check_expr(index, None);
                 let span = self.hir.span_of_expr(recv);
@@ -1619,6 +1653,25 @@ impl<'a> Checker<'a> {
                 ));
                 Type::Unknown
             }
+        }
+    }
+
+    /// A `Json` index is an object key (`string`) or an array position
+    /// (`int`); anything else is a mismatch.
+    fn check_json_index(&mut self, index: ExprId) {
+        let found = self.check_expr(index, None);
+
+        let accepted =
+            unify(&found, &Type::String).is_some() || unify(&found, &Type::Int).is_some();
+        if !accepted {
+            let found = found.display(self.hir);
+            let span = self.hir.span_of_expr(index);
+            self.error(err_at(
+                codes::T_MISMATCHED_TYPES,
+                span,
+                format!("mismatched types: expected `string` or `int`, found `{found}`"),
+                "expected `string` or `int`",
+            ));
         }
     }
 
@@ -2227,8 +2280,8 @@ impl<'a> Checker<'a> {
     /// - a `|` group → `Unknown` (the spec binds "what's common to
     ///   both"; common-interface narrowing is deferred to error-set
     ///   work, BRS-22/23);
-    /// - `_`, dotted names in namespaces that have not landed (`fs.`,
-    ///   `proc.`, `json.` — M4), and unresolved names → `Unknown`.
+    /// - `_`, dotted names in namespaces that have not landed, and
+    ///   unresolved names → `Unknown`.
     fn catch_arm_binding_type(&self, id: ExprId, arm_index: usize, arm: &CatchArm) -> Type {
         let [CatchType::Named { .. }] = arm.types.as_slice() else {
             return Type::Unknown;
@@ -3099,6 +3152,7 @@ impl<'a> Checker<'a> {
             BuiltinType::Char => Type::Char,
             BuiltinType::Unit => Type::Unit,
             BuiltinType::Range => Type::Range,
+            BuiltinType::Json => Type::Json,
             BuiltinType::Option => Type::option(arg(self, 0)),
             BuiltinType::Vector => Type::vector(arg(self, 0)),
             BuiltinType::Set => {

@@ -15,7 +15,9 @@
 //! | the throwing `fs` members and `env.cd` | all three `fs` tags (`fs.NotFound`, `fs.Denied`, `fs.IoError`) — BRS-33 |
 //! | `fs.abs` / `env.cwd` | the `Opaque("fs.IoError")` tag only (an unreadable current directory) |
 //! | the `fs` predicates and pure path helpers | nothing — they never throw |
-//! | any other stdlib module member (`json.parse(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
+//! | `json.parse` | the `Opaque("json.ParseError")` tag (BRS-34) |
+//! | `json.stringify` and every `io` member | nothing — they never throw (BRS-34) |
+//! | any other stdlib module member (`math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
@@ -37,8 +39,9 @@ use brasa_hir::{
     LambdaBody, Stmt, StmtId,
 };
 use brasa_resolver::{
-    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, PROC_NON_ZERO_EXIT,
-    PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
+    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, JSON_PARSE_ERROR,
+    PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR,
+    TypeRes,
 };
 use brasa_typeck::{Type, TypeTables};
 
@@ -338,6 +341,9 @@ impl<'a> Collector<'a> {
                 (Some("fs"), "abs") | (Some("env"), "cwd") => {
                     set.tags.insert(ErrorTag::Opaque(FS_IO_ERROR));
                 }
+                (Some("json"), "parse") => {
+                    set.tags.insert(ErrorTag::Opaque(JSON_PARSE_ERROR));
+                }
                 _ => {}
             }
 
@@ -368,10 +374,11 @@ impl<'a> Collector<'a> {
             }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, enums (whose only member is the derived
-            // `toString`), and the `proc` `Output` record (fields plus
-            // `toString` only). Every other builtin method throws
-            // nothing in M2; only function arguments they may invoke
-            // contribute (HOF transparency).
+            // `toString`), the `proc` `Output` record (fields plus
+            // `toString` only), and `Json` (the `as*` accessors and
+            // `null?` never throw — BRS-34). Every other builtin method
+            // throws nothing in M2; only function arguments they may
+            // invoke contribute (HOF transparency).
             Some(
                 Type::Int
                 | Type::Float
@@ -386,7 +393,8 @@ impl<'a> Collector<'a> {
                 | Type::Option(_)
                 | Type::Tuple(_)
                 | Type::Enum(_, _)
-                | Type::ProcOutput,
+                | Type::ProcOutput
+                | Type::Json,
             ) => set.union_with(&self.hof_args(args)),
             // A generic receiver dispatches through its constraint
             // (indirect until BRS-25's per-call-site inheritance), and
@@ -481,8 +489,8 @@ impl<'a> Collector<'a> {
     /// - panic arms (`panics.X`, recorded in `catch_arm_panics`, which
     ///   this pass never reads) subtract nothing: panics are not in
     ///   error-sets (`docs/spec/04-errors.md`);
-    /// - dotted names in namespaces that have not landed (`json.` —
-    ///   M4) and unresolved arm names subtract nothing.
+    /// - dotted names in namespaces that have not landed and
+    ///   unresolved arm names subtract nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set

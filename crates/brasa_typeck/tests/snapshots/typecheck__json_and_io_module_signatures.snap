@@ -1,0 +1,103 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 data -> Json
+  i3 annotated -> Json
+  i4 text -> string
+  i5 user -> Option<Json>
+  i6 name -> string
+  i7 count -> int
+  i8 ratio -> float
+  i9 active -> bool
+  i10 items -> Option<Vector<Json>>
+  i11 members -> Option<Map<string, Json>>
+  i12 missing -> bool
+  i16 line -> string
+  i17 everything -> string
+local types
+  l0 $tmp0 -> string
+  l1 $tmp1 -> int
+  l2 $tmp2 -> float
+  l3 $tmp3 -> bool
+  l4 $tmp4 -> string
+expr types
+  e0 -> unknown
+  e1 -> unknown
+  e2 -> string
+  e3 -> Json
+  e4 -> Json
+  e5 -> unknown
+  e6 -> unknown
+  e7 -> Json
+  e8 -> string
+  e9 -> Json
+  e10 -> string
+  e11 -> Option<Json>
+  e12 -> int
+  e13 -> Option<Json>
+  e14 -> Option<Json>
+  e15 -> string
+  e16 -> Option<Json>
+  e17 -> () -> Option<string>
+  e18 -> Option<string>
+  e19 -> string
+  e20 -> string
+  e21 -> string
+  e22 -> Json
+  e23 -> string
+  e24 -> Option<Json>
+  e25 -> () -> Option<int>
+  e26 -> Option<int>
+  e27 -> int
+  e28 -> int
+  e29 -> int
+  e30 -> Json
+  e31 -> string
+  e32 -> Option<Json>
+  e33 -> () -> Option<float>
+  e34 -> Option<float>
+  e35 -> float
+  e36 -> float
+  e37 -> float
+  e38 -> Json
+  e39 -> string
+  e40 -> Option<Json>
+  e41 -> () -> Option<bool>
+  e42 -> Option<bool>
+  e43 -> bool
+  e44 -> bool
+  e45 -> bool
+  e46 -> Json
+  e47 -> () -> Option<Vector<Json>>
+  e48 -> Option<Vector<Json>>
+  e49 -> Json
+  e50 -> () -> Option<Map<string, Json>>
+  e51 -> Option<Map<string, Json>>
+  e52 -> Json
+  e53 -> string
+  e54 -> Option<Json>
+  e55 -> () -> bool
+  e56 -> bool
+  e57 -> unknown
+  e58 -> unknown
+  e59 -> string
+  e60 -> unit
+  e61 -> unknown
+  e62 -> unknown
+  e63 -> int
+  e64 -> unit
+  e65 -> unknown
+  e66 -> unknown
+  e67 -> string
+  e68 -> unit
+  e69 -> unknown
+  e70 -> unknown
+  e71 -> Option<string>
+  e72 -> string
+  e73 -> string
+  e74 -> string
+  e75 -> unknown
+  e76 -> unknown
+  e77 -> string

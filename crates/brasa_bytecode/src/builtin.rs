@@ -161,6 +161,24 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("fs.abs"),
     free("env.cwd"),
     free("env.cd"),
+    // M4 `std::json` + `std::io` (BRS-34): appended, never reordered.
+    free("json.parse"),
+    free("json.stringify"),
+    free("io.puts"),
+    free("io.print"),
+    free("io.eprint"),
+    free("io.readLine"),
+    free("io.readAll"),
+    // The `Json` accessors, dispatched on the receiver's runtime kind
+    // (`Json` or the flattening `Option<Json>`) like every
+    // method-style builtin.
+    method("asString"),
+    method("asInt"),
+    method("asFloat"),
+    method("asBool"),
+    method("asArray"),
+    method("asObject"),
+    method("null?"),
 ];
 
 /// Looks up a builtin by its stable name.

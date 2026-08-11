@@ -58,6 +58,11 @@ pub enum Type {
     /// `stdout: string`, `stderr: string`, `code: int`. Native — not
     /// user-constructible and not a pattern.
     ProcOutput,
+    /// The compiler-known `Json` document type (`docs/spec/05-stdlib.md`,
+    /// BRS-34): an immutable parsed JSON tree produced by `json.parse`.
+    /// Opaque in v1 — no constructors and no patterns; access goes
+    /// through Option-yielding indexing and the `as*` accessors.
+    Json,
 }
 
 /// How one `Expr::OptionWrap` node resolved: `?.` flattens, so the
@@ -131,6 +136,7 @@ impl Type {
             }
             Type::Generic { owner, index } => generic_name(hir, *owner, *index),
             Type::ProcOutput => "Output".to_string(),
+            Type::Json => "Json".to_string(),
         }
     }
 }

@@ -200,6 +200,7 @@ dependencies = [
  "brasa_typeck",
  "glob",
  "regex",
+ "serde_json",
 ]
 
 [[package]]

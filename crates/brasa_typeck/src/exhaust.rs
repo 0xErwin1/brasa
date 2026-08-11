@@ -414,6 +414,7 @@ impl<'a> Cx<'a> {
             BuiltinType::Char => Type::Char,
             BuiltinType::Unit => Type::Unit,
             BuiltinType::Range => Type::Range,
+            BuiltinType::Json => Type::Json,
             BuiltinType::Option => Type::option(arg(0)),
             BuiltinType::Vector => Type::vector(arg(0)),
             BuiltinType::Set => Type::Set(Box::new(arg(0))),

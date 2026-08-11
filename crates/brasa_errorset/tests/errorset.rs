@@ -260,10 +260,10 @@ end
 errorset_test!(
     unknown_throw_opens_the_set,
     r#"
-import std::io
+import std::time
 
 def readAny(): string
-  let data = io.readAll()
+  let data = time.now()
   throw data
 end
 "#
@@ -1116,6 +1116,43 @@ import std::fs
 def stem(path: string): string
   fs.base(path) catch (e)
     fs.NotFound => "unused"
+  end
+end
+"#
+);
+
+errorset_test!(
+    json_parse_tags_and_subtraction,
+    r#"
+import std::json
+import std::io
+
+def decode(text: string): Json
+  json.parse(text)
+end
+
+def decoded(text: string): string
+  json.stringify(json.parse(text)) catch (e)
+    json.ParseError => e
+  end
+end
+
+def echo(): string
+  let line = io.readLine() ?? ""
+  io.eprint(line)
+  line + io.readAll()
+end
+"#
+);
+
+errorset_error_test!(
+    e001_unreachable_json_arm,
+    r#"
+import std::json
+
+def frozen(data: Json): string
+  json.stringify(data) catch (e)
+    json.ParseError => "unused"
   end
 end
 "#

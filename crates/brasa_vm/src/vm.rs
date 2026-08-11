@@ -916,8 +916,36 @@ impl<'a> Vm<'a> {
                 .find(|(k, _)| value_eq(&self.heap, k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
+            // `Json` indexing is total (BRS-34,
+            // `docs/spec/05-stdlib.md`): a missing member, an
+            // out-of-range position, or a wrong-kind node is `None`,
+            // and chains flatten through `Option<Json>` (`None`
+            // propagates).
+            (Value::Json(tree), index) => Self::json_index_value(tree, index),
+            (Value::Option(inner), index) => match inner.as_deref() {
+                Some(Value::Json(tree)) => Self::json_index_value(tree, index),
+                None => Ok(Value::NONE),
+                Some(_) => Err(Self::fatal("brasa: value does not support indexing")),
+            },
             _ => Err(Self::fatal("brasa: value does not support indexing")),
         }
+    }
+
+    fn json_index_value(tree: &brasa_interp::json_glue::JsonValue, index: &Value) -> VmResult {
+        let subtree = match index {
+            Value::Str(key) => brasa_interp::json_glue::index_key(tree, key),
+            Value::Int(position) => brasa_interp::json_glue::index_position(tree, *position),
+            _ => {
+                return Err(Self::fatal(
+                    "brasa: a Json index must be a string or an int",
+                ));
+            }
+        };
+
+        Ok(subtree
+            .map(Value::Json)
+            .map(Value::some)
+            .unwrap_or(Value::NONE))
     }
 
     fn set_index(&self, recv: &Value, index: Value, value: Value) -> Result<(), Signal> {
@@ -1172,6 +1200,7 @@ impl<'a> Vm<'a> {
             Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
             Value::NativeError { name, .. } => name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
+            Value::Json(_) => "Json".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }

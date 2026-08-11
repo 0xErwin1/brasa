@@ -734,8 +734,35 @@ impl<'a> Interp<'a> {
                 .find(|(k, _)| value_eq(k, key))
                 .map(|(_, v)| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
+            // `Json` indexing is total (BRS-34,
+            // `docs/spec/05-stdlib.md`): a missing member, an
+            // out-of-range position, or a wrong-kind node is `None`,
+            // and chains flatten through `Option<Json>` (`None`
+            // propagates).
+            (Value::Json(tree), index) => self.json_index(tree, index),
+            (Value::Option(inner), index) => match inner.as_deref() {
+                Some(Value::Json(tree)) => {
+                    let tree = tree.clone();
+                    self.json_index(&tree, index)
+                }
+                None => Ok(Value::NONE),
+                Some(_) => Err(self.fatal("brasa: value does not support indexing")),
+            },
             _ => Err(self.fatal("brasa: value does not support indexing")),
         }
+    }
+
+    fn json_index(&mut self, tree: &crate::json_glue::JsonValue, index: &Value) -> EvalResult {
+        let subtree = match index {
+            Value::Str(key) => crate::json_glue::index_key(tree, key),
+            Value::Int(position) => crate::json_glue::index_position(tree, *position),
+            _ => return Err(self.fatal("brasa: a Json index must be a string or an int")),
+        };
+
+        Ok(subtree
+            .map(Value::Json)
+            .map(Value::some)
+            .unwrap_or(Value::NONE))
     }
 
     fn eval_unary(&mut self, op: UnaryOp, operand: Value) -> EvalResult {
@@ -1080,6 +1107,7 @@ impl<'a> Interp<'a> {
             Value::Enum(e) => self.item_name(e.item),
             Value::NativeError { name, .. } => name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
+            Value::Json(_) => "Json".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }
@@ -1331,9 +1359,9 @@ impl<'a> Interp<'a> {
     // --- modules -------------------------------------------------------
 
     /// Member calls on module handles. `std::math` (M1), `std::proc`,
-    /// `std::env` (M4, BRS-32), and `std::fs` (M4, BRS-33) execute;
-    /// every other module reports a clean runtime error until its
-    /// signatures close during M4.
+    /// `std::env` (M4, BRS-32), `std::fs` (M4, BRS-33), `std::json`,
+    /// and `std::io` (M4, BRS-34) execute; every other module reports
+    /// a clean runtime error until its signatures close during M4.
     fn module_call(&mut self, item: ItemId, name: &str, args: Vec<Value>) -> EvalResult {
         let Item::Import(import) = self.hir.item(item) else {
             return Err(self.fatal("brasa: module handle is not an import"));
@@ -1353,6 +1381,8 @@ impl<'a> Interp<'a> {
                 "proc" => return self.proc_call(name, args),
                 "env" => return self.env_call(name, args),
                 "fs" => return self.fs_call(name, args),
+                "json" => return self.json_call(name, args),
+                "io" => return self.io_call(name, args),
                 _ => {}
             }
         }
@@ -1602,6 +1632,11 @@ impl<'a> Interp<'a> {
                     output.code
                 ))
             }
+            // A `Json` value renders as its compact serialization —
+            // the same text `json.stringify` yields, in every position
+            // (JSON is its own quoting) — BRS-34,
+            // `docs/spec/05-stdlib.md`.
+            Value::Json(tree) => Ok(crate::json_glue::stringify(tree)),
         }
     }
 

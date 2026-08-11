@@ -898,3 +898,59 @@ env.cwd("x")
 env.cd()
 "#
 );
+
+typecheck_test!(
+    json_and_io_module_signatures,
+    r#"
+import std::json
+import std::io
+
+let data = json.parse("{\"users\": [{\"name\": \"ada\"}], \"count\": 1}")
+let annotated: Json = data
+let text = json.stringify(data)
+
+let user = data["users"][0]
+let name = user["name"].asString() ?? "anon"
+let count = data["count"].asInt() ?? 0
+let ratio = data["ratio"].asFloat() ?? 0.0
+let active = data["active"].asBool() ?? false
+let items = data.asArray()
+let members = data.asObject()
+let missing = data["nope"].null?()
+
+io.puts(name)
+io.print(count)
+io.eprint(text)
+let line = io.readLine() ?? ""
+let everything = io.readAll()
+"#
+);
+
+typecheck_error_test!(
+    json_and_io_module_call_errors,
+    r#"
+import std::json
+import std::io
+
+json.parse(42)
+json.stringify("not json")
+json.decode("typed bridge is v2")
+io.readLine("no args")
+io.nope()
+
+let data = json.parse("{}")
+data[true]
+data.asChar()
+"#
+);
+
+typecheck_error_test!(
+    json_index_is_not_assignable,
+    r#"
+import std::json
+
+let data = json.parse("{\"a\": 1}")
+data["a"] = data["b"]
+data["a"][0] = data["b"]
+"#
+);

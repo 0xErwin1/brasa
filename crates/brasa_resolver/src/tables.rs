@@ -96,6 +96,10 @@ pub enum BuiltinType {
     Map,
     Set,
     Range,
+    /// The compiler-known `Json` type (`docs/spec/05-stdlib.md`, BRS-34):
+    /// predeclared like `Option`, so annotations can name it; values
+    /// only come from `json.parse` (importing `std::json`).
+    Json,
     Comparable,
     Printable,
     Hashable,
@@ -115,6 +119,7 @@ impl BuiltinType {
             BuiltinType::Map => "Map",
             BuiltinType::Set => "Set",
             BuiltinType::Range => "Range",
+            BuiltinType::Json => "Json",
             BuiltinType::Comparable => "Comparable",
             BuiltinType::Printable => "Printable",
             BuiltinType::Hashable => "Hashable",
@@ -176,15 +181,21 @@ pub const FS_DENIED: &str = "fs.Denied";
 /// the OS message).
 pub const FS_IO_ERROR: &str = "fs.IoError";
 
+/// The canonical qualified name of the native `json` parse error
+/// (`docs/spec/05-stdlib.md`, BRS-34: `json.parse` throws it when the
+/// input is not valid JSON).
+pub const JSON_PARSE_ERROR: &str = "json.ParseError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
 /// dotted `catch` arm names in these namespaces against it, the
 /// error-set pass tags native throwers with these names, and the
-/// interpreter raises them verbatim. M4 still owes the `json` errors;
-/// other dotted roots stay unchecked until then. Unlike panics, these
-/// ARE errors: they appear in error-sets and `_` catches them
-/// (`docs/spec/04-errors.md`).
+/// interpreter raises them verbatim. Every M4 stdlib error namespace
+/// sketched by the spec has landed (`json` closed with BRS-34); other
+/// dotted roots stay unchecked until their modules close. Unlike
+/// panics, these ARE errors: they appear in error-sets and `_` catches
+/// them (`docs/spec/04-errors.md`).
 pub const NATIVE_ERRORS: &[&str] = &[
     STRING_PARSE_ERROR,
     STRING_REGEX_ERROR,
@@ -193,13 +204,13 @@ pub const NATIVE_ERRORS: &[&str] = &[
     FS_NOT_FOUND,
     FS_DENIED,
     FS_IO_ERROR,
+    JSON_PARSE_ERROR,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace
 /// that has landed (one of the roots appearing in [`NATIVE_ERRORS`]).
 /// Names in landed namespaces are validated against the closed list;
-/// other dotted roots (`fs.`, `json.`) stay unchecked until their
-/// modules land.
+/// other dotted roots stay unchecked until their modules land.
 pub fn native_error_namespace_landed(name: &str) -> bool {
     let Some((root, _)) = name.split_once('.') else {
         return false;
@@ -286,8 +297,8 @@ pub struct Resolutions {
     /// `panics.X` names live in [`Resolutions::catch_arm_panics`],
     /// stdlib-native error names in
     /// [`Resolutions::catch_arm_native_errors`]; dotted names in
-    /// namespaces that have not landed yet (`fs.`, `json.`) are absent
-    /// until they close during M4.
+    /// namespaces that have not landed yet are absent until they
+    /// close.
     pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
     /// `catch` arm names matching a member of the closed panic union
     /// ([`PANIC_UNION`]), keyed like [`Resolutions::catch_arm_types`];

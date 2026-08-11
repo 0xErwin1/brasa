@@ -285,7 +285,8 @@ impl Heap {
             | Value::Option(None)
             | Value::Func(_)
             | Value::NativeError { .. }
-            | Value::ProcOutput(_) => {}
+            | Value::ProcOutput(_)
+            | Value::Json(_) => {}
         }
     }
 }

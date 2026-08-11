@@ -26,9 +26,10 @@
 //!   namespace (`docs/spec/04-errors.md`, arms match error types
 //!   nominally); `panics.X` names are validated against the builtin
 //!   closed panic union (BRS-24, no import needed — like the prelude);
-//!   `string.X` names are validated against the closed native-error
-//!   list (BRS-41); other dotted names (`fs.`, `proc.`, `json.`) are
-//!   skipped until their namespaces land (M4).
+//!   names in landed native-error namespaces (`string.`, `proc.`,
+//!   `fs.`, `json.`) are validated against the closed native-error
+//!   list (BRS-41); dotted names in other roots are skipped until
+//!   their namespaces land.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -81,6 +82,7 @@ pub(crate) fn builtin_type(name: &str) -> Option<BuiltinType> {
         "Map" => Some(BuiltinType::Map),
         "Set" => Some(BuiltinType::Set),
         "Range" => Some(BuiltinType::Range),
+        "Json" => Some(BuiltinType::Json),
         "Comparable" => Some(BuiltinType::Comparable),
         "Printable" => Some(BuiltinType::Printable),
         "Hashable" => Some(BuiltinType::Hashable),
@@ -927,10 +929,10 @@ impl<'h> Resolver<'h> {
                 // check against the builtin closed panic union (BRS-24,
                 // `docs/spec/04-errors.md` — no import needed, like the
                 // prelude); names in landed native-error namespaces
-                // (`string.`, `proc.`) check against the closed
-                // native-error list (BRS-41); other dotted names
-                // (`fs.`, `json.`) are skipped until their namespaces
-                // land (M4). Whatever `lookup_type` returns is recorded
+                // (`string.`, `proc.`, `fs.`, `json.`) check against
+                // the closed native-error list (BRS-41); dotted names
+                // in other roots are skipped until their namespaces
+                // land. Whatever `lookup_type` returns is recorded
                 // as-is — the type checker decides what the binding
                 // narrows to per arm.
                 for (arm_index, arm) in arms.iter().enumerate() {
@@ -1231,13 +1233,15 @@ mod tests {
             "Map",
             "Set",
             "Range",
+            "Json",
             "Comparable",
             "Printable",
             "Hashable",
         ] {
             assert!(builtin_type(name).is_some(), "{name} should be builtin");
         }
-        assert_eq!(builtin_type("Json"), None);
+        // `Regex` stays unlanded until `std::re` closes.
+        assert_eq!(builtin_type("Regex"), None);
     }
 
     #[test]

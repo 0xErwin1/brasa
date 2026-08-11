@@ -15,6 +15,12 @@ regex = "1.13"
 # `fs.glob` (`docs/spec/05-stdlib.md`, BRS-33): the rust-lang glob
 # crate, pinned to the 0.3 line — dependency-free and boring.
 glob = "0.3"
+# `std::json` (`docs/spec/05-stdlib.md`, BRS-34): serde_json's parser
+# and serializer over its own `Value` tree, pinned to the 1.x line. No
+# derive/serde features: the runtime only needs the boring, correct
+# `Value` representation (default BTreeMap objects — deterministic,
+# bytewise-sorted keys).
+serde_json = "1"
 
 brasa_arena = { path = "crates/brasa_arena" }
 brasa_source = { path = "crates/brasa_source" }

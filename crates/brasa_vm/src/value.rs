@@ -78,6 +78,10 @@ pub enum Value {
     /// code. Frozen at construction and free of heap references, so a
     /// plain [`Handle`] is a precise collector for it.
     ProcOutput(Handle<OutputValue>),
+    /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): frozen at
+    /// `parse` and free of heap references, so a plain [`Handle`] is a
+    /// precise collector for it.
+    Json(brasa_interp::json_glue::JsonRef),
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
@@ -281,6 +285,9 @@ pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
         (Value::ProcOutput(x), Value::ProcOutput(y)) => {
             x.stdout == y.stdout && x.stderr == y.stderr && x.code == y.code
         }
+        // Structural over the tree (serde_json's `PartialEq`); note
+        // JSON `1` and `1.0` are different numbers — no coercions.
+        (Value::Json(x), Value::Json(y)) => x == y,
         _ => false,
     }
 }

@@ -9,10 +9,10 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use brasa_interp::fs_glue;
 use brasa_interp::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
+use brasa_interp::{fs_glue, io_glue, json_glue};
 
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
@@ -79,6 +79,10 @@ impl Vm<'_> {
                     self.env_call(member, args)
                 } else if let Some(member) = name.strip_prefix("fs.") {
                     self.fs_call(member, args)
+                } else if let Some(member) = name.strip_prefix("json.") {
+                    self.json_call(member, args)
+                } else if let Some(member) = name.strip_prefix("io.") {
+                    self.io_call(member, args)
                 } else {
                     unreachable!("unknown free builtin `{name}`")
                 }
@@ -246,6 +250,135 @@ impl Vm<'_> {
             .alloc_vector(items.into_iter().map(Value::str).collect()))
     }
 
+    /// The `std::json` members, ported from the walker's `json_call`
+    /// (BRS-34, `docs/spec/05-stdlib.md`); all JSON behavior lives in
+    /// the shared `brasa_interp::json_glue`, only value construction
+    /// happens here.
+    fn json_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("parse", [Value::Str(text)]) => match json_glue::parse(text) {
+                Ok(tree) => Ok(Value::Json(tree)),
+                Err(err) => Err(native_error(err.name, err.message)),
+            },
+            ("stringify", [Value::Json(tree)]) => Ok(Value::str(json_glue::stringify(tree))),
+            ("parse" | "stringify", _) => Err(Signal::Fatal(format!(
+                "brasa: invalid argument(s) to `json.{name}`"
+            ))),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `json`"
+            ))),
+        }
+    }
+
+    /// The `std::io` members, ported from the walker's `io_call`
+    /// (BRS-34, `docs/spec/05-stdlib.md`): `puts`/`print` mirror the
+    /// prelude printers, `eprint` writes to the real process stderr,
+    /// and the readers consume the real process stdin through the
+    /// shared `brasa_interp::io_glue`.
+    fn io_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        match (name, args.as_slice()) {
+            ("puts" | "print" | "eprint", [value]) => {
+                let value = value.clone();
+                let text = self.display(&value)?;
+                self.write_io(name, &text)
+            }
+            ("readLine", []) => Ok(match io_glue::read_line() {
+                Some(line) => Value::some(Value::str(line)),
+                None => Value::NONE,
+            }),
+            ("readAll", []) => Ok(Value::str(io_glue::read_all())),
+            ("puts" | "print" | "eprint" | "readLine" | "readAll", _) => Err(Signal::Fatal(
+                format!("brasa: invalid argument(s) to `io.{name}`"),
+            )),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `io`"
+            ))),
+        }
+    }
+
+    /// One printer write: `puts` appends a newline, `eprint` targets
+    /// stderr. A closed read end is a silent exit on every stream,
+    /// like the prelude printers.
+    fn write_io(&mut self, name: &str, text: &str) -> VmResult {
+        use std::io::Write;
+
+        let result = match name {
+            "puts" => writeln!(self.out, "{text}"),
+            "print" => write!(self.out, "{text}"),
+            _ => write!(std::io::stderr(), "{text}"),
+        };
+
+        match result {
+            Ok(()) => Ok(Value::Unit),
+            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Err(Signal::BrokenPipe),
+            Err(err) => Err(Signal::Fatal(format!(
+                "brasa: failed to write output: {err}"
+            ))),
+        }
+    }
+
+    /// The `Json` accessors (BRS-34, `docs/spec/05-stdlib.md`), pure
+    /// over the shared tree; `None` means the name is not a `Json`
+    /// builtin (the caller reports it).
+    fn json_builtin(
+        &mut self,
+        tree: &json_glue::JsonValue,
+        name: &str,
+        args: &[Value],
+    ) -> Option<Value> {
+        if !args.is_empty() {
+            return None;
+        }
+
+        let some_or_none = |value: Option<Value>| value.map(Value::some).unwrap_or(Value::NONE);
+
+        Some(match name {
+            "asString" => some_or_none(json_glue::as_string(tree).map(Value::str)),
+            "asInt" => some_or_none(json_glue::as_int(tree).map(Value::Int)),
+            "asFloat" => some_or_none(json_glue::as_float(tree).map(Value::Float)),
+            "asBool" => some_or_none(json_glue::as_bool(tree).map(Value::Bool)),
+            "asArray" => some_or_none(json_glue::as_array(tree).map(|items| {
+                self.heap
+                    .alloc_vector(items.into_iter().map(Value::Json).collect())
+            })),
+            "asObject" => some_or_none(json_glue::as_object(tree).map(|members| {
+                let entries = members
+                    .into_iter()
+                    .map(|(key, member)| (Value::str(key), Value::Json(member)))
+                    .collect();
+                self.heap.alloc_map(entries)
+            })),
+            "null?" => Value::Bool(json_glue::is_null(tree)),
+            _ => return None,
+        })
+    }
+
+    /// The `Json` accessors on an `Option<Json>` receiver: `Some`
+    /// unwraps and delegates, `None` propagates — except `null?`,
+    /// which is `false` (an absent member is not an explicit JSON
+    /// `null`).
+    fn json_option_builtin(
+        &mut self,
+        inner: Option<&Value>,
+        name: &str,
+        args: &[Value],
+    ) -> Option<Value> {
+        match inner {
+            Some(Value::Json(tree)) => {
+                let tree = tree.clone();
+                self.json_builtin(&tree, name, args)
+            }
+            None if args.is_empty() => match name {
+                "null?" => Some(Value::Bool(false)),
+                "asString" | "asInt" | "asFloat" | "asBool" | "asArray" | "asObject" => {
+                    Some(Value::NONE)
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The `std::math` slice executable in M1: f64 semantics
     /// throughout; `abs`, `min`, and `max` also work on ints.
     fn math_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
@@ -297,6 +430,19 @@ impl Vm<'_> {
             Value::ProcOutput(output) => {
                 let output = output.clone();
                 proc_output_builtin(&output, name, &args)
+            }
+            Value::Json(tree) => {
+                let tree = tree.clone();
+                self.json_builtin(&tree, name, &args)
+                    .ok_or_else(|| builtin_error(name))
+            }
+            // The `Json` accessors flatten through `Option<Json>`
+            // (BRS-34, `docs/spec/05-stdlib.md`): `None` propagates,
+            // except `null?`, which is `false` — absent is not `null`.
+            Value::Option(inner) => {
+                let inner = inner.clone();
+                self.json_option_builtin(inner.as_deref(), name, &args)
+                    .ok_or_else(|| builtin_error(name))
             }
             _ => Err(builtin_error(name)),
         }

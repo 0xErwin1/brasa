@@ -71,6 +71,10 @@ pub enum Value {
     /// code. Immutable after construction, so a shared `Rc` clone is
     /// indistinguishable from a copy.
     ProcOutput(Rc<OutputValue>),
+    /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): immutable
+    /// after `parse` and free of language values, so a shared `Rc`
+    /// clone is indistinguishable from a copy.
+    Json(crate::json_glue::JsonRef),
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
@@ -209,6 +213,9 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
         (Value::ProcOutput(x), Value::ProcOutput(y)) => {
             x.stdout == y.stdout && x.stderr == y.stderr && x.code == y.code
         }
+        // Structural over the tree (serde_json's `PartialEq`); note
+        // JSON `1` and `1.0` are different numbers — no coercions.
+        (Value::Json(x), Value::Json(y)) => x == y,
         _ => false,
     }
 }

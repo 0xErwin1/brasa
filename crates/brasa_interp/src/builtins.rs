@@ -46,18 +46,19 @@
 //!   `panics.AssertionFailed` (`docs/spec/03-types.md`, float rules).
 
 use std::cmp::Ordering;
+use std::io::Write;
 use std::rc::Rc;
 
 use brasa_resolver::{
     PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, STRING_PARSE_ERROR, STRING_REGEX_ERROR,
 };
 
-use crate::fs_glue;
 use crate::interp::{EvalResult, Interp, PanicKind, Signal};
 use crate::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
+use crate::{fs_glue, io_glue, json_glue};
 
 impl Interp<'_> {
     pub(crate) fn call_builtin(&mut self, recv: Value, name: &str, args: Vec<Value>) -> EvalResult {
@@ -83,6 +84,18 @@ impl Interp<'_> {
             Value::ProcOutput(output) => {
                 let output = output.clone();
                 self.proc_output_builtin(&output, name, &args)
+            }
+            Value::Json(tree) => {
+                let tree = tree.clone();
+                json_builtin(&tree, name, &args).ok_or_else(|| self.builtin_error(name))
+            }
+            // The `Json` accessors flatten through `Option<Json>`
+            // (BRS-34, `docs/spec/05-stdlib.md`): `None` propagates,
+            // except `null?`, which is `false` — absent is not `null`.
+            Value::Option(inner) => {
+                let inner = inner.clone();
+                json_option_builtin(inner.as_deref(), name, &args)
+                    .ok_or_else(|| self.builtin_error(name))
             }
             _ => Err(self.builtin_error(name)),
         }
@@ -593,6 +606,63 @@ impl Interp<'_> {
         }
     }
 
+    /// The `std::json` members (BRS-34, `docs/spec/05-stdlib.md`); all
+    /// JSON behavior lives in the shared [`json_glue`], only value
+    /// construction happens here.
+    pub(crate) fn json_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        match (name, args.as_slice()) {
+            ("parse", [Value::Str(text)]) => match json_glue::parse(text) {
+                Ok(tree) => Ok(Value::Json(tree)),
+                Err(err) => Err(self.native_error(err.name, err.message)),
+            },
+            ("stringify", [Value::Json(tree)]) => Ok(Value::str(json_glue::stringify(tree))),
+            ("parse" | "stringify", _) => {
+                Err(self.fatal(format!("brasa: invalid argument(s) to `json.{name}`")))
+            }
+            _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `json`"))),
+        }
+    }
+
+    /// The `std::io` members (BRS-34, `docs/spec/05-stdlib.md`):
+    /// `puts`/`print` mirror the prelude printers, `eprint` writes to
+    /// the real process stderr, and the readers consume the real
+    /// process stdin through the shared [`io_glue`].
+    pub(crate) fn io_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        match (name, args.as_slice()) {
+            ("puts" | "print" | "eprint", [value]) => {
+                let value = value.clone();
+                let text = self.display(&value)?;
+                self.write_io(name, &text)
+            }
+            ("readLine", []) => Ok(match io_glue::read_line() {
+                Some(line) => Value::some(Value::str(line)),
+                None => Value::NONE,
+            }),
+            ("readAll", []) => Ok(Value::str(io_glue::read_all())),
+            ("puts" | "print" | "eprint" | "readLine" | "readAll", _) => {
+                Err(self.fatal(format!("brasa: invalid argument(s) to `io.{name}`")))
+            }
+            _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `io`"))),
+        }
+    }
+
+    /// One printer write: `puts` appends a newline, `eprint` targets
+    /// stderr. A closed read end is a silent exit on every stream,
+    /// like the prelude printers.
+    fn write_io(&mut self, name: &str, text: &str) -> EvalResult {
+        let result = match name {
+            "puts" => writeln!(self.out, "{text}"),
+            "print" => write!(self.out, "{text}"),
+            _ => write!(std::io::stderr(), "{text}"),
+        };
+
+        match result {
+            Ok(()) => Ok(Value::Unit),
+            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Err(Signal::BrokenPipe),
+            Err(err) => Err(self.fatal(format!("brasa: failed to write output: {err}"))),
+        }
+    }
+
     fn fs_signal(&self, err: fs_glue::FsError) -> Signal {
         self.native_error(err.name, err.message)
     }
@@ -611,6 +681,54 @@ impl Interp<'_> {
         result
             .map(|items| Value::vector(items.into_iter().map(Value::str).collect()))
             .map_err(|err| self.fs_signal(err))
+    }
+}
+
+/// The `Json` accessors (BRS-34, `docs/spec/05-stdlib.md`), pure over
+/// the shared tree; `None` means the name is not a `Json` builtin (the
+/// caller reports it).
+fn json_builtin(tree: &json_glue::JsonValue, name: &str, args: &[Value]) -> Option<Value> {
+    if !args.is_empty() {
+        return None;
+    }
+
+    let some_or_none = |value: Option<Value>| value.map(Value::some).unwrap_or(Value::NONE);
+
+    Some(match name {
+        "asString" => some_or_none(json_glue::as_string(tree).map(Value::str)),
+        "asInt" => some_or_none(json_glue::as_int(tree).map(Value::Int)),
+        "asFloat" => some_or_none(json_glue::as_float(tree).map(Value::Float)),
+        "asBool" => some_or_none(json_glue::as_bool(tree).map(Value::Bool)),
+        "asArray" => some_or_none(
+            json_glue::as_array(tree)
+                .map(|items| Value::vector(items.into_iter().map(Value::Json).collect())),
+        ),
+        "asObject" => some_or_none(json_glue::as_object(tree).map(|members| {
+            let entries = members
+                .into_iter()
+                .map(|(key, member)| (Value::str(key), Value::Json(member)))
+                .collect();
+            Value::Map(Rc::new(std::cell::RefCell::new(entries)))
+        })),
+        "null?" => Value::Bool(json_glue::is_null(tree)),
+        _ => return None,
+    })
+}
+
+/// The `Json` accessors on an `Option<Json>` receiver: `Some` unwraps
+/// and delegates, `None` propagates — except `null?`, which is `false`
+/// (an absent member is not an explicit JSON `null`).
+fn json_option_builtin(inner: Option<&Value>, name: &str, args: &[Value]) -> Option<Value> {
+    match inner {
+        Some(Value::Json(tree)) => json_builtin(tree, name, args),
+        None if args.is_empty() => match name {
+            "null?" => Some(Value::Bool(false)),
+            "asString" | "asInt" | "asFloat" | "asBool" | "asArray" | "asObject" => {
+                Some(Value::NONE)
+            }
+            _ => None,
+        },
+        _ => None,
     }
 }
 

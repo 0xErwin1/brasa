@@ -18,6 +18,8 @@
 mod builtins;
 pub mod fs_glue;
 mod interp;
+pub mod io_glue;
+pub mod json_glue;
 pub mod proc_env;
 mod value;
 

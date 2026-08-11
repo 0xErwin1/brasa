@@ -44,6 +44,13 @@ pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
         Type::Vector(elem) => vector_method(elem, name),
         Type::Map(key, value) => map_method(key, value, name),
         Type::Set(elem) => set_method(elem, name),
+        Type::Json => json_method(name),
+        // The `Json` accessors flatten through `Option<Json>` (`None`
+        // stays `None`), so an Option-yielding indexing chain can end
+        // in `.asString() ?? fallback` — `Json` values cannot be
+        // constructed in the language, so a chain has no other way to
+        // terminate (BRS-34, `docs/spec/05-stdlib.md`).
+        Type::Option(inner) if **inner == Type::Json => json_method(name),
         _ => None,
     }
 }
@@ -144,6 +151,28 @@ fn map_method(key: &Type, value: &Type, name: &str) -> Option<MethodSig> {
     }
 }
 
+/// The `Json` accessors (BRS-34, `docs/spec/05-stdlib.md`): every
+/// `as*` accessor yields `Option` — `None` when the node is not that
+/// JSON kind. `asInt` succeeds only for integral numbers representable
+/// as `int`; `asFloat` succeeds for every number. `null?` distinguishes
+/// an explicit JSON `null` from an absent member (which indexing
+/// already reported as `None`).
+fn json_method(name: &str) -> Option<MethodSig> {
+    match name {
+        "asString" => Some(sig(vec![], Type::option(Type::String))),
+        "asInt" => Some(sig(vec![], Type::option(Type::Int))),
+        "asFloat" => Some(sig(vec![], Type::option(Type::Float))),
+        "asBool" => Some(sig(vec![], Type::option(Type::Bool))),
+        "asArray" => Some(sig(vec![], Type::option(Type::vector(Type::Json)))),
+        "asObject" => Some(sig(
+            vec![],
+            Type::option(Type::Map(Box::new(Type::String), Box::new(Type::Json))),
+        )),
+        "null?" => Some(sig(vec![], Type::Bool)),
+        _ => None,
+    }
+}
+
 fn set_method(elem: &Type, name: &str) -> Option<MethodSig> {
     match name {
         "add" => Some(sig(vec![elem.clone()], Type::Unit)),
@@ -174,9 +203,9 @@ pub struct ModuleSig {
 
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
-/// BRS-33: `fs` plus `env.cwd`/`env.cd`). Returns `None` for members
-/// of modules that are still open — the checker stays silent on those
-/// until they close.
+/// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`).
+/// Returns `None` for members of modules that are still open — the
+/// checker stays silent on those until they close.
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
     let msig = |required: Vec<ModuleParam>, optional: Vec<ModuleParam>, ret: Type| ModuleSig {
         required,
@@ -254,6 +283,30 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![],
             Type::Unit,
         )),
+        // `std::json` (BRS-34): `parse` yields the compiler-known
+        // `Json` tree (throwing `json.ParseError`); `stringify` takes a
+        // `Json` value — serializing arbitrary language values is a v2
+        // design.
+        ("json", "parse") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![],
+            Type::Json,
+        )),
+        ("json", "stringify") => Some(msig(
+            vec![ModuleParam::Ty(Type::Json)],
+            vec![],
+            Type::String,
+        )),
+        // `std::io` (BRS-34): the printers take any single value via
+        // the universal `toString`, like the prelude `puts`/`print`
+        // (`Unknown` unifies with everything).
+        ("io", "puts" | "print" | "eprint") => Some(msig(
+            vec![ModuleParam::Ty(Type::Unknown)],
+            vec![],
+            Type::Unit,
+        )),
+        ("io", "readLine") => Some(msig(vec![], vec![], Type::option(Type::String))),
+        ("io", "readAll") => Some(msig(vec![], vec![], Type::String)),
         _ => None,
     }
 }
@@ -262,7 +315,7 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
 /// closed: an unknown member on a closed module is an error, while
 /// open modules stay `Unknown`-typed until they close during M4.
 pub fn module_closed(module: &str) -> bool {
-    matches!(module, "proc" | "env" | "fs")
+    matches!(module, "proc" | "env" | "fs" | "json" | "io")
 }
 
 #[cfg(test)]
