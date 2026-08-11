@@ -164,6 +164,9 @@ Notes on kind boundaries:
 | `T025` | interface used as a type | `interfaces cannot be used as types in v1; use a generic constraint` |
 | `T026` | cannot infer type parameter | ``cannot infer type parameter `T` of `identity` `` |
 | `T027` | constraint not satisfied | `` `bool` does not satisfy `Comparable` `` |
+| `T028` | `?.` needs an `Option` receiver | `` `?.` requires an `Option` receiver, found `int` `` |
+| `T029` | `??` needs an `Option` left side | `` `??` requires an `Option` on its left side, found `int` `` |
+| `T030` | `??` fallback type mismatch | `` `??` fallback has type `string`, but the `Option` carries `int` `` |
 
 Notes on kind boundaries:
 
@@ -183,6 +186,10 @@ Notes on kind boundaries:
 - `T018` covers pattern-shape failures against the scrutinee's type,
   including a tuple pattern of the wrong length — tuple arity comes
   from the scrutinee, not from a constructor.
+- `T028`–`T030` cover `?.`/`??` misuse and report in source terms: the
+  spans point at the user's receiver, left side, or fallback, and the
+  desugared `match` (its synthesized patterns and arms) never appears
+  in a message — sugar misuse is never `T016` or `T018`.
 
 ## Deferred (M5)
 

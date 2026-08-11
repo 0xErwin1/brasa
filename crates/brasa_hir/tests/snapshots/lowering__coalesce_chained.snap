@@ -4,15 +4,15 @@ expression: dump
 ---
 Let y
   Match
-    Match
-      Ident(a)
-      Ctor(Some)
-        Binding($tmp0)
-        Ident($tmp0)
-      Ctor(None)
-        Ident(b)
+    Ident(a)
     Ctor(Some)
-      Binding($tmp1)
-      Ident($tmp1)
+      Binding($tmp0)
+      Ident($tmp0)
     Ctor(None)
-      Int(0)
+      Match
+        Ident(b)
+        Ctor(Some)
+          Binding($tmp1)
+          Ident($tmp1)
+        Ctor(None)
+          Int(0)

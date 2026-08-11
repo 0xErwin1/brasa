@@ -112,7 +112,12 @@ fn main() -> ExitCode {
         Err(code) => return code,
     }
 
-    let checked = brasa_typeck::check(&lowered.hir, &lowered.roots, &resolved.resolutions);
+    let checked = brasa_typeck::check(
+        &lowered.hir,
+        &lowered.roots,
+        &resolved.resolutions,
+        &lowered.sugar_origins,
+    );
     match render_diagnostics(&checked.diagnostics, &sources, color) {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),

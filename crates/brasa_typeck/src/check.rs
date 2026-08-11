@@ -26,7 +26,7 @@ use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, BinaryOp, CatchArm, Constraint, EnumDef, Expr, ExprId, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal, MatchArm, Param, Pattern,
-    PatternId, Stmt, StmtId, TypeExpr, TypeExprId, UnaryOp, Variant,
+    PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp, Variant,
 };
 use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
@@ -70,6 +70,9 @@ enum ConstraintKind<'h> {
 struct Checker<'a> {
     hir: &'a Hir,
     res: &'a Resolutions,
+    /// Lowering's side table: which `match` expressions were desugared
+    /// from `?.`/`??`, so misuse reports in source terms (T028–T030).
+    sugar_origins: &'a HashMap<ExprId, SugarOrigin>,
     tables: TypeTables,
     diagnostics: Vec<Diagnostic>,
     /// The enclosing function's return type; `None` in top-level code,
@@ -84,10 +87,16 @@ struct Checker<'a> {
     suppressed: u32,
 }
 
-pub(crate) fn run(hir: &Hir, roots: &[ItemId], res: &Resolutions) -> (TypeTables, Vec<Diagnostic>) {
+pub(crate) fn run(
+    hir: &Hir,
+    roots: &[ItemId],
+    res: &Resolutions,
+    sugar_origins: &HashMap<ExprId, SugarOrigin>,
+) -> (TypeTables, Vec<Diagnostic>) {
     let mut checker = Checker {
         hir,
         res,
+        sugar_origins,
         tables: TypeTables::default(),
         diagnostics: Vec::new(),
         ret_ty: None,
@@ -1788,9 +1797,35 @@ impl<'a> Checker<'a> {
     ) -> Type {
         let scrutinee_ty = self.check_expr(scrutinee, None);
 
+        if let Some(origin) = self.sugar_origins.get(&id).copied() {
+            return self.check_sugar_match(scrutinee, &scrutinee_ty, origin, arms, expected, used);
+        }
+
+        let acc = self.check_match_arms(&scrutinee_ty, arms, expected, used, None);
+        self.check_exhaustiveness(id, &scrutinee_ty, arms);
+
+        if used { acc } else { Type::Unit }
+    }
+
+    /// Types every arm against the scrutinee and returns the unified arm
+    /// type (value position only; mismatches in statement position are
+    /// tolerated, matching `if`). `origin` marks a `??`-desugared match:
+    /// its arm mismatch is the operator's fallback disagreeing with the
+    /// carried type, reported as T030 in source terms, and the result
+    /// poisons to `Unknown`.
+    fn check_match_arms(
+        &mut self,
+        scrutinee_ty: &Type,
+        arms: &[MatchArm],
+        expected: Option<&Type>,
+        used: bool,
+        origin: Option<SugarOrigin>,
+    ) -> Type {
         let mut acc = Type::Never;
+        let mut poisoned = false;
+
         for arm in arms {
-            self.check_pattern(arm.pattern, &scrutinee_ty);
+            self.check_pattern(arm.pattern, scrutinee_ty);
             if let Some(guard) = arm.guard {
                 self.check_expect(guard, &Type::Bool);
             }
@@ -1802,6 +1837,10 @@ impl<'a> Checker<'a> {
 
             match unify(&acc, &body_ty) {
                 Some(joined) => acc = joined,
+                None if origin == Some(SugarOrigin::Coalesce) => {
+                    self.report_coalesce_mismatch(arm, &acc, &body_ty);
+                    poisoned = true;
+                }
                 None => {
                     let span = self.arm_span(arm.pattern, &arm.body);
                     self.error(err_at(
@@ -1818,9 +1857,112 @@ impl<'a> Checker<'a> {
             }
         }
 
-        self.check_exhaustiveness(id, &scrutinee_ty, arms);
+        if poisoned { Type::Unknown } else { acc }
+    }
 
+    /// Types a `match` desugared from `?.`/`??` (`docs/spec/03-types.md`,
+    /// operator table). A non-`Option` receiver/left side is the
+    /// operator's own error (T028/T029) at the real user expression;
+    /// otherwise the arms type like any match — `OptionWrap` implements
+    /// the `?.` flatten rule and `??` unwraps into its fallback. These
+    /// matches are exhaustive by construction (`Some`/`None` cover
+    /// `Option`), so the exhaustiveness check never runs on them.
+    fn check_sugar_match(
+        &mut self,
+        scrutinee: ExprId,
+        scrutinee_ty: &Type,
+        origin: SugarOrigin,
+        arms: &[MatchArm],
+        expected: Option<&Type>,
+        used: bool,
+    ) -> Type {
+        if !matches!(scrutinee_ty, Type::Option(_)) && !scrutinee_ty.is_flexible() {
+            return self.report_sugar_needs_option(scrutinee, scrutinee_ty, origin, arms);
+        }
+
+        let acc = self.check_match_arms(scrutinee_ty, arms, expected, used, Some(origin));
         if used { acc } else { Type::Unit }
+    }
+
+    /// Reports `?.`/`??` applied to a non-`Option` (T028/T029) at the
+    /// receiver's/left side's span, then types the synthesized arms
+    /// silently — patterns bind against `Unknown` and bodies are checked
+    /// without an expectation — so the desugaring never cascades into
+    /// pattern or arm-mismatch errors. `?.` results in `Unknown`; `??`
+    /// results in its fallback's type, the value the operator would have
+    /// produced.
+    fn report_sugar_needs_option(
+        &mut self,
+        scrutinee: ExprId,
+        scrutinee_ty: &Type,
+        origin: SugarOrigin,
+        arms: &[MatchArm],
+    ) -> Type {
+        let span = self.hir.span_of_expr(scrutinee);
+        let shown = scrutinee_ty.display(self.hir);
+
+        match origin {
+            SugarOrigin::SafeNav => self.error(
+                err_at(
+                    codes::T_SAFE_NAV_NEEDS_OPTION,
+                    span,
+                    format!("`?.` requires an `Option` receiver, found `{shown}`"),
+                    "not an `Option`",
+                )
+                .with_note("`?.` unwraps an `Option` and propagates `None`".to_string()),
+            ),
+            SugarOrigin::Coalesce => self.error(
+                err_at(
+                    codes::T_COALESCE_NEEDS_OPTION,
+                    span,
+                    format!("`??` requires an `Option` on its left side, found `{shown}`"),
+                    "not an `Option`",
+                )
+                .with_note("`??` supplies a fallback for when an `Option` is `None`".to_string()),
+            ),
+        }
+
+        let mut result = Type::Unknown;
+        for (index, arm) in arms.iter().enumerate() {
+            self.check_pattern(arm.pattern, &Type::Unknown);
+
+            // The desugar puts the user's fallback in the last (`None`)
+            // arm of a `??`; its type is what the operator produces.
+            let is_coalesce_fallback =
+                origin == SugarOrigin::Coalesce && index == arms.len().saturating_sub(1);
+            let body_ty = self.check_arm_body(&arm.body, None, is_coalesce_fallback);
+            if is_coalesce_fallback {
+                result = body_ty;
+            }
+        }
+        result
+    }
+
+    /// The `??` fallback (the `None` arm's body, i.e. the user's right
+    /// side) failed to unify with the type the `Option` carries. When
+    /// the fallback is itself exactly `Option<carried>` the user likely
+    /// stopped a chain one step early, so the note suggests finishing
+    /// it. The whole expression poisons to `Unknown` afterwards.
+    fn report_coalesce_mismatch(&mut self, arm: &MatchArm, carried: &Type, fallback: &Type) {
+        let span = self.arm_span(arm.pattern, &arm.body);
+        let carried_shown = carried.display(self.hir);
+        let fallback_shown = fallback.display(self.hir);
+
+        let mut diag = err_at(
+            codes::T_COALESCE_TYPE_MISMATCH,
+            span,
+            format!(
+                "`??` fallback has type `{fallback_shown}`, but the `Option` carries `{carried_shown}`"
+            ),
+            &format!("expected `{carried_shown}`"),
+        );
+
+        if matches!(fallback, Type::Option(inner) if **inner == *carried) {
+            diag = diag.with_note(format!(
+                "an `Option` right side only chains: add another `??` with a plain `{carried_shown}` fallback to end the chain"
+            ));
+        }
+        self.error(diag);
     }
 
     /// Reports the missing cases of a non-exhaustive `match`

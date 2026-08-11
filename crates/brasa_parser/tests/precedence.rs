@@ -59,7 +59,7 @@ fn prec_chained_range_is_rejected() {
 }
 
 snapshot_test!(prec_coalesce_binds_looser_than_or, "x ?? y || z");
-snapshot_test!(prec_coalesce_left_assoc_chain, "x ?? y ?? z");
+snapshot_test!(prec_coalesce_right_assoc_chain, "x ?? y ?? z");
 snapshot_test!(prec_coalesce_then_pipe, "a ?? b |> f(c)");
 
 #[test]

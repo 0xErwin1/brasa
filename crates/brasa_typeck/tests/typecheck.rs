@@ -41,7 +41,12 @@ fn check_source(
         resolved.diagnostics
     );
 
-    let checked = brasa_typeck::check(&lowered.hir, &lowered.roots, &resolved.resolutions);
+    let checked = brasa_typeck::check(
+        &lowered.hir,
+        &lowered.roots,
+        &resolved.resolutions,
+        &lowered.sugar_origins,
+    );
     (lowered, resolved, checked, source_map)
 }
 
@@ -269,6 +274,38 @@ end
 let some: Option<int> = Some(41)
 let none: Option<int> = None
 let fallback = none ?? 1
+"#
+);
+
+typecheck_test!(
+    options_sugar_typing,
+    r#"
+struct User
+  nickname: Option<string>
+end
+
+struct Inner
+  value: Option<int>
+end
+
+struct Outer
+  inner: Option<Inner>
+end
+
+def nickLen(user: User): Option<int>
+  user.nickname?.len()
+end
+
+def deep(o: Option<Outer>): Option<int>
+  o?.inner?.value
+end
+
+def orZero(opt: Option<int>, m: Map<string, int>): int
+  let a = opt ?? 0
+  let b = opt ?? opt ?? 0
+  let c = m["k"] ?? 0
+  a + b + c
+end
 "#
 );
 
@@ -586,6 +623,25 @@ def build(): int
     n if n + 1 => 0
     _ => 1
   end
+end
+"#
+);
+
+typecheck_error_test!(
+    error_options_sugar,
+    r#"
+struct User
+  name: string
+  nickname: Option<string>
+end
+
+def misuse(a: Option<int>, b: Option<int>): int
+  let w = 1?.len()
+  let x = 1 ?? 2
+  let y = a ?? "fallback"
+  let z = a ?? b
+  let u = User { name: "ana" }
+  x
 end
 "#
 );

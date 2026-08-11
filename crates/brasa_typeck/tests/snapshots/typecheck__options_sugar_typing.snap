@@ -1,0 +1,69 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i3 nickLen -> (User) -> Option<int>
+  i4 deep -> (Option<Outer>) -> Option<int>
+  i5 orZero -> (Option<int>, Map<string, int>) -> int
+local types
+  l0 user -> User
+  l1 $tmp0 -> string
+  l2 o -> Option<Outer>
+  l3 $tmp1 -> Outer
+  l4 $tmp2 -> Inner
+  l5 opt -> Option<int>
+  l6 m -> Map<string, int>
+  l7 $tmp3 -> int
+  l8 a -> int
+  l9 $tmp4 -> int
+  l10 $tmp5 -> int
+  l11 b -> int
+  l12 $tmp6 -> int
+  l13 c -> int
+expr types
+  e0 -> User
+  e1 -> Option<string>
+  e2 -> string
+  e3 -> () -> int
+  e4 -> int
+  e5 -> Option<int>
+  e6 -> Option<int>
+  e7 -> Option<int>
+  e8 -> Option<Outer>
+  e9 -> Outer
+  e10 -> Option<Inner>
+  e11 -> Option<Inner>
+  e12 -> Option<unknown>
+  e13 -> Option<Inner>
+  e14 -> Inner
+  e15 -> Option<int>
+  e16 -> Option<int>
+  e17 -> Option<int>
+  e18 -> Option<int>
+  e19 -> Option<int>
+  e20 -> int
+  e21 -> int
+  e22 -> int
+  e23 -> Option<int>
+  e24 -> int
+  e25 -> Option<int>
+  e26 -> int
+  e27 -> int
+  e28 -> int
+  e29 -> int
+  e30 -> Map<string, int>
+  e31 -> string
+  e32 -> Option<int>
+  e33 -> int
+  e34 -> int
+  e35 -> int
+  e36 -> int
+  e37 -> int
+  e38 -> int
+  e39 -> int
+  e40 -> int
+wrap decisions
+  e5 -> wrap
+  e11 -> no-op
+  e16 -> no-op

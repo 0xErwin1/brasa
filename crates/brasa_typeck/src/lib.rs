@@ -11,10 +11,11 @@
 //! collection literals, a minimal builtin method table, and generics
 //! with structural interface constraints (BRS-17: inference at every
 //! use site, constraint satisfaction, no interface-typed values)
-//! (`docs/spec/03-types.md`, `docs/spec/05-stdlib.md`). Deferred and
-//! traversed with a silently-unifying `Unknown` type: `match`
-//! exhaustiveness (BRS-18), `Option` operator refinement (BRS-19),
-//! error sets (M2), and stdlib module signatures (M4).
+//! (`docs/spec/03-types.md`, `docs/spec/05-stdlib.md`), plus `match`
+//! exhaustiveness (BRS-18) and the `?.`/`??` operator rules with
+//! source-language diagnostics (BRS-19). Deferred and traversed with a
+//! silently-unifying `Unknown` type: error sets (M2) and stdlib module
+//! signatures (M4).
 
 pub mod builtins;
 pub mod dump;
@@ -28,7 +29,7 @@ pub use types::{Type, WrapDecision, unify};
 use std::collections::HashMap;
 
 use brasa_diagnostics::Diagnostic;
-use brasa_hir::{ExprId, Hir, ItemId};
+use brasa_hir::{ExprId, Hir, ItemId, SugarOrigin};
 use brasa_resolver::{LocalId, Resolutions};
 
 /// Every table produced by [`check`], keyed by HIR arena IDs like the
@@ -54,9 +55,17 @@ pub struct TypeckResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Type-checks the module rooted at `roots`.
-pub fn check(hir: &Hir, roots: &[ItemId], resolutions: &Resolutions) -> TypeckResult {
-    let (types, mut diagnostics) = check::run(hir, roots, resolutions);
+/// Type-checks the module rooted at `roots`. `sugar_origins` is
+/// lowering's side table marking which `match` expressions were
+/// desugared from `?.`/`??`, so their misuse reports in source terms
+/// (`docs/spec/06-diagnostics.md`, T028–T030).
+pub fn check(
+    hir: &Hir,
+    roots: &[ItemId],
+    resolutions: &Resolutions,
+    sugar_origins: &HashMap<ExprId, SugarOrigin>,
+) -> TypeckResult {
+    let (types, mut diagnostics) = check::run(hir, roots, resolutions, sugar_origins);
 
     diagnostics.sort_by_key(|d| (d.primary_span.start.0, d.primary_span.end.0));
     dedup_identical_diagnostics(&mut diagnostics);

@@ -27,7 +27,7 @@ pub mod types;
 
 pub use expr::*;
 pub use item::*;
-pub use lower::{LowerResult, lower};
+pub use lower::{LowerResult, SugarOrigin, lower};
 pub use pattern::*;
 pub use stmt::*;
 pub use types::*;

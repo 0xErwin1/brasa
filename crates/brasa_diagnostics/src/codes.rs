@@ -149,6 +149,13 @@ pub const T_CANNOT_INFER_TYPE_PARAM: &str = "T026";
 /// A solved type argument that does not satisfy its declared
 /// constraint.
 pub const T_CONSTRAINT_NOT_SATISFIED: &str = "T027";
+/// `?.` applied to a receiver that is not an `Option`.
+pub const T_SAFE_NAV_NEEDS_OPTION: &str = "T028";
+/// `??` whose left side is not an `Option`.
+pub const T_COALESCE_NEEDS_OPTION: &str = "T029";
+/// `??` whose fallback's type does not match the type the `Option`
+/// carries.
+pub const T_COALESCE_TYPE_MISMATCH: &str = "T030";
 
 #[cfg(test)]
 mod tests {
@@ -207,6 +214,9 @@ mod tests {
         super::T_INTERFACE_AS_TYPE,
         super::T_CANNOT_INFER_TYPE_PARAM,
         super::T_CONSTRAINT_NOT_SATISFIED,
+        super::T_SAFE_NAV_NEEDS_OPTION,
+        super::T_COALESCE_NEEDS_OPTION,
+        super::T_COALESCE_TYPE_MISMATCH,
     ];
 
     /// The spec's `^[LPRT]\d{3}$` shape, checked without a regex crate.

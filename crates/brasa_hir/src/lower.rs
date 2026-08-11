@@ -24,6 +24,8 @@
 //! never collide with user bindings; no separate hygiene mechanism is
 //! needed.
 
+use std::collections::HashMap;
+
 use brasa_ast as ast;
 use brasa_ast::Ast;
 use brasa_diagnostics::Diagnostic;
@@ -35,13 +37,30 @@ use crate::{
     Param, Pattern, PatternId, Stmt, StructDef, TopLet, TypeExpr, TypeExprId, Variant,
 };
 
+/// The sugar construct a synthesized `match` expression was desugared
+/// from. The type checker uses this to report `?.`/`??` misuse in source
+/// terms instead of leaking the desugared `match` (BRS-19); the HIR node
+/// itself stays a plain, immutable `Expr::Match`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SugarOrigin {
+    /// `a?.b` / `a?.m(args)`.
+    SafeNav,
+    /// `a ?? b`.
+    Coalesce,
+}
+
 /// The output of lowering one parsed file: the HIR arenas, the top-level
-/// item IDs in source order, and any diagnostics. No current desugaring
-/// can fail, so `diagnostics` is empty today; the channel exists because
-/// phases report structured errors and only the CLI renders them.
+/// item IDs in source order, the sugar-origin side table, and any
+/// diagnostics. No current desugaring can fail, so `diagnostics` is
+/// empty today; the channel exists because phases report structured
+/// errors and only the CLI renders them.
 pub struct LowerResult {
     pub hir: Hir,
     pub roots: Vec<ItemId>,
+    /// Which sugar construct each synthesized `match` expression came
+    /// from, keyed by the `Expr::Match` node's ID. A side table so the
+    /// HIR nodes stay immutable and sugar-free.
+    pub sugar_origins: HashMap<ExprId, SugarOrigin>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -53,6 +72,7 @@ pub fn lower(ast: &Ast, roots: &[ast::ItemId]) -> LowerResult {
     let mut cx = LowerCtx {
         ast,
         hir: Hir::new(),
+        sugar_origins: HashMap::new(),
         diagnostics: Vec::new(),
         next_temp: 0,
     };
@@ -62,6 +82,7 @@ pub fn lower(ast: &Ast, roots: &[ast::ItemId]) -> LowerResult {
     LowerResult {
         hir: cx.hir,
         roots,
+        sugar_origins: cx.sugar_origins,
         diagnostics: cx.diagnostics,
     }
 }
@@ -69,6 +90,7 @@ pub fn lower(ast: &Ast, roots: &[ast::ItemId]) -> LowerResult {
 struct LowerCtx<'a> {
     ast: &'a Ast,
     hir: Hir,
+    sugar_origins: HashMap<ExprId, SugarOrigin>,
     diagnostics: Vec<Diagnostic>,
     next_temp: u32,
 }
@@ -565,7 +587,7 @@ impl LowerCtx<'_> {
         );
         let none_body = self.lower_expr(rhs);
 
-        self.hir.alloc_expr(
+        let match_expr = self.hir.alloc_expr(
             Expr::Match {
                 scrutinee,
                 arms: vec![
@@ -582,7 +604,9 @@ impl LowerCtx<'_> {
                 ],
             },
             span,
-        )
+        );
+        self.sugar_origins.insert(match_expr, SugarOrigin::Coalesce);
+        match_expr
     }
 
     /// `a?.b` → `match a { Some($t) => OptionWrap($t.b), None => None }`;
@@ -649,7 +673,7 @@ impl LowerCtx<'_> {
             span,
         );
 
-        self.hir.alloc_expr(
+        let match_expr = self.hir.alloc_expr(
             Expr::Match {
                 scrutinee,
                 arms: vec![
@@ -666,7 +690,9 @@ impl LowerCtx<'_> {
                 ],
             },
             span,
-        )
+        );
+        self.sugar_origins.insert(match_expr, SugarOrigin::SafeNav);
+        match_expr
     }
 
     /// Interpolation → concatenation (`docs/spec/00-vision.md`): text

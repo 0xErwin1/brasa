@@ -13,19 +13,21 @@ use brasa_token::TokenKind;
 use crate::Parser;
 
 /// `(left_bp, right_bp)` for each binary operator at precedence levels
-/// 2-10 of `docs/spec/02-grammar.md`. `**` is the only right-associative
-/// entry (its right bp is lower than its left bp); ranges are
-/// non-associative and use equal bps plus an explicit check in
-/// [`Parser::parse_bp`] that rejects chaining.
+/// 2-10 of `docs/spec/02-grammar.md`. `**` and `??` are the
+/// right-associative entries (their right bp is lower than their left
+/// bp); ranges are non-associative and use equal bps plus an explicit
+/// check in [`Parser::parse_bp`] that rejects chaining.
 ///
-/// `??` (level 2) is left-associative like every other entry here and
+/// `??` (level 2) is right-associative so `a ?? b ?? 0` parses as
+/// `a ?? (b ?? 0)`: each `Option` chains into the next fallback and the
+/// final operand supplies the plain value the whole chain produces. It
 /// builds `Expr::Coalesce` in [`Parser::parse_bp`], the same way the
 /// other entries build `Expr::Binary`.
 fn binding_power(kind: TokenKind) -> Option<(u8, u8)> {
     use TokenKind::*;
 
     Some(match kind {
-        QuestionQuestion => (20, 21),
+        QuestionQuestion => (21, 20),
         OrOr | Or => (30, 31),
         AndAnd | And => (40, 41),
         EqEq | NotEq => (50, 51),

@@ -108,7 +108,10 @@ for_stmt    = "for" pattern "in" expr NL block "end"
 ## Expressions
 
 Precedence from lowest to highest; all binary operators are left-associative
-except `**` (right) and ranges (non-associative):
+except `**` and `??` (right) and ranges (non-associative). `??` associates
+to the right so `Option`s chain into a final fallback: `a ?? b ?? 0` ≡
+`a ?? (b ?? 0)`, and the desugared `match` then types naturally
+(`Option<T> ?? T -> T` at every step):
 
 ```
 1   |>
