@@ -437,4 +437,34 @@ Benchmark contract (M3 acceptance, epic BRS-4):
   code, and catch-on-the-happy-path (which must be free under handler
   tables).
 
+### Benchmark results (BRS-30, dev machine)
+
+Measured by `crates/brasa_vm/benches/backends.rs` (criterion 0.8) on a
+dev machine (Intel i7-10850H, x86_64 Linux); criterion keeps the full
+statistical data under `target/criterion/`. Each program compiles once
+outside the measured loop; each iteration executes prebuilt artifacts
+into a sink writer. Values are criterion point estimates.
+
+| Benchmark | Walker | VM | Speedup |
+|-----------|--------|----|---------|
+| `arith_loop` | 57.83 ms | 36.64 ms | 1.58x |
+| `collections` | 6.79 ms | 3.67 ms | 1.85x |
+| `closures` | 68.40 ms | 18.30 ms | 3.74x |
+| `catch_happy` | 59.61 ms | 24.14 ms | 2.47x |
+| `fib` | 21.63 ms | 7.16 ms | 3.02x |
+| `strings` | 1.38 ms | 1.06 ms | 1.30x |
+
+Acceptance holds: the VM is faster on every benchmark with
+non-overlapping confidence intervals, so the CLI default `--backend`
+is `vm` (the walker stays available as `--backend=walker`).
+
+Catch-on-the-happy-path overhead on the VM (`catch_overhead_vm`): the
+same loop with a never-taken `catch` measured 24.21 ms vs 23.33 ms
+without it (+3.8%, overlapping confidence intervals) — handler tables
+keep the happy path effectively free.
+
+Cold start (full pipeline for a small script): frontend only 19.7 µs,
+walker 98.1 µs, VM 110.8 µs. The VM's extra ~13 µs is the codegen
+phase; execution benchmarks above exclude it by design.
+
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

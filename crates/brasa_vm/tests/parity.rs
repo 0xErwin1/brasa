@@ -61,6 +61,23 @@ fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String)
     );
     assert_eq!(walker_stdout, vm_stdout, "stdout parity failed");
 
+    // Hot-GC leg (BRS-30): the same module under a tiny allocation
+    // threshold, so collections fire constantly mid-run. GC pressure
+    // must never change observable behavior. `run_with_gc_threshold`
+    // has no depth parameter, so the depth-limited tests keep only the
+    // default-threshold comparison above.
+    if max_depth == brasa_vm::DEFAULT_MAX_CALL_DEPTH {
+        let mut hot_out = Vec::new();
+        let (hot_outcome, _) = brasa_vm::run_with_gc_threshold(&module, &mut hot_out, 8);
+        let hot_stdout = String::from_utf8(hot_out).expect("hot-GC VM output is UTF-8");
+
+        assert_eq!(
+            walker_outcome, hot_outcome,
+            "hot-GC outcome parity failed\nwalker stdout: {walker_stdout:?}\nhot stdout: {hot_stdout:?}"
+        );
+        assert_eq!(walker_stdout, hot_stdout, "hot-GC stdout parity failed");
+    }
+
     (walker_outcome, walker_stdout)
 }
 

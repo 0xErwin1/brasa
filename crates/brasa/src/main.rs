@@ -40,10 +40,9 @@ struct Cli {
     #[arg(long)]
     dump_bytecode: bool,
 
-    /// Execution backend: the reference tree-walker or the bytecode VM.
-    /// The default stays `walker` until the M3 parity acceptance flips
-    /// it (BRS-30).
-    #[arg(long, value_enum, default_value_t = Backend::Walker)]
+    /// Execution backend: the bytecode VM (default since the M3
+    /// acceptance, BRS-30) or the reference tree-walker.
+    #[arg(long, value_enum, default_value_t = Backend::Vm)]
     backend: Backend,
 
     /// Arguments passed through to the script as `args()`.
