@@ -1,4 +1,4 @@
-//! `catch`/`catch_all` lowering to static handler tables plus a
+//! `catch`/`catch!` lowering to static handler tables plus a
 //! dispatch sequence (`docs/spec/07-bytecode.md`, throw/catch).
 //!
 //! The handler entry covers the compiled subject only; the dispatch

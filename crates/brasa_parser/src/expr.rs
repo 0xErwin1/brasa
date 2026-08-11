@@ -754,11 +754,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `catch_clause = ("catch" | "catch_all") "(" IDENT ")" NL
+    /// `catch_clause = ("catch" | "catch!") "(" IDENT ")" NL
     /// catch_arm+ "end"`.
     fn parse_catch(&mut self, subject: ExprId, start: Span) -> ExprId {
         let exhaustive = self.at(TokenKind::CatchAll);
-        self.bump(); // 'catch' or 'catch_all'
+        self.bump(); // 'catch' or 'catch!'
 
         self.expect(TokenKind::LParen, "'(' before the catch binding");
         let binding = self.expect_ident_text("a catch binding name");

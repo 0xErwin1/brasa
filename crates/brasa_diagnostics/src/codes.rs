@@ -169,14 +169,14 @@ pub const T_KEY_NOT_HASHABLE: &str = "T031";
 
 // --- error-sets (E) ---
 
-/// A `catch`/`catch_all` arm that can never match: a named type the
+/// A `catch`/`catch!` arm that can never match: a named type the
 /// subject's (closed) error-set does not contain, or a `_` arm in a
-/// `catch_all` whose named arms already handle every error.
+/// `catch!` whose named arms already handle every error.
 pub const E_UNREACHABLE_ARM: &str = "E001";
-/// A `catch_all` whose arms (plus `_`, if any) do not cover every type
+/// A `catch!` whose arms (plus `_`, if any) do not cover every type
 /// in the subject's closed error-set.
 pub const E_CATCH_ALL_NOT_EXHAUSTIVE: &str = "E002";
-/// A `catch_all` whose subject's error-set is open, so exhaustiveness
+/// A `catch!` whose subject's error-set is open, so exhaustiveness
 /// cannot be verified.
 pub const E_UNVERIFIABLE_EXHAUSTIVENESS: &str = "E003";
 /// A function whose inferred error-set contains a type its declared

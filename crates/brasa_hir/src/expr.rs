@@ -130,7 +130,7 @@ pub enum Expr {
         hi: ExprId,
         inclusive: bool,
     },
-    /// Postfix `catch`/`catch_all` on `subject`; semantics in
+    /// Postfix `catch`/`catch!` on `subject`; semantics in
     /// `docs/spec/04-errors.md`. Not sugar — error handling is core.
     Catch {
         subject: ExprId,

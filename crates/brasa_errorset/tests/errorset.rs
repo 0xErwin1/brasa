@@ -270,7 +270,7 @@ end
 );
 
 errorset_test!(
-    throws_contracts_and_catch_all_satisfied,
+    throws_contracts_and_catch_bang_satisfied,
     r#"
 struct NetError
   detail: string
@@ -299,16 +299,16 @@ def parse(flag: int): int throws ParseError
 end
 
 def handleBoth(ok: bool, flag: int): int throws never
-  let page = fetch(ok) catch_all (e)
+  let page = fetch(ok) catch! (e)
     NetError => "net down"
   end
-  parse(page.len() + flag) catch_all (e)
+  parse(page.len() + flag) catch! (e)
     ParseError => -1
   end
 end
 
 def wildcardAll(ok: bool): string
-  fetch(ok) catch_all (e)
+  fetch(ok) catch! (e)
     _ => "recovered"
   end
 end
@@ -340,14 +340,14 @@ def lenient(s: string): int
 end
 
 def strict(s: string): int
-  parse(s) catch_all (e)
+  parse(s) catch! (e)
     Boom => -1
     string.ParseError => -2
   end
 end
 
 def wildcarded(s: string): int
-  parse(s) catch_all (e)
+  parse(s) catch! (e)
     Boom => -1
     _ => -2
   end
@@ -369,7 +369,7 @@ def lenient(s: string, pattern: string): bool
 end
 
 def scrubbed(s: string): string
-  s.replaceRe("[0-9]+", "*") catch_all (e)
+  s.replaceRe("[0-9]+", "*") catch! (e)
     string.RegexError => s
   end
 end
@@ -388,7 +388,7 @@ end
 );
 
 errorset_error_test!(
-    e002_catch_all_missing_native_error,
+    e002_catch_bang_missing_native_error,
     r#"
 struct Boom
   detail: string
@@ -402,7 +402,7 @@ def parse(s: string): int
 end
 
 def strict(s: string): int
-  parse(s) catch_all (e)
+  parse(s) catch! (e)
     Boom => -1
   end
 end
@@ -435,14 +435,14 @@ def deadArm(ok: bool): string
 end
 
 def deadArmExhaustive(ok: bool): string
-  risky(ok) catch_all (e)
+  risky(ok) catch! (e)
     NetError => "net"
     ParseError => "never thrown"
   end
 end
 
 def deadWildcard(ok: bool): string
-  risky(ok) catch_all (e)
+  risky(ok) catch! (e)
     NetError => "net"
     _ => "unreachable"
   end
@@ -451,7 +451,7 @@ end
 );
 
 errorset_error_test!(
-    e002_catch_all_missing_tags,
+    e002_catch_bang_missing_tags,
     r#"
 struct NetError
   detail: string
@@ -471,13 +471,13 @@ def risky(mode: int): string
 end
 
 def missesOne(mode: int): string
-  risky(mode) catch_all (e)
+  risky(mode) catch! (e)
     NetError => "net"
   end
 end
 
 def guardedDoesNotCount(mode: int): string
-  risky(mode) catch_all (e)
+  risky(mode) catch! (e)
     NetError if mode > 0 => "sometimes"
     ParseError => "parse"
   end
@@ -500,7 +500,7 @@ def risky(mode: int): int
 end
 
 def edge(mode: int): int
-  risky(mode) catch_all (e)
+  risky(mode) catch! (e)
     panics.DivisionByZero => 0
   end
 end
@@ -508,10 +508,10 @@ end
 );
 
 errorset_error_test!(
-    e003_open_catch_all,
+    e003_open_catch_bang,
     r#"
 def callThrough(f: () -> int): int
-  f() catch_all (e)
+  f() catch! (e)
     _ => -1
   end
 end
@@ -951,7 +951,7 @@ def risky(ok: bool): string
   "ok"
 end
 
-let page = risky(false) catch_all (e)
+let page = risky(false) catch! (e)
   NetError => "net"
   _ => "unreachable"
 end
@@ -960,7 +960,7 @@ puts page
 );
 
 errorset_error_test!(
-    e002_top_level_catch_all_missing_tag,
+    e002_top_level_catch_bang_missing_tag,
     r#"
 struct NetError
   detail: string
@@ -979,7 +979,7 @@ def risky(mode: int): string
   "ok"
 end
 
-let page = risky(1) catch_all (e)
+let page = risky(1) catch! (e)
   NetError => "net"
 end
 puts page

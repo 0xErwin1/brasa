@@ -1,8 +1,6 @@
 # Brasa — error system
 
-> Status: closed. Reference: the BAML model (`canary` branch,
-> `baml_language/`), which is implemented and tested — not just announced.
-> Where BAML has not yet shipped (`catch_all`), Brasa decides on its own.
+> Status: closed.
 
 Model: errors are ordinary values that are thrown (`throw`), each
 function's error-set is **inferred** (never declared), and `catch`
@@ -48,8 +46,8 @@ end
 - The set travels between modules: if `a()` calls `b.helper()` which
   throws `NetError`, `a`'s set includes `NetError`.
 
-`throws` is **optional and verified** (adopted from BAML): a function can
-declare its contract and the compiler checks it against the body:
+`throws` is **optional and verified**: a function can declare its
+contract and the compiler checks it against the body:
 
 ```ruby
 def fetch(url: string): string throws NetError
@@ -88,7 +86,7 @@ end
   common to both). This is the ONLY appearance of unions in the
   language, scoped to catch arms.
 - `_ =>` as the last arm catches any remaining error — but it **never
-  catches panics** (BAML rule, adopted).
+  catches panics**.
 - Matching is **nominal**: `catch` distinguishes by the declared type of
   the thrown value, not by its shape.
 - Stdlib-native errors are named by their dotted module-qualified name
@@ -104,7 +102,7 @@ let cfg = load(path) catch (e)
 end
 ```
 
-`catch` is a **postfix expression operator** (as in BAML): it attaches to
+`catch` is a **postfix expression operator**: it attaches to
 any expression, there is no "try block" form. To cover several
 statements, extract a function — which is exactly the pattern the
 design wants to encourage.
@@ -112,18 +110,25 @@ design wants to encourage.
 ## Opt-in exhaustiveness
 
 ```ruby
-let page = fetchPage(ok) catch_all (e)
+let page = fetchPage(ok) catch! (e)
   NetError => "..."
   ParseError => "..."
 end
 ```
 
-- `catch_all`: the compiler requires an arm (or `_`) for EVERY type in the
+- `catch!`: the compiler requires an arm (or `_`) for EVERY type in the
   inferred error-set, and forbids unreachable arms. If `fetchPage` later
   throws something new, this call site stops compiling — that's the
   point: the program's edges (main, handlers) declare "nothing goes
-  unhandled here." Note: in BAML, `catch_all` is a reserved keyword still
-  without shipped semantics; Brasa implements it with this own definition.
+  unhandled here."
+
+Spelling: the keyword is `catch!`, never `catch_all`. Every keyword in
+the language is a single lowercase word, and a trailing `!` is already
+part of the identifier lexicon (see `IDENT` in
+[02-grammar.md](02-grammar.md), and the `mut!` convention) where it reads
+as "the strict variant". `catch!` therefore keeps the reserved-word list
+lowercase and underscore-free without inventing notation the language did
+not already use.
 
 ## Panics vs errors
 
@@ -142,9 +147,8 @@ let x = items[i] catch (e)
 end
 ```
 
-(This replaces the original design's `catch_all_panics` — which isn't
-even a keyword in BAML. Naming the panic requires the same intent with
-one fewer mechanism.)
+(This replaces the original design's `catch_all_panics` keyword: naming
+the panic expresses the same intent with one fewer mechanism.)
 
 | | Error (`throw`) | Panic |
 |---|---|---|
@@ -167,21 +171,21 @@ one fewer mechanism.)
   isn't there); `throw` is for operation FAILURE (the file couldn't be
   read). The stdlib is consistent with that line.
 
-## Decisions made with the BAML reference in view
+## Design decisions
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Binding | a single `catch (e)`, retyped (narrowed) per arm | It's what BAML implements and avoids new syntax per arm |
-| Catch over blocks? | No: postfix on an expression only | Same as BAML; "extract a function" is the desired pattern |
-| Nominal or structural? | Nominal | Errors are identity; BAML matches classes nominally |
-| `catch_all_panics` | Removed; panics are caught by naming them | It doesn't exist as a keyword in BAML; naming the type is already explicit opt-in |
-| Explicit `throws` | Optional and verified; mandatory in interfaces; `throws never` | Adopted from BAML's TYPE_SYSTEM.md |
-| `_` arm | Catches errors, never panics | Tested BAML rule |
+| Binding | a single `catch (e)`, retyped (narrowed) per arm | One binding covers every arm, so no per-arm syntax is needed to name the error |
+| Catch over blocks? | No: postfix on an expression only | Extracting a function is the pattern the design wants to encourage; a try-block invites wrapping unrelated statements together |
+| Nominal or structural? | Nominal | Errors are identity: two unrelated structs that happen to share a `detail: string` field are not the same failure |
+| `catch_all_panics` | Removed; panics are caught by naming them | Naming the panic type is already an explicit opt-in, so a second mechanism earns nothing |
+| Explicit `throws` | Optional and verified; mandatory in interfaces; `throws never` | Inference is the default for scripts, but a contract that is written down should be checked — and an interface is a contract, so it cannot be inferred |
+| `_` arm | Catches errors, never panics | A bug must not be swallowed by a catch-all written for domain failures |
 
-Known risk: BAML does not document how it handles recursion in
-inference nor the interaction with generics — Brasa is on its own there.
-The M2 plan must include tests for: mutual recursion, higher-order
-functions with lambdas that throw, and generics with `(T) -> R` that
-throws.
+Known risk: the interaction of error-set inference with recursion and
+with generics is Brasa's own design, with no prior implementation to
+compare against. The M2 plan must include tests for mutual recursion,
+higher-order functions with lambdas that throw, and generics with a
+`(T) -> R` argument that throws.
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

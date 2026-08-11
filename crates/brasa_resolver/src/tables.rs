@@ -305,7 +305,7 @@ pub struct Resolutions {
     /// the value is the canonical qualified name. Kept in a separate
     /// table on purpose: panics are not error types
     /// (`docs/spec/04-errors.md`) — they never subtract from error-sets
-    /// and never count toward `catch_all` exhaustiveness, so the
+    /// and never count toward `catch!` exhaustiveness, so the
     /// error-set checks, which only consume `catch_arm_types`, must not
     /// see them.
     pub catch_arm_panics: HashMap<(ExprId, usize, usize), &'static str>,
@@ -315,7 +315,7 @@ pub struct Resolutions {
     /// qualified name. A separate table from both `catch_arm_types`
     /// (native errors resolve to no `TypeRes` — they are not types in
     /// scope) and `catch_arm_panics` (native errors ARE errors: they
-    /// subtract from error-sets and count toward `catch_all`
+    /// subtract from error-sets and count toward `catch!`
     /// exhaustiveness, panics do neither).
     pub catch_arm_native_errors: HashMap<(ExprId, usize, usize), &'static str>,
     /// Resolved `throws Type | ...` declaration lists, aligned with the

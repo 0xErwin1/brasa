@@ -84,7 +84,7 @@ pub enum CatchType {
     /// side-table span) of its own.
     Named { name: String, span: Span },
     /// A `_` arm type, with the span of the `_` token so diagnostics
-    /// about the wildcard (an unreachable `_` under `catch_all`) point
+    /// about the wildcard (an unreachable `_` under `catch!`) point
     /// at it rather than the whole catch expression.
     Wildcard { span: Span },
 }
@@ -187,8 +187,8 @@ pub enum Expr {
         hi: ExprId,
         inclusive: bool,
     },
-    /// Postfix `catch`/`catch_all` on `subject`. `exhaustive` is `true`
-    /// for `catch_all`; unhandled catch types re-throw only when it is
+    /// Postfix `catch`/`catch!` on `subject`. `exhaustive` is `true`
+    /// for `catch!`; unhandled catch types re-throw only when it is
     /// `false`; full semantics in `docs/spec/04-errors.md`.
     Catch {
         subject: ExprId,

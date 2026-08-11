@@ -1,5 +1,5 @@
 //! The BRS-23 checks that consume the inferred sets: unreachable
-//! `catch` arms (E001), `catch_all` exhaustiveness (E002/E003), and
+//! `catch` arms (E001), `catch!` exhaustiveness (E002/E003), and
 //! `throws` contract verification (E004/E005). Wording and kind
 //! boundaries follow `docs/spec/06-diagnostics.md`.
 //!
@@ -11,19 +11,19 @@
 //!
 //! Decisions recorded here:
 //!
-//! - A `_` arm is flagged unreachable only inside `catch_all`, and only
+//! - A `_` arm is flagged unreachable only inside `catch!`, and only
 //!   when the closed subject set minus the unguarded named arms is
 //!   empty (`docs/spec/04-errors.md` forbids unreachable arms in
-//!   `catch_all`). In a plain `catch`, a defensive `_` is never
+//!   `catch!`). In a plain `catch`, a defensive `_` is never
 //!   flagged: non-exhaustive handling is the default there.
-//! - An open subject under `catch_all` is E003, erring on the side of
+//! - An open subject under `catch!` is E003, erring on the side of
 //!   soundness: an incomplete list cannot prove exhaustiveness.
 //! - `throws` over-declaration (declaring a type the body never
 //!   throws) gets no diagnostic: the spec is silent, and a widened
 //!   contract is harmless.
 //! - With an open actual set, a declared `throws` list still checks
 //!   the tags that WERE found (E004) but tolerates the openness: the
-//!   declaration is the contract, and unlike `catch_all` there is no
+//!   declaration is the contract, and unlike `catch!` there is no
 //!   exhaustiveness claim to prove. This is deliberately asymmetric
 //!   with E003.
 //! - A declared `throws` name resolving to something that is not a
@@ -70,9 +70,9 @@ fn tag_list(hir: &Hir, tags: &BTreeSet<ErrorTag>) -> String {
     }
 }
 
-/// Checks one `catch`/`catch_all` expression against its subject's
+/// Checks one `catch`/`catch!` expression against its subject's
 /// contribution set (computed before arm subtraction): E001 for
-/// unreachable arms, E002/E003 for `catch_all` exhaustiveness.
+/// unreachable arms, E002/E003 for `catch!` exhaustiveness.
 pub(crate) fn catch_expr(
     hir: &Hir,
     res: &Resolutions,
@@ -127,7 +127,7 @@ pub(crate) fn catch_expr(
             err(
                 codes::E_UNVERIFIABLE_EXHAUSTIVENESS,
                 span,
-                "catch_all cannot be verified: the subject's error-set is open".to_string(),
+                "catch! cannot be verified: the subject's error-set is open".to_string(),
                 "the error-set of this expression is open",
             )
             .with_note(
@@ -177,7 +177,7 @@ pub(crate) fn catch_expr(
         diagnostics.push(err(
             codes::E_CATCH_ALL_NOT_EXHAUSTIVE,
             span,
-            format!("catch_all does not handle {}", tag_list(hir, &remaining)),
+            format!("catch! does not handle {}", tag_list(hir, &remaining)),
             "add arms or `_`",
         ));
     }

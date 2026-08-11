@@ -1,0 +1,6 @@
+---
+source: crates/brasa_lexer/src/tests.rs
+expression: "render(\"catch_all\")"
+---
+Ident "catch_all"
+Eof ""

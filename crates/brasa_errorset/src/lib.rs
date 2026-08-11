@@ -11,7 +11,7 @@
 //! The crate COMPUTES the sets, exposes them as side tables
 //! (`docs/spec/00-vision.md`, the `error_sets: Map<FuncId, ErrorSet>`
 //! row), and then runs the checks that consume them (BRS-23):
-//! unreachable arms, `catch_all` exhaustiveness, and `throws`
+//! unreachable arms, `catch!` exhaustiveness, and `throws`
 //! verification — see [`check`] for the rules and recorded decisions.
 //! The pass runs after type checking because tagging a thrown value
 //! needs its type.
@@ -22,7 +22,7 @@
 //!
 //! Top-level code (`Item::Stmt` blocks and `TopLet` initializers) is
 //! analyzed as one pseudo-body during the post-convergence checking
-//! pass, so its `catch`/`catch_all` expressions get the same
+//! pass, so its `catch`/`catch!` expressions get the same
 //! E001/E002/E003 checks as any function body. The top level declares
 //! no `throws` contract, so its set may be non-empty without any
 //! diagnostic: an uncaught top-level throw ends the script at runtime

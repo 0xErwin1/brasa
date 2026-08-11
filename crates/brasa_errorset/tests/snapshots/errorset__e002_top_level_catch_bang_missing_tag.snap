@@ -2,10 +2,10 @@
 source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
-[E002] Error: catch_all does not handle `ParseError`
-    ╭─[ e002_top_level_catch_all_missing_tag.brs:19:12 ]
+[E002] Error: catch! does not handle `ParseError`
+    ╭─[ e002_top_level_catch_bang_missing_tag.brs:19:12 ]
     │
- 19 │ ╭─▶ let page = risky(1) catch_all (e)
+ 19 │ ╭─▶ let page = risky(1) catch! (e)
     ┆ ┆   
  21 │ ├─▶ end
     │ │         

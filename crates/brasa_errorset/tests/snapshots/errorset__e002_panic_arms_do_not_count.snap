@@ -2,10 +2,10 @@
 source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
-[E002] Error: catch_all does not handle `NetError`
+[E002] Error: catch! does not handle `NetError`
     ╭─[ e002_panic_arms_do_not_count.brs:14:3 ]
     │
- 14 │ ╭─▶   risky(mode) catch_all (e)
+ 14 │ ╭─▶   risky(mode) catch! (e)
     ┆ ┆   
  16 │ ├─▶   end
     │ │           

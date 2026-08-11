@@ -24,10 +24,18 @@ Reserved keywords:
 
 ```
 def end if then elsif else while for in do match enum struct interface
-import pub let mut return break continue throw throws catch catch_all
+import pub let mut return break continue throw throws catch catch!
 never true false self unit and or not
 spawn                                  # reserved, no semantics in v1
 ```
+
+`catch!` is the only keyword carrying an `IDENT` suffix; it is the strict
+(exhaustive) variant of `catch`. Keyword promotion therefore looks at the
+identifier *including* an absorbed `?`/`!` suffix: `catch` and `catch!`
+are two distinct keywords, `catch!=` is `catch` followed by `!=` (the
+operator wins, as below), and `catch !` with a space is `catch` followed
+by the `!` operator. `catch_all` is not a keyword; see
+[04-errors.md](04-errors.md) for why it was renamed.
 
 Operators and punctuation:
 
@@ -175,7 +183,7 @@ literal     = INT | FLOAT | STRING | CHAR | "true" | "false"
 ```
 
 ```
-catch_clause = ( "catch" | "catch_all" ) "(" IDENT ")" NL catch_arm+ "end"
+catch_clause = ( "catch" | "catch!" ) "(" IDENT ")" NL catch_arm+ "end"
 catch_arm    = catch_types ( "if" expr )? "=>" arm_body NL
 catch_types  = ( error_type | "_" ) ( "|" error_type )*
 error_type   = ( IDENT "." )? TYPE_IDENT     # possibly qualified: fs.NotFound, panics.DivisionByZero
@@ -215,7 +223,7 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`). A leading `-` binds as binary subtraction, not as a negative first argument: `puts -x` is `puts - x`; write `puts(-x)` |
 | command call vs indexing | a `[` after the callee binds as postfix indexing, not as a vector-literal first argument: `puts [1, 2]` parses as `puts[1, 2]` and fails. Bind the vector first (`let v = [1, 2]` then `puts v`) or use parentheses (`puts([1, 2])`) |
 | unknown escapes | `\<c>` for any `c` outside the escape set (`\n \t \" \\ \#`) is an ERROR in both string and char literals — never silently dropped or passed through. Raw strings are unaffected (no escapes at all) |
-| `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()` |
+| `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()`. Keyword lookup runs on the ident *after* absorption, which is what makes `catch!` a keyword and `catch!=` still `catch != ...` |
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |
 
 | line continuation | a newline run whose next token is `\|>`, `.`, or `?.` continues the current expression instead of terminating the statement (Ruby-style leading-dot chains): `repos NL .filter(...)` is one expression |

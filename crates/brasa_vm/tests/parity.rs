@@ -691,6 +691,45 @@ puts attempt(9)
     );
 }
 
+/// `catch!` is the exhaustive variant: every inferred error type has a
+/// named arm, so the checker accepts it with no `_` and both backends
+/// dispatch the same arms.
+#[test]
+fn catch_bang_handles_every_inferred_error() {
+    assert_success(
+        r##"
+struct NetError
+  detail: string
+end
+
+struct ParseFail
+  line: int
+end
+
+def fetch(mode: int): string
+  if mode == 0
+    throw NetError { detail: "timeout" }
+  elsif mode == 1
+    throw ParseFail { line: 42 }
+  end
+  "<html>"
+end
+
+def attempt(mode: int): string
+  fetch(mode) catch! (e)
+    NetError => "net: #{e.detail}"
+    ParseFail => "parse: #{e.line}"
+  end
+end
+
+puts attempt(0)
+puts attempt(1)
+puts attempt(9)
+"##,
+        "net: timeout\nparse: 42\n<html>\n",
+    );
+}
+
 #[test]
 fn catch_panic_arms_bind_the_detail() {
     assert_success(

@@ -2,10 +2,10 @@
 source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
-[E003] Error: catch_all cannot be verified: the subject's error-set is open
-   ╭─[ e003_open_catch_all.brs:3:3 ]
+[E003] Error: catch! cannot be verified: the subject's error-set is open
+   ╭─[ e003_open_catch_bang.brs:3:3 ]
    │
- 3 │ ╭─▶   f() catch_all (e)
+ 3 │ ╭─▶   f() catch! (e)
    ┆ ┆   
  5 │ ├─▶   end
    │ │           

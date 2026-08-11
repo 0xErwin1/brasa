@@ -76,7 +76,7 @@ impl<'a> Collector<'a> {
     /// as one body. The top level declares no `throws` contract, so the
     /// returned set is allowed to be non-empty (an uncaught top-level
     /// throw ends the script with exit 70 at runtime); collecting it
-    /// exists so `catch`/`catch_all` expressions in top-level code get
+    /// exists so `catch`/`catch!` expressions in top-level code get
     /// the same E001/E002/E003 checks as any function body.
     pub(crate) fn top_level(&mut self, roots: &[ItemId]) -> ErrorSet {
         let mut set = ErrorSet::default();
@@ -499,7 +499,7 @@ impl<'a> Collector<'a> {
     /// - dotted names in namespaces that have not landed and
     ///   unresolved arm names subtract nothing.
     ///
-    /// `catch_all` filters identically: exhaustiveness enforcement is a
+    /// `catch!` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set
     /// transformation, and runs here only during the checking pass —
     /// the subject set exists nowhere else.

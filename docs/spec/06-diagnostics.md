@@ -219,8 +219,8 @@ Notes on kind boundaries:
 | Code | Kind | Example message |
 |------|------|-----------------|
 | `E001` | unreachable `catch` arm | ``unreachable `catch` arm: `ParseError` is not in the error-set here`` |
-| `E002` | `catch_all` not exhaustive | ``catch_all does not handle `NetError` and `ParseError` `` |
-| `E003` | unverifiable exhaustiveness | `catch_all cannot be verified: the subject's error-set is open` |
+| `E002` | `catch!` not exhaustive | ``catch! does not handle `NetError` and `ParseError` `` |
+| `E003` | unverifiable exhaustiveness | `catch! cannot be verified: the subject's error-set is open` |
 | `E004` | undeclared throw | `` `fetch` throws `DnsError` but does not declare it`` |
 | `E005` | `throws never` violated | `` `boom` declares `throws never` but can throw `BoomError` `` |
 
@@ -230,20 +230,20 @@ Notes on kind boundaries:
   the tags of an open set are a sound lower bound, so a "this CAN be
   thrown" finding still fires, but every "this CANNOT be thrown" claim
   is skipped or reported as unverifiable. Top-level code is analyzed
-  as one pseudo-body: its `catch`/`catch_all` expressions get the same
+  as one pseudo-body: its `catch`/`catch!` expressions get the same
   checks as any function body, but the top level has no `throws`
   contract, so its own set may be non-empty without a diagnostic (an
   uncaught top-level throw ends the script at runtime, exit 70).
 - `E001` covers both unreachable-arm shapes: a named type the subject's
-  closed set does not contain (in `catch` and `catch_all` alike,
+  closed set does not contain (in `catch` and `catch!` alike,
   guarded or not — the guard runs only after the type matches), and a
-  `_` arm in a `catch_all` whose unguarded named arms already handle
+  `_` arm in a `catch!` whose unguarded named arms already handle
   every error. A defensive `_` in a plain `catch` is never flagged:
   non-exhaustive handling is the default there.
 - `E002` counts only unguarded arms (and an unguarded `_`) toward
   exhaustiveness — a guard may be false, the same rule error-set
   subtraction uses.
-- `E003` is `catch_all` over an OPEN subject set: soundness forbids
+- `E003` is `catch!` over an OPEN subject set: soundness forbids
   claiming exhaustiveness over an incomplete list.
 - `E004` checks the inferred tags against the declared `throws` list;
   an open actual set is tolerated (the declaration is the contract,

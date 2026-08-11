@@ -2,10 +2,10 @@
 source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
-[E002] Error: catch_all does not handle `string.ParseError`
-    ╭─[ e002_catch_all_missing_native_error.brs:14:3 ]
+[E002] Error: catch! does not handle `string.ParseError`
+    ╭─[ e002_catch_bang_missing_native_error.brs:14:3 ]
     │
- 14 │ ╭─▶   parse(s) catch_all (e)
+ 14 │ ╭─▶   parse(s) catch! (e)
     ┆ ┆   
  16 │ ├─▶   end
     │ │           

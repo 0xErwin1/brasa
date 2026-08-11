@@ -156,9 +156,10 @@ impl Token {
 /// Looks up whether `text` is a reserved keyword, returning its
 /// [`TokenKind`] if so.
 ///
-/// Called after an identifier has already been scanned (idents may end in
-/// `?`/`!`, but keywords never do), so this is a plain string match rather
-/// than something baked into the lexer's identifier pattern.
+/// Called after an identifier has already been scanned, so this is a plain
+/// string match rather than something baked into the lexer's identifier
+/// pattern. `text` must include any `?`/`!` suffix the lexer absorbed into
+/// the identifier, because `catch!` is a keyword spelled with one.
 pub fn keyword(text: &str) -> Option<TokenKind> {
     Some(match text {
         "def" => TokenKind::Def,
@@ -185,7 +186,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "throw" => TokenKind::Throw,
         "throws" => TokenKind::Throws,
         "catch" => TokenKind::Catch,
-        "catch_all" => TokenKind::CatchAll,
+        "catch!" => TokenKind::CatchAll,
         "never" => TokenKind::Never,
         "true" => TokenKind::True,
         "false" => TokenKind::False,
@@ -362,7 +363,9 @@ mod tests {
     fn keyword_lookup() {
         assert_eq!(keyword("if"), Some(TokenKind::If));
         assert_eq!(keyword("iffy"), None);
-        assert_eq!(keyword("catch_all"), Some(TokenKind::CatchAll));
+        assert_eq!(keyword("catch"), Some(TokenKind::Catch));
+        assert_eq!(keyword("catch!"), Some(TokenKind::CatchAll));
+        assert_eq!(keyword("catch_all"), None);
         assert_eq!(keyword("do"), Some(TokenKind::Do));
         assert_eq!(keyword("door"), None);
     }

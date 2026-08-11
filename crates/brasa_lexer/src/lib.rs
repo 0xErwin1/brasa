@@ -231,26 +231,32 @@ fn simple_kind(main: Main) -> TokenKind {
 ///   `"?."` operator, and `user.nickname?.len()` must lex as
 ///   field-then-safe-nav, not as an identifier literally named
 ///   `nickname?`).
-/// - Otherwise, the matched text is promoted to a keyword if it is one.
+/// - Otherwise, the matched text *including* an absorbed suffix is promoted
+///   to a keyword if it is one. The suffix has to take part in the lookup
+///   because `catch!` is a keyword, so `catch` and `catch!` are different
+///   keywords while `catch!=` is still `catch` followed by `!=`.
 ///
 /// Returns the resolved kind and how many extra bytes (0 or 1) beyond the
 /// base regex match belong to the token.
 fn classify_ident(source: &str, span: Span) -> (TokenKind, u32) {
-    let text = &source[span.start.0 as usize..span.end.0 as usize];
+    let start = span.start.0 as usize;
+    let end = span.end.0 as usize;
 
-    if text == "_" {
+    if &source[start..end] == "_" {
         return (TokenKind::Underscore, 0);
     }
 
-    let after = &source[span.end.0 as usize..];
+    let after = &source[end..];
     let absorbs_suffix = (after.starts_with('?') && !after[1..].starts_with('.'))
         || (after.starts_with('!') && !after[1..].starts_with('='));
 
-    if !absorbs_suffix && let Some(kind) = keyword(text) {
-        return (kind, 0);
-    }
+    let extra = u32::from(absorbs_suffix);
+    let text = &source[start..end + usize::from(absorbs_suffix)];
 
-    (TokenKind::Ident, u32::from(absorbs_suffix))
+    match keyword(text) {
+        Some(kind) => (kind, extra),
+        None => (TokenKind::Ident, extra),
+    }
 }
 
 /// What ended a manually-scanned string text segment.

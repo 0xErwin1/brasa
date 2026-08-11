@@ -64,6 +64,16 @@ snapshot!(type_ident, "Vector");
 snapshot!(bare_underscore, "_");
 snapshot!(safe_nav_after_ident, "user.nickname?.len()");
 snapshot!(not_eq_after_bang_ident, "sort!=x");
+snapshot!(predicate_ident_not_keyword, "empty? save!");
+
+// `catch!` is the one keyword with an `IDENT` suffix, so keyword lookup
+// has to see the absorbed suffix without letting it swallow `!=` or a
+// spaced `!`.
+snapshot!(keyword_catch_bang, "catch!");
+snapshot!(keyword_catch_plain, "catch");
+snapshot!(keyword_catch_not_eq, "catch!=x");
+snapshot!(keyword_catch_spaced_bang, "catch !");
+snapshot!(catch_all_is_not_a_keyword, "catch_all");
 
 // --- numerics ---
 

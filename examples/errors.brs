@@ -1,5 +1,5 @@
-# The BAML-style error system: throw values, inferred error sets,
-# catch as a non-exhaustive match, named panic capture.
+# The error system: throw values, inferred error sets, catch as a
+# non-exhaustive match, named panic capture.
 
 struct NetError
   detail: string
@@ -28,7 +28,7 @@ let page = fetchPage(false) catch (e)
 end
 puts page
 
-# catch_all: the compiler requires every inferred error to be handled.
+# catch!: the compiler requires every inferred error to be handled.
 def parse(s: string): int
   if s.len() == 0
     throw ParseError { line: 1 }
@@ -36,7 +36,7 @@ def parse(s: string): int
   s.toInt()
 end
 
-let n = parse("42") catch_all (e)
+let n = parse("42") catch! (e)
   ParseError => -1
   _ => -2
 end
