@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  build -> {BuildError}
+  bumpBuilt -> {BuildError}
+lambda error sets
+  e14 -> {}

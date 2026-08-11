@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  bump -> {StepError}
+  loopInvoke -> {StepError}
+lambda error sets
+  e17 -> {StepError}

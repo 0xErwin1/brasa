@@ -350,6 +350,15 @@ impl<'a> Collector<'a> {
     /// Plain argument evaluation: every argument expression contributes
     /// (a lambda literal argument contributes nothing itself — its set
     /// is recorded and flows only where it is invoked).
+    ///
+    /// Pinned BRS-25 behavior: a throwing lambda literal passed to a
+    /// user-defined function (`apply(|x: int| boom(x), n)`) tags
+    /// NEITHER side. The callee invokes it through a parameter, which
+    /// opens the callee's set, and the caller inherits that openness —
+    /// the literal's known set never narrows it. Per-call-site
+    /// inheritance of literal argument sets is the BRS-25 precision
+    /// gap; the literal-lambda special case in [`Self::hof_args`]
+    /// exists only for builtin HOF methods.
     fn args(&mut self, args: &[ExprId]) -> ErrorSet {
         let mut set = ErrorSet::default();
         for &arg in args {

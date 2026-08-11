@@ -523,6 +523,390 @@ end
 "#
 );
 
+// --- BRS-25 pinned territory: throwing lambdas in HOFs -------------------
+
+errorset_test!(
+    nested_lambda_in_hof_flows_both_levels,
+    r#"
+struct DepthError
+  code: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw DepthError { code: x }
+  end
+  x + 1
+end
+
+def bumpRows(rows: Vector<Vector<int>>): Vector<Vector<int>>
+  rows.map(|row| row.map(|x| bump(x)))
+end
+"#
+);
+
+errorset_test!(
+    hof_lambda_throws_and_calls_throwing_function,
+    r#"
+struct LambdaError
+  code: int
+end
+
+struct NamedError
+  code: int
+end
+
+def fail(x: int): int
+  if x < 0
+    throw NamedError { code: x }
+  end
+  x
+end
+
+def both(values: Vector<int>): Vector<int>
+  values.map do |x|
+    if x == 0
+      throw LambdaError { code: x }
+    end
+    fail(x)
+  end
+end
+"#
+);
+
+errorset_test!(
+    hof_receiver_built_from_throwing_call,
+    r#"
+struct BuildError
+  size: int
+end
+
+def build(n: int): Vector<int>
+  if n < 0
+    throw BuildError { size: n }
+  end
+  [n]
+end
+
+def bumpBuilt(n: int): Vector<int>
+  build(n).map(|x| x + 1)
+end
+"#
+);
+
+// A lambda stored in a local and then passed to a HOF is a NON-literal
+// fn-typed argument: the set opens and the lambda's own tag does not
+// flow (collect.rs, `hof_args` — the BRS-25 precision gap, pinned).
+errorset_test!(
+    stored_lambda_hof_argument_opens_the_set,
+    r#"
+struct SkipError
+  code: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw SkipError { code: x }
+  end
+  x + 1
+end
+
+def viaLocal(values: Vector<int>): Vector<int>
+  let f: (int) -> int = |x| bump(x)
+  values.map(f)
+end
+"#
+);
+
+errorset_test!(
+    same_lambda_literal_reinvoked_in_loop,
+    r#"
+struct StepError
+  code: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw StepError { code: x }
+  end
+  x + 1
+end
+
+def loopInvoke(n: int): int
+  let mut total = 0
+  while total < n
+    total = total + (|x: int| bump(x))(total)
+  end
+  total
+end
+"#
+);
+
+// --- BRS-25 pinned territory: generic fn-typed params ---------------------
+
+// `apply` invokes its parameter indirectly, so its own set is open; the
+// CALLER stays open too even though its lambda literal argument is
+// statically known — per-call-site inheritance is the BRS-25 gap
+// documented at `Collector::args`.
+errorset_test!(
+    generic_apply_is_open_at_definition_and_call_site,
+    r#"
+struct AppError
+  code: int
+end
+
+def boomIf(x: int): int
+  if x == 0
+    throw AppError { code: x }
+  end
+  x
+end
+
+def apply<T, R>(f: (T) -> R, x: T): R
+  f(x)
+end
+
+def useApply(n: int): int
+  apply(|x: int| boomIf(x), n)
+end
+"#
+);
+
+// --- BRS-25 pinned territory: mutual recursion beyond convergence ---------
+
+// Subtraction inside the cycle: `beta` catches `alpha`'s AlphaError, so
+// the fixpoint must converge with alpha = {Alpha, Beta} and
+// beta = {Beta} — the caught tag never re-enters through the cycle.
+errorset_test!(
+    mutual_recursion_with_internal_catch_converges,
+    r#"
+struct AlphaError
+  code: int
+end
+
+struct BetaError
+  code: int
+end
+
+def alpha(n: int): int
+  if n == 0
+    throw AlphaError { code: 1 }
+  end
+  beta(n - 1)
+end
+
+def beta(n: int): int
+  if n == 0
+    throw BetaError { code: 2 }
+  end
+  alpha(n - 1) catch (e)
+    AlphaError => 0
+  end
+end
+"#
+);
+
+errorset_test!(
+    three_function_cycle_converges,
+    r#"
+struct AError
+  code: int
+end
+
+struct BError
+  code: int
+end
+
+struct CError
+  code: int
+end
+
+def first(n: int): int
+  if n == 0
+    throw AError { code: 1 }
+  end
+  second(n - 1)
+end
+
+def second(n: int): int
+  if n == 0
+    throw BError { code: 2 }
+  end
+  third(n - 1)
+end
+
+def third(n: int): int
+  if n == 0
+    throw CError { code: 3 }
+  end
+  first(n - 1)
+end
+"#
+);
+
+errorset_test!(
+    recursion_through_lambda_literal_converges,
+    r#"
+struct LoopError
+  code: int
+end
+
+def spiral(n: int): int
+  if n == 0
+    throw LoopError { code: 0 }
+  end
+  (|m: int| spiral(m))(n - 1)
+end
+"#
+);
+
+// --- BRS-25 pinned territory: throws contracts over open sets -------------
+
+// A `throws` TYPE LIST over a body opened by an indirect call is
+// tolerated (check.rs: the declaration is the contract, no
+// exhaustiveness claim), unlike `throws never`, which E005 rejects.
+errorset_test!(
+    declared_throws_tolerates_open_indirect_body,
+    r#"
+struct NetError
+  detail: string
+end
+
+def callThrough(f: () -> int): int throws NetError
+  f()
+end
+"#
+);
+
+errorset_test!(
+    throws_declared_hof_lambda_is_covered,
+    r#"
+struct MapError
+  index: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw MapError { index: x }
+  end
+  x + 1
+end
+
+def bumpAll(values: Vector<int>): Vector<int> throws MapError
+  values.map(|x| bump(x))
+end
+"#
+);
+
+// --- BRS-25 pinned territory: catch edge cases ----------------------------
+
+errorset_test!(
+    catch_inside_lambda_body_filters_locally,
+    r#"
+struct MapError
+  index: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw MapError { index: x }
+  end
+  x + 1
+end
+
+def safeBump(values: Vector<int>): Vector<int>
+  values.map do |x|
+    bump(x) catch (e)
+      MapError => 0
+    end
+  end
+end
+"#
+);
+
+// The guard expression runs, so its own error contributions join the
+// set, while the guarded arm still subtracts nothing from the subject.
+errorset_test!(
+    guard_calling_throwing_function_contributes,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct GuardError
+  code: int
+end
+
+def risky(mode: int): string
+  if mode == 1
+    throw NetError { detail: "down" }
+  end
+  "ok"
+end
+
+def noisy(mode: int): bool
+  if mode < 0
+    throw GuardError { code: mode }
+  end
+  true
+end
+
+def guarded(mode: int): string
+  risky(mode) catch (e)
+    NetError if noisy(mode) => "maybe"
+  end
+end
+"#
+);
+
+// The callee is clean but its ARGUMENT throws: the argument's tag flows
+// into the catch subject, so the arm both subtracts it and is not E001.
+errorset_test!(
+    caught_argument_throw_flows_through_clean_callee,
+    r#"
+struct ArgError
+  code: int
+end
+
+def clean(x: int): int
+  x + 1
+end
+
+def mk(n: int): int
+  if n == 0
+    throw ArgError { code: n }
+  end
+  n
+end
+
+def handled(n: int): int
+  clean(mk(n)) catch (e)
+    ArgError => -1
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e005_throws_never_with_throwing_hof_lambda,
+    r#"
+struct MapError
+  index: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw MapError { index: x }
+  end
+  x + 1
+end
+
+def sneaky(values: Vector<int>): Vector<int> throws never
+  values.map(|x| bump(x))
+end
+"#
+);
+
 errorset_error_test!(
     e005_throws_never,
     r#"

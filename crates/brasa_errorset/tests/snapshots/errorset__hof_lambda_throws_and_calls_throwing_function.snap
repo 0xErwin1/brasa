@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  fail -> {NamedError}
+  both -> {LambdaError, NamedError}
+lambda error sets
+  e16 -> {LambdaError, NamedError}

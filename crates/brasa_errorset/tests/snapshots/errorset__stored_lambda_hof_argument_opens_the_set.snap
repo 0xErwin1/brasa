@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  bump -> {SkipError}
+  viaLocal -> {} (open)
+lambda error sets
+  e11 -> {SkipError}

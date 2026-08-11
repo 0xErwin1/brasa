@@ -1,0 +1,10 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  bump -> {DepthError}
+  bumpRows -> {DepthError}
+lambda error sets
+  e15 -> {DepthError}
+  e17 -> {DepthError}

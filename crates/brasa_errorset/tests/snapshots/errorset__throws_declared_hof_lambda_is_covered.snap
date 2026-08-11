@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  bump -> {MapError}
+  bumpAll -> {MapError}
+lambda error sets
+  e13 -> {MapError}

@@ -192,6 +192,122 @@ puts x
     assert_eq!(output, "-1\n0.0\n");
 }
 
+/// BRS-25 runtime agreement: the static set of `total` is empty (the
+/// lambda's MapError flows through `map` into the catch subject and is
+/// subtracted), so the error must be catchable exactly there.
+#[test]
+fn lambda_throw_in_map_is_caught_outside_the_hof() {
+    let source = "\
+struct MapError
+  index: int
+end
+
+def bump(x: int): int
+  if x < 0
+    throw MapError { index: x }
+  end
+  x + 1
+end
+
+def total(values: Vector<int>): int
+  let bumped = values.map(|x| bump(x)) catch (e)
+    MapError => [-1]
+  end
+  bumped.len()
+end
+
+puts total([1, 2, 3])
+puts total([1, -2, 3])
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(output, "3\n1\n");
+}
+
+/// BRS-25 runtime agreement: the static sets are alpha = {AlphaError,
+/// BetaError} and beta = {BetaError} (beta catches AlphaError inside
+/// the cycle), so at runtime AlphaError never escapes beta while
+/// BetaError does.
+#[test]
+fn mutual_recursion_internal_catch_matches_the_static_set() {
+    let source = "\
+struct AlphaError
+  code: int
+end
+
+struct BetaError
+  code: int
+end
+
+def alpha(n: int): int
+  if n == 0
+    throw AlphaError { code: 1 }
+  end
+  beta(n - 1)
+end
+
+def beta(n: int): int
+  if n == 0
+    throw BetaError { code: 2 }
+  end
+  alpha(n - 1) catch (e)
+    AlphaError => 100
+  end
+end
+
+puts beta(3)
+let fallback = beta(0) catch (e)
+  BetaError => -1
+end
+puts fallback
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(output, "100\n-1\n");
+}
+
+/// BRS-25 runtime agreement: `wrap`'s static set is {ConfigError} —
+/// NetError is subtracted by the arm and the rethrow inside the arm
+/// contributes the wrapper — so only ConfigError escapes at runtime,
+/// carrying the wrapped detail.
+#[test]
+fn rethrow_wrapping_replaces_the_original_error_at_runtime() {
+    let source = "\
+struct NetError
+  detail: string
+end
+
+struct ConfigError
+  cause: string
+end
+
+def fetch(ok: bool): string
+  if !ok
+    throw NetError { detail: \"down\" }
+  end
+  \"page\"
+end
+
+def wrap(ok: bool): string
+  fetch(ok) catch (e)
+    NetError => throw ConfigError { cause: e.detail }
+  end
+end
+
+let page = wrap(false) catch (e)
+  ConfigError => e.cause
+end
+puts page
+puts wrap(true)
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(output, "down\npage\n");
+}
+
 #[test]
 fn main_runs_after_the_top_level() {
     let source = "\

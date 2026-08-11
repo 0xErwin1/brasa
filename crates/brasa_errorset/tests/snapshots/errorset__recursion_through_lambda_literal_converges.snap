@@ -1,0 +1,8 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  spiral -> {LoopError}
+lambda error sets
+  e8 -> {LoopError}
