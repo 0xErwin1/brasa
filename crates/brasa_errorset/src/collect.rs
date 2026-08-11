@@ -27,7 +27,8 @@ use std::collections::HashMap;
 
 use brasa_diagnostics::Diagnostic;
 use brasa_hir::{
-    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, LambdaBody, Stmt, StmtId,
+    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, ItemId, LambdaBody, Stmt,
+    StmtId,
 };
 use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, TypeRes};
 use brasa_typeck::{Type, TypeTables};
@@ -55,6 +56,27 @@ impl<'a> Collector<'a> {
         for &stmt in block {
             set.union_with(&self.stmt(stmt));
         }
+        set
+    }
+
+    /// The pseudo-body of top-level code: every `TopLet` initializer
+    /// and `Item::Stmt` block under `roots`, in source order, collected
+    /// as one body. The top level declares no `throws` contract, so the
+    /// returned set is allowed to be non-empty (an uncaught top-level
+    /// throw ends the script with exit 70 at runtime); collecting it
+    /// exists so `catch`/`catch_all` expressions in top-level code get
+    /// the same E001/E002/E003 checks as any function body.
+    pub(crate) fn top_level(&mut self, roots: &[ItemId]) -> ErrorSet {
+        let mut set = ErrorSet::default();
+
+        for &item in roots {
+            match self.hir.item(item) {
+                Item::TopLet(top_let) => set.union_with(&self.expr(top_let.let_stmt.value)),
+                Item::Stmt(block) => set.union_with(&self.block(block)),
+                _ => {}
+            }
+        }
+
         set
     }
 
@@ -436,7 +458,7 @@ impl<'a> Collector<'a> {
 
             for (type_index, catch_type) in arm.types.iter().enumerate() {
                 match catch_type {
-                    CatchType::Wildcard => {
+                    CatchType::Wildcard { .. } => {
                         set.tags.clear();
                         set.open = false;
                     }

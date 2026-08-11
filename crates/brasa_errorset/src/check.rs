@@ -30,12 +30,14 @@
 //!   throwable nominal or primitive (an interface, a generic
 //!   parameter) maps to no tag and is skipped, like the equivalent
 //!   `catch` arm subtraction.
-//! - Interface-method `throws` contracts are NOT checked: verifying
-//!   them needs interface-satisfaction integration (which struct
-//!   satisfies which interface), deferred to a follow-up unit.
-//! - E004/E005 point at the declaring item's span; `FuncDef` carries
-//!   no dedicated name span yet, so sharpening to the name is a future
-//!   follow-up (`docs/spec/06-diagnostics.md`, span rules).
+//! - Interface-method `throws` contracts are NOT checked here: the
+//!   resolver validates the declared names (`R003`), but enforcing the
+//!   contract — a satisfying method must not throw more than the
+//!   member declares — needs interface-satisfaction integration
+//!   (typeck would have to record which method satisfied which
+//!   member), deferred to M3+.
+//! - E004/E005 point at the declaring function's name
+//!   (`docs/spec/06-diagnostics.md`, span rules).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -146,7 +148,7 @@ pub(crate) fn catch_expr(
 
         for (type_index, catch_type) in arm.types.iter().enumerate() {
             match catch_type {
-                CatchType::Wildcard => unguarded_wildcard = true,
+                CatchType::Wildcard { .. } => unguarded_wildcard = true,
                 CatchType::Named { .. } => {
                     if let Some(tag) = arm_tag(hir, res, (id, arm_index, type_index)) {
                         remaining.remove(&tag);
@@ -158,16 +160,17 @@ pub(crate) fn catch_expr(
 
     if remaining.is_empty() {
         // E001, `_` arms: with every error already named, `_` can never
-        // match. `CatchType::Wildcard` carries no span of its own, so
-        // the diagnostic points at the whole catch expression.
+        // match; the diagnostic points at the `_` token itself.
         for arm in arms {
-            if arm.types.contains(&CatchType::Wildcard) {
-                diagnostics.push(err(
-                    codes::E_UNREACHABLE_ARM,
-                    span,
-                    "`_` is unreachable: every error is already handled".to_string(),
-                    "`_` can never match here",
-                ));
+            for catch_type in &arm.types {
+                if let CatchType::Wildcard { span } = catch_type {
+                    diagnostics.push(err(
+                        codes::E_UNREACHABLE_ARM,
+                        *span,
+                        "`_` is unreachable: every error is already handled".to_string(),
+                        "`_` can never match here",
+                    ));
+                }
             }
         }
     } else if !unguarded_wildcard {
@@ -196,10 +199,7 @@ pub(crate) fn throws_contract(
         return;
     };
 
-    let span = hir.span_of_item(match def {
-        DefRef::Item(item) => item,
-        DefRef::Method { owner, .. } => owner,
-    });
+    let span = func.name_span;
     let name = def_ref_name(hir, def);
 
     match &func.throws {

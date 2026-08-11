@@ -21,11 +21,14 @@
 //! division, and arithmetic contribute nothing here.
 //!
 //! Top-level code (`Item::Stmt` blocks and `TopLet` initializers) is
-//! not analyzed: a top-level `throw` is runtime-relevant but no set is
-//! computed for it, so top-level `catch`/`catch_all` expressions are
-//! not checked either (a main/top-level analysis is a possible later
-//! unit). The sets are keyed by [`DefRef`] only, plus one set per
-//! lambda literal reachable from a function or method body.
+//! analyzed as one pseudo-body during the post-convergence checking
+//! pass, so its `catch`/`catch_all` expressions get the same
+//! E001/E002/E003 checks as any function body. The top level declares
+//! no `throws` contract, so its set may be non-empty without any
+//! diagnostic: an uncaught top-level throw ends the script at runtime
+//! (exit 70), and the set itself is discarded. The returned sets are
+//! keyed by [`DefRef`] only, plus one set per lambda literal reachable
+//! from a function or method body.
 
 pub mod dump;
 
@@ -219,6 +222,20 @@ pub fn infer(
         check::throws_contract(hir, resolutions, &sets, def, &mut diagnostics);
     }
 
+    // The top-level pseudo-body runs only here, after convergence: no
+    // function can call into top-level code, so its set feeds nothing
+    // back into the fixpoint, and it exists only so top-level catches
+    // are checked — the set itself has no contract to verify.
+    let mut collector = Collector {
+        hir,
+        res: resolutions,
+        types,
+        sets: &sets,
+        lambda_sets: &mut checked_lambda_sets,
+        diagnostics: Some(&mut diagnostics),
+    };
+    collector.top_level(roots);
+
     ErrorSetResult {
         sets,
         lambda_sets,
@@ -228,7 +245,8 @@ pub fn infer(
 
 /// Every function and struct-method body under `roots`, in declaration
 /// order (deterministic for the dump). Top-level statements and
-/// `TopLet` initializers are skipped — see the crate docs.
+/// `TopLet` initializers are not defs: they form the pseudo-body that
+/// `Collector::top_level` walks during the checking pass.
 fn collect_defs<'a>(hir: &'a Hir, roots: &[ItemId]) -> Vec<(DefRef, &'a brasa_hir::Block)> {
     let mut defs = Vec::new();
 

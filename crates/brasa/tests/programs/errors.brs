@@ -23,6 +23,8 @@ end
 def parse(flag: int): int
   if flag == 0
     throw ParseError { line: 3 }
+  elsif flag < 0
+    throw NetError { detail: "offline" }
   end
   flag
 end

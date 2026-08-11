@@ -17,11 +17,9 @@ expression: rendered
     │          ╰────── this expression cannot throw `ParseError`
 ────╯
 [E001] Error: `_` is unreachable: every error is already handled
-    ╭─[ e001_unreachable_arms.brs:32:3 ]
+    ╭─[ e001_unreachable_arms.brs:34:5 ]
     │
- 32 │ ╭─▶   risky(ok) catch_all (e)
-    ┆ ┆   
- 35 │ ├─▶   end
-    │ │           
-    │ ╰─────────── `_` can never match here
+ 34 │     _ => "unreachable"
+    │     ┬  
+    │     ╰── `_` can never match here
 ────╯

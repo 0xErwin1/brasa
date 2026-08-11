@@ -471,6 +471,28 @@ end
     );
 }
 
+// Interface-member `throws` names are validated like a function's
+// (`R003` on an unknown name), in both interface bodies and inline
+// anonymous constraints; a known name reports nothing. Contract
+// enforcement is deferred to M3+, so nothing is recorded.
+resolution_error_test!(
+    iface_member_throws_names_are_validated,
+    r#"
+struct NetError
+  detail: string
+end
+
+interface Fetcher
+  def fetch(self): string throws NetError
+  def probe(self): int throws GhostError
+end
+
+def scan<T: { def peek(self): int throws PhantomError }>(value: T): int
+  value.peek()
+end
+"#
+);
+
 resolution_error_test!(
     ambiguous_ctor_and_bad_constraint,
     r#"

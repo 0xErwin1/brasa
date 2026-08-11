@@ -346,7 +346,7 @@ fn dump_catch_arm_types(hir: &Hir, res: &Resolutions, out: &mut String) {
                     .and_then(|arm| arm.types.get(type_index))
                     .and_then(|ty| match ty {
                         brasa_hir::CatchType::Named { name, .. } => Some(name.as_str()),
-                        brasa_hir::CatchType::Wildcard => None,
+                        brasa_hir::CatchType::Wildcard { .. } => None,
                     })
                     .unwrap_or("<catch-type>"),
                 _ => "<catch-type>",

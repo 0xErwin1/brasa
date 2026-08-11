@@ -507,6 +507,12 @@ impl<'h> Resolver<'h> {
         }
     }
 
+    /// Resolves an interface member's signature. Its `throws` names are
+    /// validated in the type namespace like a function's (`R003` on an
+    /// unknown name) but recorded nowhere: enforcing the contract — a
+    /// satisfying method must not throw more than the member declares —
+    /// needs interface-satisfaction integration (typeck would have to
+    /// record which method satisfied which member), deferred to M3+.
     fn resolve_iface_member(&mut self, member: &'h IfaceMember) {
         for param in &member.params {
             if let Param::Named { ty, .. } = param {
@@ -515,6 +521,19 @@ impl<'h> Resolver<'h> {
         }
         if let Some(ret) = member.ret {
             self.resolve_type(ret);
+        }
+
+        if let Some(Throws::Types(types)) = &member.throws {
+            for throws_type in types {
+                if self.lookup_type(&throws_type.name).is_none() {
+                    self.error(err_at(
+                        codes::R_UNKNOWN_TYPE,
+                        throws_type.span,
+                        format!("unknown type `{}`", throws_type.name),
+                        "not found in this scope",
+                    ));
+                }
+            }
         }
     }
 

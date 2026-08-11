@@ -3,20 +3,16 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E005] Error: `boom` declares `throws never` but can throw `BoomError`
-    ╭─[ e005_throws_never.brs:6:1 ]
-    │
-  6 │ ╭─▶ def boom(flag: bool): int throws never
-    ┆ ┆   
- 11 │ ├─▶ end
-    │ │         
-    │ ╰───────── this function can throw
-────╯
+   ╭─[ e005_throws_never.brs:6:5 ]
+   │
+ 6 │ def boom(flag: bool): int throws never
+   │     ──┬─  
+   │       ╰─── this function can throw
+───╯
 [E005] Error: cannot verify `throws never`: `runThrough`'s error-set is open
-    ╭─[ e005_throws_never.brs:13:1 ]
+    ╭─[ e005_throws_never.brs:13:5 ]
     │
- 13 │ ╭─▶ def runThrough(f: () -> int): int throws never
-    ┆ ┆   
- 15 │ ├─▶ end
-    │ │         
-    │ ╰───────── the error-set of this function is open
+ 13 │ def runThrough(f: () -> int): int throws never
+    │     ─────┬────  
+    │          ╰────── the error-set of this function is open
 ────╯

@@ -1,0 +1,18 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R003] Error: unknown type `GhostError`
+   ╭─[ iface_member_throws_names_are_validated.brs:8:31 ]
+   │
+ 8 │   def probe(self): int throws GhostError
+   │                               ─────┬────  
+   │                                    ╰────── not found in this scope
+───╯
+[R003] Error: unknown type `PhantomError`
+    ╭─[ iface_member_throws_names_are_validated.brs:11:42 ]
+    │
+ 11 │ def scan<T: { def peek(self): int throws PhantomError }>(value: T): int
+    │                                          ──────┬─────  
+    │                                                ╰─────── not found in this scope
+────╯

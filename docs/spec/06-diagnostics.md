@@ -79,9 +79,9 @@ Rules:
   offending token, not its statement; the field, not its struct.
 - Named declarations carry their own name spans, and diagnostics about a
   name (duplicate, unknown, unused) point at the name, not the whole
-  declaration. (Parameters, fields, and variants gain dedicated name
-  spans in a follow-up unit; the rule is normative, the implementation
-  may lag.)
+  declaration. (Functions, parameters, fields, variants, and generic
+  parameters carry dedicated name spans; `throws`-contract diagnostics
+  (`E004`/`E005`) point at the declaring function's name.)
 
 ## Code registry
 
@@ -219,9 +219,11 @@ Notes on kind boundaries:
 - The `E` checks run only over closed error-sets, except where noted:
   the tags of an open set are a sound lower bound, so a "this CAN be
   thrown" finding still fires, but every "this CANNOT be thrown" claim
-  is skipped or reported as unverifiable. Top-level code has no
-  computed error-set, so top-level `catch`/`catch_all` expressions are
-  not checked.
+  is skipped or reported as unverifiable. Top-level code is analyzed
+  as one pseudo-body: its `catch`/`catch_all` expressions get the same
+  checks as any function body, but the top level has no `throws`
+  contract, so its own set may be non-empty without a diagnostic (an
+  uncaught top-level throw ends the script at runtime, exit 70).
 - `E001` covers both unreachable-arm shapes: a named type the subject's
   closed set does not contain (in `catch` and `catch_all` alike,
   guarded or not — the guard runs only after the type matches), and a
@@ -237,8 +239,10 @@ Notes on kind boundaries:
   an open actual set is tolerated (the declaration is the contract,
   there is no exhaustiveness claim to prove — deliberately asymmetric
   with `E003`). Over-declaration (declaring a type the body never
-  throws) gets no diagnostic. Interface-method `throws` contracts are
-  not checked yet (deferred with interface satisfaction).
+  throws) gets no diagnostic. Interface-member `throws` names are
+  validated at resolution (`R003` on an unknown name), but the
+  contracts themselves are not enforced yet (deferred with interface
+  satisfaction, M3+).
 - `E005` backs two wordings under one kind: a concrete violation
   (`throws never` with a non-empty set) and the unverifiable case
   (`throws never` with an open set).

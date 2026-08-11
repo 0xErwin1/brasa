@@ -781,8 +781,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_one_catch_type(&mut self) -> CatchType {
-        if self.eat(TokenKind::Underscore).is_some() {
-            CatchType::Wildcard
+        if let Some(tok) = self.eat(TokenKind::Underscore) {
+            CatchType::Wildcard { span: tok.span }
         } else {
             let (name, span) = self.parse_qualified_type_name();
             CatchType::Named { name, span }

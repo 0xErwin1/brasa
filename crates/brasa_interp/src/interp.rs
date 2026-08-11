@@ -1016,7 +1016,7 @@ impl<'a> Interp<'a> {
 
         for arm in arms {
             let matched = arm.types.iter().find(|ty| match ty {
-                CatchType::Wildcard => !is_panic,
+                CatchType::Wildcard { .. } => !is_panic,
                 CatchType::Named { name, .. } => name == &tag,
             });
             let Some(matched) = matched else {

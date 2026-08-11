@@ -887,6 +887,84 @@ end
 "#
 );
 
+// --- BRS-46: top-level pseudo-body analysis -------------------------------
+
+// The top level has no `throws` contract: an uncaught top-level throw
+// draws no diagnostic (it ends the script at runtime, exit 70), and a
+// handled one subtracts normally.
+errorset_test!(
+    top_level_uncaught_throw_is_allowed,
+    r#"
+struct BootError
+  code: int
+end
+
+def boot(ok: bool): int
+  if !ok
+    throw BootError { code: 1 }
+  end
+  0
+end
+
+let status = boot(false)
+puts status
+
+let safe = boot(false) catch (e)
+  BootError => -1
+end
+puts safe
+"#
+);
+
+errorset_error_test!(
+    e001_top_level_unreachable_wildcard,
+    r#"
+struct NetError
+  detail: string
+end
+
+def risky(ok: bool): string
+  if !ok
+    throw NetError { detail: "down" }
+  end
+  "ok"
+end
+
+let page = risky(false) catch_all (e)
+  NetError => "net"
+  _ => "unreachable"
+end
+puts page
+"#
+);
+
+errorset_error_test!(
+    e002_top_level_catch_all_missing_tag,
+    r#"
+struct NetError
+  detail: string
+end
+
+struct ParseError
+  line: int
+end
+
+def risky(mode: int): string
+  if mode == 1
+    throw NetError { detail: "down" }
+  elsif mode == 2
+    throw ParseError { line: 7 }
+  end
+  "ok"
+end
+
+let page = risky(1) catch_all (e)
+  NetError => "net"
+end
+puts page
+"#
+);
+
 errorset_error_test!(
     e005_throws_never_with_throwing_hof_lambda,
     r#"

@@ -225,7 +225,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_func_def(&mut self, is_pub: bool, start: Span) -> (FuncDef, Span) {
         self.bump(); // 'def'
 
-        let name = self.expect_ident_text("a function name");
+        let (name, name_span) = self.expect_ident_spanned("a function name");
         let generics = self.parse_generics();
         let params = self.parse_params();
         let ret = self.parse_ret();
@@ -240,6 +240,7 @@ impl<'a> Parser<'a> {
             FuncDef {
                 is_pub,
                 name,
+                name_span,
                 generics,
                 params,
                 ret,

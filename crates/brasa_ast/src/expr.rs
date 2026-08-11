@@ -82,11 +82,11 @@ pub enum CatchType {
     /// later phases can point diagnostics at it — `CatchType` lives
     /// inline in [`CatchArm`] and has no arena id (and therefore no
     /// side-table span) of its own.
-    Named {
-        name: String,
-        span: Span,
-    },
-    Wildcard,
+    Named { name: String, span: Span },
+    /// A `_` arm type, with the span of the `_` token so diagnostics
+    /// about the wildcard (an unreachable `_` under `catch_all`) point
+    /// at it rather than the whole catch expression.
+    Wildcard { span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq)]

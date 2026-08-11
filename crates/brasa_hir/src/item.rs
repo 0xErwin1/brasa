@@ -64,6 +64,9 @@ pub struct IfaceMember {
 pub struct FuncDef {
     pub is_pub: bool,
     pub name: String,
+    /// The span of the function name itself; see
+    /// [`GenericParam::name_span`].
+    pub name_span: Span,
     pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub ret: Option<TypeExprId>,

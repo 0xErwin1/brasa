@@ -259,9 +259,10 @@ pub struct Resolutions {
     /// Resolved `throws Type | ...` declaration lists, aligned with the
     /// declaring function/method's `Throws::Types` names; `None` marks a
     /// name that resolved to nothing (reported as `R003`). Interface
-    /// members declare `throws` too but stay unresolved here: checking
-    /// their contracts needs interface-satisfaction integration, which
-    /// is deferred.
+    /// members declare `throws` too; their names are validated (`R003`)
+    /// during resolution but recorded in no table — enforcing their
+    /// contracts needs interface-satisfaction integration, deferred to
+    /// M3+ (see `Resolver::resolve_iface_member`).
     pub throws_types: HashMap<DefRef, Vec<Option<TypeRes>>>,
     /// Function/method parameter lists, aligned with `FuncDef::params`;
     /// `None` marks a `Param::SelfParam` slot (`self` is not a local).

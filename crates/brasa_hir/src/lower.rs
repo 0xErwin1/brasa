@@ -159,6 +159,7 @@ impl LowerCtx<'_> {
         FuncDef {
             is_pub: func.is_pub,
             name: func.name.clone(),
+            name_span: func.name_span,
             generics: self.lower_generics(&func.generics),
             params: func.params.iter().map(|p| self.lower_param(p)).collect(),
             ret: func.ret.map(|ty| self.lower_type_expr(ty)),

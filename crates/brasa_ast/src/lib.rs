@@ -257,6 +257,7 @@ mod tests {
         let func = FuncDef {
             is_pub: false,
             name: "fib".to_string(),
+            name_span: span(file, 4, 7),
             generics: vec![],
             params: vec![Param::Named {
                 name: "n".to_string(),
