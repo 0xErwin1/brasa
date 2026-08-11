@@ -12,6 +12,7 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 use brasa_bytecode::{BuiltinId, EnumId, FuncId, StructId};
+use brasa_interp::table::{HashKey, HashKeyed};
 
 use crate::heap::{GcRef, Heap};
 
@@ -45,8 +46,8 @@ pub enum Value {
     },
     Tuple(Handle<[Value]>),
     Vector(GcRef),
-    /// Insertion-ordered map with structural key lookup, as in the
-    /// walker (a faster table is a later optimization).
+    /// Insertion-ordered map with a hashed position index, as in the
+    /// walker (`brasa_interp::table`).
     Map(GcRef),
     /// Insertion-ordered set, same representation rationale as `Map`.
     Set(GcRef),
@@ -211,6 +212,27 @@ impl Value {
     pub const NONE: Value = Value::Option(None);
 }
 
+/// The `Hashable` projection (`brasa_interp::table`), the walker's arm
+/// for arm. Strings project by CONTENT, so a constant-pool string
+/// interned at VM startup and a structurally equal runtime-built string
+/// hash the same — the handle is never part of the key.
+impl HashKeyed for Value {
+    fn hash_key(&self) -> Option<HashKey> {
+        match self {
+            Value::Int(i) => Some(HashKey::Int(*i)),
+            Value::Str(s) => Some(HashKey::Str(s.clone())),
+            Value::Char(c) => Some(HashKey::Char(*c)),
+            Value::Bool(b) => Some(HashKey::Bool(*b)),
+            Value::Tuple(items) => items
+                .iter()
+                .map(Value::hash_key)
+                .collect::<Option<Box<[HashKey]>>>()
+                .map(HashKey::Tuple),
+            _ => None,
+        }
+    }
+}
+
 /// Structural equality, ported from the walker: floats follow IEEE
 /// (`NaN != NaN`), Maps and Sets compare content order-insensitively,
 /// functions and closures fall back to identity. Takes the heap to
@@ -242,13 +264,13 @@ pub fn value_eq(heap: &Heap, a: &Value, b: &Value) -> bool {
             let (x, y) = (heap.map(*x).borrow(), heap.map(*y).borrow());
             x.len() == y.len()
                 && x.iter().all(|(k, v)| {
-                    y.iter()
-                        .any(|(k2, v2)| value_eq(heap, k, k2) && value_eq(heap, v, v2))
+                    y.get(k, |a, b| value_eq(heap, a, b))
+                        .is_some_and(|v2| value_eq(heap, v, v2))
                 })
         }
         (Value::Set(x), Value::Set(y)) => {
             let (x, y) = (heap.set(*x).borrow(), heap.set(*y).borrow());
-            x.len() == y.len() && x.iter().all(|a| y.iter().any(|b| value_eq(heap, a, b)))
+            x.len() == y.len() && x.iter().all(|a| y.contains(a, |a, b| value_eq(heap, a, b)))
         }
         (Value::Option(x), Value::Option(y)) => match (x, y) {
             (Some(x), Some(y)) => value_eq(heap, x, y),
@@ -302,5 +324,104 @@ pub fn value_cmp(a: &Value, b: &Value) -> Option<Ordering> {
         (Value::Str(x), Value::Str(y)) => Some(x.cmp(y)),
         (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    use super::*;
+    use crate::heap::DEFAULT_GC_THRESHOLD;
+
+    fn hash_of(key: &HashKey) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Every shape a `Map` key or `Set` element can take, plus values
+    /// that must NOT project. The two `"alpha"`s stand in for the VM's
+    /// split string story — a constant-pool string interned at startup
+    /// versus one built at runtime — as separate allocations.
+    fn corpus(heap: &mut Heap) -> Vec<Value> {
+        vec![
+            Value::Int(0),
+            Value::Int(1),
+            Value::str("alpha"),
+            Value::str(String::from("al") + "pha"),
+            Value::str("beta"),
+            Value::Char('a'),
+            Value::Char('b'),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("a")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("a")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("b")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1)])),
+            Value::Tuple(Rc::from(Vec::new())),
+            Value::Float(1.0),
+            Value::Unit,
+            heap.alloc_vector(vec![Value::Int(1)]),
+        ]
+    }
+
+    /// The correctness crux of the hashed tables
+    /// (`brasa_interp::table`): for every pair that projects,
+    /// `value_eq` and key equality must be the same relation, and equal
+    /// keys must hash equally. Two structurally equal strings behind
+    /// different allocations are the case that would break if the
+    /// projection keyed on the handle instead of the content.
+    #[test]
+    fn hash_key_agrees_with_value_eq() {
+        let mut heap = Heap::new(DEFAULT_GC_THRESHOLD);
+        for a in corpus(&mut heap) {
+            for b in corpus(&mut heap) {
+                let (Some(ka), Some(kb)) = (a.hash_key(), b.hash_key()) else {
+                    continue;
+                };
+
+                assert_eq!(
+                    value_eq(&heap, &a, &b),
+                    ka == kb,
+                    "projection disagrees with value_eq on {a:?} / {b:?}"
+                );
+                if ka == kb {
+                    assert_eq!(hash_of(&ka), hash_of(&kb), "equal keys hash differently");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn equal_string_content_behind_distinct_allocations_hashes_the_same() {
+        let interned = Value::str("alpha");
+        let built = Value::str(String::from("al") + "pha");
+        let (Some(a), Some(b)) = (interned.hash_key(), built.hash_key()) else {
+            panic!("string keys must project");
+        };
+
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    /// Only the closed `Hashable` list projects; everything else takes
+    /// the linear fallback rather than being silently mis-keyed.
+    #[test]
+    fn only_hashable_values_project() {
+        let mut heap = Heap::new(DEFAULT_GC_THRESHOLD);
+        for value in corpus(&mut heap) {
+            let expected = matches!(
+                value,
+                Value::Int(_) | Value::Str(_) | Value::Char(_) | Value::Bool(_) | Value::Tuple(_)
+            );
+            assert_eq!(value.hash_key().is_some(), expected, "on {value:?}");
+        }
+    }
+
+    #[test]
+    fn a_tuple_with_a_non_hashable_element_does_not_project() {
+        let tuple = Value::Tuple(Rc::from(vec![Value::Int(1), Value::Float(1.0)]));
+        assert!(tuple.hash_key().is_none());
     }
 }

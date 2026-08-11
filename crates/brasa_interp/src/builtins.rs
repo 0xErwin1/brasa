@@ -57,6 +57,7 @@ use crate::interp::{EvalResult, Interp, PanicKind, Signal};
 use crate::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
+use crate::table::{OrderedMap, OrderedSet};
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
 use crate::{fs_glue, io_glue, json_glue, time_glue};
 
@@ -519,28 +520,21 @@ impl Interp<'_> {
                 entries.borrow().iter().map(|(_, v)| v.clone()).collect(),
             )),
             ("insert", [key, value]) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter_mut().find(|(k, _)| value_eq(k, key)) {
-                    Some(entry) => entry.1 = value.clone(),
-                    None => entries.push((key.clone(), value.clone())),
-                }
+                entries
+                    .borrow_mut()
+                    .insert(key.clone(), value.clone(), value_eq);
                 Ok(Value::Unit)
             }
-            ("remove", [key]) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter().position(|(k, _)| value_eq(k, key)) {
-                    Some(index) => Ok(Value::some(entries.remove(index).1)),
-                    None => Ok(Value::NONE),
-                }
-            }
-            ("has?", [key]) => Ok(Value::Bool(
-                entries.borrow().iter().any(|(k, _)| value_eq(k, key)),
-            )),
+            ("remove", [key]) => Ok(entries
+                .borrow_mut()
+                .remove(key, value_eq)
+                .map(Value::some)
+                .unwrap_or(Value::NONE)),
+            ("has?", [key]) => Ok(Value::Bool(entries.borrow().contains_key(key, value_eq))),
             ("get", [key]) => Ok(entries
                 .borrow()
-                .iter()
-                .find(|(k, _)| value_eq(k, key))
-                .map(|(_, v)| Value::some(v.clone()))
+                .get(key, value_eq)
+                .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             ("entries", []) => Ok(Value::vector(
                 entries
@@ -555,15 +549,12 @@ impl Interp<'_> {
             ("merge", [Value::Map(other)]) => {
                 let mut merged = entries.borrow().clone();
                 for (key, value) in other.borrow().iter() {
-                    match merged.iter_mut().find(|(k, _)| value_eq(k, key)) {
-                        Some(entry) => entry.1 = value.clone(),
-                        None => merged.push((key.clone(), value.clone())),
-                    }
+                    merged.insert(key.clone(), value.clone(), value_eq);
                 }
-                Ok(Value::Map(Rc::new(std::cell::RefCell::new(merged))))
+                Ok(Value::map(merged))
             }
             ("each", [f]) => {
-                let snapshot = entries.borrow().clone();
+                let snapshot = entries.borrow().entries().to_vec();
                 for (key, value) in snapshot {
                     self.call_value(f.clone(), vec![key, value])?;
                 }
@@ -581,36 +572,20 @@ impl Interp<'_> {
         match (name, args) {
             ("len", []) => Ok(Value::Int(items.borrow().len() as i64)),
             ("add", [value]) => {
-                let mut items = items.borrow_mut();
-                if !items.iter().any(|v| value_eq(v, value)) {
-                    items.push(value.clone());
-                }
+                items.borrow_mut().add(value.clone(), value_eq);
                 Ok(Value::Unit)
             }
-            ("remove", [value]) => {
-                let mut items = items.borrow_mut();
-                match items.iter().position(|v| value_eq(v, value)) {
-                    Some(index) => {
-                        items.remove(index);
-                        Ok(Value::Bool(true))
-                    }
-                    None => Ok(Value::Bool(false)),
-                }
-            }
-            ("has?", [value]) => Ok(Value::Bool(
-                items.borrow().iter().any(|v| value_eq(v, value)),
-            )),
+            ("remove", [value]) => Ok(Value::Bool(items.borrow_mut().remove(value, value_eq))),
+            ("has?", [value]) => Ok(Value::Bool(items.borrow().contains(value, value_eq))),
             // The algebra members return NEW sets in the receiver's
             // insertion order (`union` appends the argument's unseen
             // elements in its order); neither operand is modified.
             ("union", [Value::Set(other)]) => {
                 let mut result = items.borrow().clone();
                 for value in other.borrow().iter() {
-                    if !result.iter().any(|v| value_eq(v, value)) {
-                        result.push(value.clone());
-                    }
+                    result.add(value.clone(), value_eq);
                 }
-                Ok(Value::Set(Rc::new(std::cell::RefCell::new(result))))
+                Ok(Value::set(result))
             }
             ("intersect" | "diff", [Value::Set(other)]) => {
                 let other = other.borrow();
@@ -618,10 +593,10 @@ impl Interp<'_> {
                 let result: Vec<Value> = items
                     .borrow()
                     .iter()
-                    .filter(|v| other.iter().any(|o| value_eq(o, v)) == keep_present)
+                    .filter(|v| other.contains(v, value_eq) == keep_present)
                     .cloned()
                     .collect();
-                Ok(Value::Set(Rc::new(std::cell::RefCell::new(result))))
+                Ok(Value::set(OrderedSet::from_distinct_items(result)))
             }
             _ => Err(self.builtin_error(name)),
         }
@@ -715,7 +690,7 @@ impl Interp<'_> {
                     .into_iter()
                     .map(|(key, value)| (Value::str(key), Value::str(value)))
                     .collect();
-                Ok(Value::Map(Rc::new(std::cell::RefCell::new(entries))))
+                Ok(Value::map(OrderedMap::from_distinct_entries(entries)))
             }
             ("args", []) => Ok(Value::vector(
                 self.script_args.iter().map(Value::str).collect(),
@@ -942,7 +917,7 @@ fn json_builtin(tree: &json_glue::JsonValue, name: &str, args: &[Value]) -> Opti
                 .into_iter()
                 .map(|(key, member)| (Value::str(key), Value::Json(member)))
                 .collect();
-            Value::Map(Rc::new(std::cell::RefCell::new(entries)))
+            Value::map(OrderedMap::from_distinct_entries(entries))
         })),
         "null?" => Value::Bool(json_glue::is_null(tree)),
         _ => return None,
@@ -972,18 +947,16 @@ mod tests {
     //! surface constructor for sets yet (`Set([1, 2, 3])` is rejected by
     //! the resolver), so no golden program can reach them.
 
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use brasa_hir::Hir;
     use brasa_resolver::Resolutions;
     use brasa_typeck::TypeTables;
 
     use crate::interp::Interp;
+    use crate::table::OrderedSet;
     use crate::value::{Value, value_eq};
 
     fn set_of(items: Vec<Value>) -> Value {
-        Value::Set(Rc::new(RefCell::new(items)))
+        Value::set(OrderedSet::from_distinct_items(items))
     }
 
     #[test]

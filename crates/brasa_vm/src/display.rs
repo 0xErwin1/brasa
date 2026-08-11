@@ -61,12 +61,12 @@ impl<'a> Vm<'a> {
                 Ok(format!("[{}]", parts.join(", ")))
             }
             Value::Set(items) => {
-                let items = self.heap.set(*items).borrow().clone();
+                let items = self.heap.set(*items).borrow().items().to_vec();
                 let parts = self.render_all(&items, depth)?;
                 Ok(format!("Set([{}])", parts.join(", ")))
             }
             Value::Map(entries) => {
-                let entries = self.heap.map(*entries).borrow().clone();
+                let entries = self.heap.map(*entries).borrow().entries().to_vec();
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }

@@ -33,6 +33,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use brasa_bytecode::StructId;
+use brasa_interp::table::{OrderedMap, OrderedSet};
 
 use crate::value::{Caught, IterState, StructValue, Value};
 
@@ -53,8 +54,8 @@ pub struct GcRef(u32);
 /// reusable hole left by the sweeper.
 pub(crate) enum HeapCell {
     Vector(RefCell<Vec<Value>>),
-    Map(RefCell<Vec<(Value, Value)>>),
-    Set(RefCell<Vec<Value>>),
+    Map(RefCell<OrderedMap<Value>>),
+    Set(RefCell<OrderedSet<Value>>),
     Struct(StructValue),
     Free,
 }
@@ -112,11 +113,11 @@ impl Heap {
         Value::Vector(self.alloc(HeapCell::Vector(RefCell::new(items))))
     }
 
-    pub(crate) fn alloc_map(&mut self, entries: Vec<(Value, Value)>) -> Value {
+    pub(crate) fn alloc_map(&mut self, entries: OrderedMap<Value>) -> Value {
         Value::Map(self.alloc(HeapCell::Map(RefCell::new(entries))))
     }
 
-    pub(crate) fn alloc_set(&mut self, items: Vec<Value>) -> Value {
+    pub(crate) fn alloc_set(&mut self, items: OrderedSet<Value>) -> Value {
         Value::Set(self.alloc(HeapCell::Set(RefCell::new(items))))
     }
 
@@ -136,14 +137,14 @@ impl Heap {
         }
     }
 
-    pub(crate) fn map(&self, r: GcRef) -> &RefCell<Vec<(Value, Value)>> {
+    pub(crate) fn map(&self, r: GcRef) -> &RefCell<OrderedMap<Value>> {
         match &self.cells[r.0 as usize] {
             HeapCell::Map(entries) => entries,
             _ => unreachable!("GcRef kind mismatch: expected a map"),
         }
     }
 
-    pub(crate) fn set(&self, r: GcRef) -> &RefCell<Vec<Value>> {
+    pub(crate) fn set(&self, r: GcRef) -> &RefCell<OrderedSet<Value>> {
         match &self.cells[r.0 as usize] {
             HeapCell::Set(items) => items,
             _ => unreachable!("GcRef kind mismatch: expected a set"),
@@ -210,7 +211,10 @@ impl Heap {
             if !marked[r.0 as usize] {
                 marked[r.0 as usize] = true;
                 match &self.cells[r.0 as usize] {
-                    HeapCell::Vector(items) | HeapCell::Set(items) => {
+                    HeapCell::Vector(items) => {
+                        pending.extend(items.borrow().iter().cloned());
+                    }
+                    HeapCell::Set(items) => {
                         pending.extend(items.borrow().iter().cloned());
                     }
                     HeapCell::Map(entries) => {
@@ -344,8 +348,11 @@ mod tests {
     fn collect_without_roots_reclaims_everything() {
         let mut heap = heap();
         heap.alloc_vector(vec![Value::Int(1)]);
-        heap.alloc_map(vec![(Value::Int(1), Value::Int(2))]);
-        heap.alloc_set(vec![Value::Int(3)]);
+        heap.alloc_map(OrderedMap::from_distinct_entries(vec![(
+            Value::Int(1),
+            Value::Int(2),
+        )]));
+        heap.alloc_set(OrderedSet::from_distinct_items(vec![Value::Int(3)]));
         assert_eq!(heap.stats().live, 3);
         assert_eq!(heap.stats().allocations, 3);
 

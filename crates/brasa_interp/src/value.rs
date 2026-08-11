@@ -22,6 +22,8 @@ use std::rc::Rc;
 use brasa_hir::{ExprId, ItemId};
 use brasa_resolver::LocalId;
 
+use crate::table::{HashKey, HashKeyed, OrderedMap, OrderedSet};
+
 /// A Brasa runtime value.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -40,12 +42,11 @@ pub enum Value {
     },
     Tuple(Rc<[Value]>),
     Vector(Rc<RefCell<Vec<Value>>>),
-    /// Insertion-ordered map. A `Vec` of pairs with structural key
-    /// lookup keeps the reference walker simple and dependency-free;
-    /// speed is an M3 concern (`docs/spec/00-vision.md`, roadmap).
-    Map(Rc<RefCell<Vec<(Value, Value)>>>),
+    /// Insertion-ordered map: the ordered entries plus a hashed position
+    /// index over the closed `Hashable` key set (`crate::table`).
+    Map(Rc<RefCell<OrderedMap<Value>>>),
     /// Insertion-ordered set, same representation rationale as `Map`.
-    Set(Rc<RefCell<Vec<Value>>>),
+    Set(Rc<RefCell<OrderedSet<Value>>>),
     Option(Option<Rc<Value>>),
     Struct(Rc<StructValue>),
     Enum(Rc<EnumValue>),
@@ -133,11 +134,42 @@ impl Value {
         Value::Vector(Rc::new(RefCell::new(items)))
     }
 
+    pub fn map(entries: OrderedMap<Value>) -> Value {
+        Value::Map(Rc::new(RefCell::new(entries)))
+    }
+
+    pub fn set(items: OrderedSet<Value>) -> Value {
+        Value::Set(Rc::new(RefCell::new(items)))
+    }
+
     pub fn some(inner: Value) -> Value {
         Value::Option(Some(Rc::new(inner)))
     }
 
     pub const NONE: Value = Value::Option(None);
+}
+
+/// The `Hashable` projection (`crate::table`). Every arm mirrors the
+/// corresponding [`value_eq`] arm exactly: scalars compare by content,
+/// strings by content (`Rc<str>` hashes and compares as `str`), tuples
+/// element-wise with a matching length. Everything outside the closed
+/// `Hashable` list — including `float`, whose IEEE `NaN != NaN` has no
+/// hash counterpart — projects to `None` and takes the linear fallback.
+impl HashKeyed for Value {
+    fn hash_key(&self) -> Option<HashKey> {
+        match self {
+            Value::Int(i) => Some(HashKey::Int(*i)),
+            Value::Str(s) => Some(HashKey::Str(s.clone())),
+            Value::Char(c) => Some(HashKey::Char(*c)),
+            Value::Bool(b) => Some(HashKey::Bool(*b)),
+            Value::Tuple(items) => items
+                .iter()
+                .map(Value::hash_key)
+                .collect::<Option<Box<[HashKey]>>>()
+                .map(HashKey::Tuple),
+            _ => None,
+        }
+    }
 }
 
 /// Structural equality (`docs/spec/03-types.md`: `==` is ALWAYS
@@ -173,11 +205,11 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
             let (x, y) = (x.borrow(), y.borrow());
             x.len() == y.len()
                 && x.iter()
-                    .all(|(k, v)| y.iter().any(|(k2, v2)| value_eq(k, k2) && value_eq(v, v2)))
+                    .all(|(k, v)| y.get(k, value_eq).is_some_and(|v2| value_eq(v, v2)))
         }
         (Value::Set(x), Value::Set(y)) => {
             let (x, y) = (x.borrow(), y.borrow());
-            x.len() == y.len() && x.iter().all(|a| y.iter().any(|b| value_eq(a, b)))
+            x.len() == y.len() && x.iter().all(|a| y.contains(a, value_eq))
         }
         (Value::Option(x), Value::Option(y)) => match (x, y) {
             (Some(x), Some(y)) => value_eq(x, y),
@@ -231,5 +263,87 @@ pub fn value_cmp(a: &Value, b: &Value) -> Option<Ordering> {
         (Value::Str(x), Value::Str(y)) => Some(x.cmp(y)),
         (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    use super::*;
+
+    fn hash_of(key: &HashKey) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Every shape a `Map` key or `Set` element can take, plus values
+    /// that must NOT project. Two structurally equal strings are built
+    /// through separate allocations on purpose.
+    fn corpus() -> Vec<Value> {
+        vec![
+            Value::Int(0),
+            Value::Int(1),
+            Value::str("alpha"),
+            Value::str(String::from("al") + "pha"),
+            Value::str("beta"),
+            Value::Char('a'),
+            Value::Char('b'),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("a")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("a")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1), Value::str("b")])),
+            Value::Tuple(Rc::from(vec![Value::Int(1)])),
+            Value::Tuple(Rc::from(Vec::new())),
+            Value::Float(1.0),
+            Value::Unit,
+            Value::vector(vec![Value::Int(1)]),
+        ]
+    }
+
+    /// The correctness crux of the hashed tables (`crate::table`): for
+    /// every pair that projects, `value_eq` and key equality must be the
+    /// same relation, and equal keys must hash equally.
+    #[test]
+    fn hash_key_agrees_with_value_eq() {
+        for a in corpus() {
+            for b in corpus() {
+                let (Some(ka), Some(kb)) = (a.hash_key(), b.hash_key()) else {
+                    continue;
+                };
+
+                assert_eq!(
+                    value_eq(&a, &b),
+                    ka == kb,
+                    "projection disagrees with value_eq on {a:?} / {b:?}"
+                );
+                if ka == kb {
+                    assert_eq!(hash_of(&ka), hash_of(&kb), "equal keys hash differently");
+                }
+            }
+        }
+    }
+
+    /// Only the closed `Hashable` list projects; everything else takes
+    /// the linear fallback rather than being silently mis-keyed.
+    #[test]
+    fn only_hashable_values_project() {
+        for value in corpus() {
+            let expected = matches!(
+                value,
+                Value::Int(_) | Value::Str(_) | Value::Char(_) | Value::Bool(_) | Value::Tuple(_)
+            );
+            assert_eq!(value.hash_key().is_some(), expected, "on {value:?}");
+        }
+    }
+
+    /// A tuple is only `Hashable` when every element is, and a nested
+    /// non-projectable element must poison the whole projection.
+    #[test]
+    fn a_tuple_with_a_non_hashable_element_does_not_project() {
+        let tuple = Value::Tuple(Rc::from(vec![Value::Int(1), Value::Float(1.0)]));
+        assert!(tuple.hash_key().is_none());
     }
 }

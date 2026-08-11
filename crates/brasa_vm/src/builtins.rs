@@ -12,6 +12,7 @@ use std::rc::Rc;
 use brasa_interp::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
+use brasa_interp::table::{OrderedMap, OrderedSet};
 use brasa_interp::{fs_glue, io_glue, json_glue, time_glue};
 
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
@@ -180,11 +181,13 @@ impl Vm<'_> {
                 Ok(Value::Unit)
             }
             ("vars", []) => {
-                let entries: Vec<(Value, Value)> = merged_env(&self.env_overlay)
+                let entries = merged_env(&self.env_overlay)
                     .into_iter()
                     .map(|(key, value)| (Value::str(key), Value::str(value)))
                     .collect();
-                Ok(self.heap.alloc_map(entries))
+                Ok(self
+                    .heap
+                    .alloc_map(OrderedMap::from_distinct_entries(entries)))
             }
             ("args", []) => {
                 let args = self.script_args.iter().map(Value::str).collect();
@@ -350,7 +353,8 @@ impl Vm<'_> {
                     .into_iter()
                     .map(|(key, member)| (Value::str(key), Value::Json(member)))
                     .collect();
-                self.heap.alloc_map(entries)
+                self.heap
+                    .alloc_map(OrderedMap::from_distinct_entries(entries))
             })),
             "null?" => Value::Bool(json_glue::is_null(tree)),
             _ => return None,
@@ -938,40 +942,33 @@ impl Vm<'_> {
                 Ok(self.heap.alloc_vector(values))
             }
             ("insert", [key, value]) => {
-                let mut entries = self.heap.map(entries).borrow_mut();
-                match entries
-                    .iter_mut()
-                    .find(|(k, _)| value_eq(&self.heap, k, key))
-                {
-                    Some(entry) => entry.1 = value.clone(),
-                    None => entries.push((key.clone(), value.clone())),
-                }
+                self.heap
+                    .map(entries)
+                    .borrow_mut()
+                    .insert(key.clone(), value.clone(), |a, b| {
+                        value_eq(&self.heap, a, b)
+                    });
                 Ok(Value::Unit)
             }
-            ("remove", [key]) => {
-                let mut entries = self.heap.map(entries).borrow_mut();
-                match entries
-                    .iter()
-                    .position(|(k, _)| value_eq(&self.heap, k, key))
-                {
-                    Some(index) => Ok(Value::some(entries.remove(index).1)),
-                    None => Ok(Value::NONE),
-                }
-            }
+            ("remove", [key]) => Ok(self
+                .heap
+                .map(entries)
+                .borrow_mut()
+                .remove(key, |a, b| value_eq(&self.heap, a, b))
+                .map(Value::some)
+                .unwrap_or(Value::NONE)),
             ("has?", [key]) => Ok(Value::Bool(
                 self.heap
                     .map(entries)
                     .borrow()
-                    .iter()
-                    .any(|(k, _)| value_eq(&self.heap, k, key)),
+                    .contains_key(key, |a, b| value_eq(&self.heap, a, b)),
             )),
             ("get", [key]) => Ok(self
                 .heap
                 .map(entries)
                 .borrow()
-                .iter()
-                .find(|(k, _)| value_eq(&self.heap, k, key))
-                .map(|(_, v)| Value::some(v.clone()))
+                .get(key, |a, b| value_eq(&self.heap, a, b))
+                .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             ("entries", []) => {
                 let pairs = self
@@ -988,20 +985,14 @@ impl Vm<'_> {
             // operand is modified.
             ("merge", [Value::Map(other)]) => {
                 let mut merged = self.heap.map(entries).borrow().clone();
-                let additions = self.heap.map(*other).borrow().clone();
+                let additions = self.heap.map(*other).borrow().entries().to_vec();
                 for (key, value) in additions {
-                    match merged
-                        .iter_mut()
-                        .find(|(k, _)| value_eq(&self.heap, k, &key))
-                    {
-                        Some(entry) => entry.1 = value,
-                        None => merged.push((key, value)),
-                    }
+                    merged.insert(key, value, |a, b| value_eq(&self.heap, a, b));
                 }
                 Ok(self.heap.alloc_map(merged))
             }
             ("each", [f]) => {
-                let snapshot = self.heap.map(entries).borrow().clone();
+                let snapshot = self.heap.map(entries).borrow().entries().to_vec();
                 for (key, value) in snapshot {
                     self.call_callable(f.clone(), vec![key, value])?;
                 }
@@ -1020,39 +1011,32 @@ impl Vm<'_> {
         match (name, args) {
             ("len", []) => Ok(Value::Int(self.heap.set(items).borrow().len() as i64)),
             ("add", [value]) => {
-                let mut items = self.heap.set(items).borrow_mut();
-                if !items.iter().any(|v| value_eq(&self.heap, v, value)) {
-                    items.push(value.clone());
-                }
+                self.heap
+                    .set(items)
+                    .borrow_mut()
+                    .add(value.clone(), |a, b| value_eq(&self.heap, a, b));
                 Ok(Value::Unit)
             }
-            ("remove", [value]) => {
-                let mut items = self.heap.set(items).borrow_mut();
-                match items.iter().position(|v| value_eq(&self.heap, v, value)) {
-                    Some(index) => {
-                        items.remove(index);
-                        Ok(Value::Bool(true))
-                    }
-                    None => Ok(Value::Bool(false)),
-                }
-            }
+            ("remove", [value]) => Ok(Value::Bool(
+                self.heap
+                    .set(items)
+                    .borrow_mut()
+                    .remove(value, |a, b| value_eq(&self.heap, a, b)),
+            )),
             ("has?", [value]) => Ok(Value::Bool(
                 self.heap
                     .set(items)
                     .borrow()
-                    .iter()
-                    .any(|v| value_eq(&self.heap, v, value)),
+                    .contains(value, |a, b| value_eq(&self.heap, a, b)),
             )),
             // The algebra members return NEW sets in the receiver's
             // insertion order (`union` appends the argument's unseen
             // elements in its order); neither operand is modified.
             ("union", [Value::Set(other)]) => {
                 let mut result = self.heap.set(items).borrow().clone();
-                let additions = self.heap.set(*other).borrow().clone();
+                let additions = self.heap.set(*other).borrow().items().to_vec();
                 for value in additions {
-                    if !result.iter().any(|v| value_eq(&self.heap, v, &value)) {
-                        result.push(value);
-                    }
+                    result.add(value, |a, b| value_eq(&self.heap, a, b));
                 }
                 Ok(self.heap.alloc_set(result))
             }
@@ -1064,11 +1048,13 @@ impl Vm<'_> {
                     .set(items)
                     .borrow()
                     .iter()
-                    .filter(|v| other.iter().any(|o| value_eq(&self.heap, o, v)) == keep_present)
+                    .filter(|v| {
+                        other.contains(v, |a, b| value_eq(&self.heap, a, b)) == keep_present
+                    })
                     .cloned()
                     .collect();
                 drop(other);
-                Ok(self.heap.alloc_set(result))
+                Ok(self.heap.alloc_set(OrderedSet::from_distinct_items(result)))
             }
             _ => Err(builtin_error(name)),
         }

@@ -2247,3 +2247,70 @@ fn rand_empty_picks_panic() {
         "unexpected message: {message}"
     );
 }
+
+// --- hashed Map/Set tables --------------------------------------------
+
+#[test]
+fn large_hashed_map_and_set_agree_across_backends() {
+    // 20k keys: with the previous association-list scan this program
+    // was quadratic in both backends. It pins the observable contract
+    // the hashed position index must not move — insertion order after
+    // interior removals, upsert keeping the first occurrence's slot,
+    // string keys compared by content rather than by handle (the VM
+    // interns constant-pool strings but not runtime-built ones), and
+    // tuple keys.
+    assert_success(
+        r##"
+let m: Map<int, int> = {}
+for i in 0..20000
+  m.insert(i, i * 2)
+end
+puts m.len()
+puts m[19999] ?? -1
+puts m.has?(20000)
+puts m.remove(0) ?? -1
+puts m.remove(0) ?? -1
+puts m.remove(10000) ?? -1
+puts m.len()
+
+let keys = m.keys()
+puts keys[0]
+puts keys[9999]
+puts keys[keys.len() - 1]
+puts m[10001] ?? -1
+puts m[9999] ?? -1
+puts m.has?(10000)
+
+let mut sum = 0
+for (k, v) in m.entries()
+  sum += v - k
+end
+puts sum
+
+let sm = {"alpha": 1, "beta": 2}
+sm.insert("al" + "pha", 3)
+puts sm.len()
+puts sm["alpha"] ?? 0
+puts sm["al" + "pha"] ?? 0
+puts sm.keys().join(",")
+
+let tm: Map<(int, string), int> = {}
+tm.insert((1, "a"), 10)
+tm.insert((1, "" + "a"), 11)
+puts tm.len()
+puts tm[(1, "a")] ?? 0
+
+let s = Set([1, 2, 3])
+for i in 0..20000
+  s.add(i)
+end
+puts s.len()
+puts s.has?(19999)
+puts s.remove(1)
+puts s.remove(1)
+puts s.len()
+puts s.diff(Set([0])).len()
+"##,
+        "20000\n39998\nfalse\n0\n-1\n20000\n19998\n1\n10001\n19999\n20002\n19998\nfalse\n199980000\n2\n3\n3\nalpha,beta\n1\n11\n20000\ntrue\ntrue\nfalse\n19999\n19998\n",
+    );
+}

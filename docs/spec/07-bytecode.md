@@ -195,8 +195,8 @@ by GC-managed heap objects:
 | `string` | Heap object | yes | no (all string methods are pure); interning is BRS-29's scope and does not change semantics |
 | Tuple | Heap object, fixed slice | yes | no (no element assignment exists) |
 | Vector | Heap object, growable | yes | yes |
-| Map | Heap object; insertion-ordered pairs with structural key lookup, as in the walker (a faster table is a later optimization, invisible to the language) | yes | yes |
-| Set | Heap object, insertion-ordered, same rationale as Map | yes | yes |
+| Map | Heap object: insertion-ordered pairs plus a hash index over the key, as in the walker | yes | yes |
+| Set | Heap object, insertion-ordered, same structure as Map | yes | yes |
 | Struct | Heap object: shape index + field slots in declaration order | yes | yes (field assignment) |
 | Enum variant | Heap object: shape index, variant index, payload slots | yes | no (no assignment through a variant) |
 | Function value | Inline `FuncId` | no | — |

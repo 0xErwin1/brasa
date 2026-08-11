@@ -25,6 +25,7 @@ use brasa_bytecode::{
     BuiltinId, CodeIx, Constant, EnumShape, FuncId, Function, Module, Op, StructShape, builtin_def,
 };
 use brasa_interp::Outcome;
+use brasa_interp::table::{OrderedMap, OrderedSet};
 
 use crate::heap::{Heap, Interner};
 use crate::value::{
@@ -648,16 +649,10 @@ impl<'a> Vm<'a> {
             }
             Op::MakeMap(n) => {
                 let flat = self.pop_n(2 * n as usize);
-                let mut entries: Vec<(Value, Value)> = Vec::with_capacity(n as usize);
+                let mut entries: OrderedMap<Value> = OrderedMap::with_capacity(n as usize);
                 let mut flat = flat.into_iter();
                 while let (Some(key), Some(value)) = (flat.next(), flat.next()) {
-                    match entries
-                        .iter_mut()
-                        .find(|(k, _)| value_eq(&self.heap, k, &key))
-                    {
-                        Some(entry) => entry.1 = value,
-                        None => entries.push((key, value)),
-                    }
+                    entries.insert(key, value, |a, b| value_eq(&self.heap, a, b));
                 }
                 let map = self.heap.alloc_map(entries);
                 self.push(map);
@@ -671,14 +666,9 @@ impl<'a> Vm<'a> {
                     return Err(Self::fatal("brasa: `Set` takes exactly 1 Vector argument"));
                 };
                 let items = self.heap.vector(items).borrow();
-                let mut set: Vec<Value> = Vec::new();
+                let mut set: OrderedSet<Value> = OrderedSet::new();
                 for item in items.iter() {
-                    if !set
-                        .iter()
-                        .any(|existing| value_eq(&self.heap, existing, item))
-                    {
-                        set.push(item.clone());
-                    }
+                    set.add(item.clone(), |a, b| value_eq(&self.heap, a, b));
                 }
                 drop(items);
                 let set = self.heap.alloc_set(set);
@@ -917,9 +907,8 @@ impl<'a> Vm<'a> {
                 .heap
                 .map(*entries)
                 .borrow()
-                .iter()
-                .find(|(k, _)| value_eq(&self.heap, k, key))
-                .map(|(_, v)| Value::some(v.clone()))
+                .get(key, |a, b| value_eq(&self.heap, a, b))
+                .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             // `Json` indexing is total (BRS-34,
             // `docs/spec/05-stdlib.md`): a missing member, an
@@ -971,14 +960,10 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             Value::Map(entries) => {
-                let mut entries = self.heap.map(*entries).borrow_mut();
-                match entries
-                    .iter_mut()
-                    .find(|(k, _)| value_eq(&self.heap, k, &index))
-                {
-                    Some(entry) => entry.1 = value,
-                    None => entries.push((index, value)),
-                }
+                self.heap
+                    .map(*entries)
+                    .borrow_mut()
+                    .insert(index, value, |a, b| value_eq(&self.heap, a, b));
                 Ok(())
             }
             _ => Err(Self::fatal(
@@ -1012,7 +997,7 @@ impl<'a> Vm<'a> {
                 ix: 0,
             }),
             Value::Set(items) => Ok(IterState::Items {
-                items: self.heap.set(*items).borrow().clone(),
+                items: self.heap.set(*items).borrow().items().to_vec(),
                 ix: 0,
             }),
             Value::Str(s) => Ok(IterState::Items {

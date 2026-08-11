@@ -39,6 +39,7 @@ use brasa_hir::{
 use brasa_resolver::{CtorRes, DefRef, LocalId, Res, Resolutions};
 use brasa_typeck::{TypeTables, WrapDecision};
 
+use crate::table::{OrderedMap, OrderedSet};
 use crate::value::{
     BoundBuiltin, BoundMethod, ClosureValue, EnumValue, StructValue, Value, value_cmp, value_eq,
 };
@@ -332,11 +333,7 @@ impl<'a> Interp<'a> {
                 Ok(())
             }
             Value::Map(entries) => {
-                let mut entries = entries.borrow_mut();
-                match entries.iter_mut().find(|(k, _)| value_eq(k, &index)) {
-                    Some(entry) => entry.1 = value,
-                    None => entries.push((index, value)),
-                }
+                entries.borrow_mut().insert(index, value, value_eq);
                 Ok(())
             }
             _ => Err(self.fatal("brasa: value does not support index assignment")),
@@ -394,7 +391,7 @@ impl<'a> Interp<'a> {
                 .iter()
                 .map(|(k, v)| Value::Tuple(Rc::from(vec![k.clone(), v.clone()])))
                 .collect()),
-            Value::Set(items) => Ok(items.borrow().clone()),
+            Value::Set(items) => Ok(items.borrow().items().to_vec()),
             Value::Str(s) => Ok(s.chars().map(Value::Char).collect()),
             _ => {
                 Err(self
@@ -540,16 +537,13 @@ impl<'a> Interp<'a> {
             }
             Expr::MapLit(pairs) => {
                 let pairs = pairs.clone();
-                let mut entries: Vec<(Value, Value)> = Vec::with_capacity(pairs.len());
+                let mut entries: OrderedMap<Value> = OrderedMap::with_capacity(pairs.len());
                 for (key, value) in pairs {
                     let key = self.eval_expr(frame, key)?;
                     let value = self.eval_expr(frame, value)?;
-                    match entries.iter_mut().find(|(k, _)| value_eq(k, &key)) {
-                        Some(entry) => entry.1 = value,
-                        None => entries.push((key, value)),
-                    }
+                    entries.insert(key, value, value_eq);
                 }
-                Ok(Value::Map(Rc::new(std::cell::RefCell::new(entries))))
+                Ok(Value::map(entries))
             }
             Expr::TupleLit(elements) => {
                 let elements = elements.clone();
@@ -700,13 +694,11 @@ impl<'a> Interp<'a> {
             Some(CtorRes::SetCtor) => match values.pop() {
                 Some(Value::Vector(items)) if values.is_empty() => {
                     let items = items.borrow();
-                    let mut set: Vec<Value> = Vec::new();
+                    let mut set: OrderedSet<Value> = OrderedSet::new();
                     for item in items.iter() {
-                        if !set.iter().any(|existing| value_eq(existing, item)) {
-                            set.push(item.clone());
-                        }
+                        set.add(item.clone(), value_eq);
                     }
-                    Ok(Value::Set(Rc::new(std::cell::RefCell::new(set))))
+                    Ok(Value::set(set))
                 }
                 _ => Err(self.fatal("brasa: `Set` takes exactly 1 Vector argument")),
             },
@@ -742,9 +734,8 @@ impl<'a> Interp<'a> {
             // A missing Map key is a normal case: `Option` (same table).
             (Value::Map(entries), key) => Ok(entries
                 .borrow()
-                .iter()
-                .find(|(k, _)| value_eq(k, key))
-                .map(|(_, v)| Value::some(v.clone()))
+                .get(key, value_eq)
+                .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             // `Json` indexing is total (BRS-34,
             // `docs/spec/05-stdlib.md`): a missing member, an
@@ -1563,12 +1554,12 @@ impl<'a> Interp<'a> {
                 Ok(format!("[{}]", parts.join(", ")))
             }
             Value::Set(items) => {
-                let items = items.borrow().clone();
+                let items = items.borrow().items().to_vec();
                 let parts = self.render_all(items.iter(), depth)?;
                 Ok(format!("Set([{}])", parts.join(", ")))
             }
             Value::Map(entries) => {
-                let entries = entries.borrow().clone();
+                let entries = entries.borrow().entries().to_vec();
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }
