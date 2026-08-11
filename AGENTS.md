@@ -16,6 +16,8 @@ scripting tasks.
 | `docs/spec/03-types.md` | Type system semantics |
 | `docs/spec/04-errors.md` | BAML-style error system (inferred error-sets) |
 | `docs/spec/05-stdlib.md` | Stdlib surface (native, written in Rust) |
+| `docs/spec/06-diagnostics.md` | Diagnostic model, code registry, wording |
+| `docs/spec/07-bytecode.md` | Bytecode: execution model, values, instruction set, module format |
 
 Spec changes must be mirrored to the Atlas workspace `brasa` (project
 `brasa-lang`, folder Spec). Work items live on the Atlas board `Roadmap`
@@ -48,6 +50,7 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_ast` | Index arenas, typed `Copy` IDs, span side tables |
 | `brasa_parser` | Recursive descent (items/stmts) + Pratt (exprs) |
 | `brasa` | CLI binary (clap) |
+| `brasa_bytecode` | Bytecode containers (M3): opcodes, chunks, constant pool, module format, disassembler |
 
 Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
 `brasa_errorset` (fixpoint inference), `brasa_interp` (reference

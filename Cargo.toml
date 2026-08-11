@@ -20,6 +20,7 @@ brasa_resolver = { path = "crates/brasa_resolver" }
 brasa_typeck = { path = "crates/brasa_typeck" }
 brasa_errorset = { path = "crates/brasa_errorset" }
 brasa_interp = { path = "crates/brasa_interp" }
+brasa_bytecode = { path = "crates/brasa_bytecode" }
 
 [workspace.package]
 authors = ["Ignacio Perez <ignacio@feuer.me>"]

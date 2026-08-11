@@ -1,0 +1,51 @@
+---
+source: crates/brasa_bytecode/tests/disasm.rs
+expression: "brasa_bytecode::dump::dump(&module)"
+---
+== constants ==
+  c0  str "NetError"
+  c1  str "panics.IndexOutOfBounds"
+  c2  int 0
+
+== struct NetError (fields: [detail]; methods: []; toString: derived) ==
+
+== enum Shape ==
+  Circle/1
+  Dot/0
+
+== fn0 <toplevel> arity=0 captures=0 locals=1 ==
+     0  call fn1, 0                 ; risky
+     1  jump 15
+     2  load_unit
+     3  jump_if_tag_ne c0, 8        ; str "NetError"
+     4  caught_value
+     5  store_local 0
+     6  pop
+     7  jump 15
+     8  jump_if_tag_ne c1, 13       ; str "panics.IndexOutOfBounds"
+     9  caught_detail
+    10  store_local 0
+    11  pop
+    12  jump 15
+    13  jump_if_panic 14
+    14  rethrow
+    15  const c2                    ; int 0
+    16  const c2                    ; int 0
+    17  make_range inclusive=false
+    18  iter_new
+    19  iter_next 22
+    20  pop
+    21  jump 19
+    22  make_closure fn1, 0         ; risky
+    23  make_enum e0, 1, 0          ; Shape.Dot
+    24  make_tuple 2
+    25  pop
+    26  load_unit
+    27  ret
+  handlers:
+    0..1 -> 3 depth=0
+
+== fn1 risky arity=0 captures=0 locals=0 ==
+     0  const c2                    ; int 0
+     1  make_struct s0              ; NetError
+     2  throw

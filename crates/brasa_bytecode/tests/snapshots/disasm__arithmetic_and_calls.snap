@@ -1,0 +1,46 @@
+---
+source: crates/brasa_bytecode/tests/disasm.rs
+expression: "brasa_bytecode::dump::dump(&module)"
+---
+== constants ==
+  c0  int 1
+  c1  int 2
+  c2  float 3.5
+  c3  str "hello"
+
+== globals ==
+  g0  total
+
+== fn0 <toplevel> arity=0 captures=0 locals=0 ==
+     0  const c0                    ; int 1
+     1  const c1                    ; int 2
+     2  add_int
+     3  store_global g0             ; total
+     4  const c2                    ; float 3.5
+     5  neg_float
+     6  pop
+     7  const c3                    ; str "hello"
+     8  to_string
+     9  call_builtin b0, 1
+    10  pop
+    11  load_unit
+    12  ret
+
+== fn1 double arity=1 captures=0 locals=1 ==
+     0  load_local 0
+     1  const c1                    ; int 2
+     2  mul_int
+     3  ret
+
+== fn2 main arity=0 captures=0 locals=0 ==
+     0  load_global g0              ; total
+     1  call fn1, 1                 ; double
+     2  dup
+     3  const c0                    ; int 1
+     4  lt
+     5  jump_if_false 7
+     6  neg_int
+     7  make_vector 1
+     8  pop
+     9  load_unit
+    10  ret

@@ -102,6 +102,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "brasa_bytecode"
+version = "0.1.0"
+dependencies = [
+ "brasa_source",
+ "insta",
+]
+
+[[package]]
 name = "brasa_diagnostics"
 version = "0.1.0"
 dependencies = [
