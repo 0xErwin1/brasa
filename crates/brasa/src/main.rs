@@ -30,6 +30,11 @@ struct Cli {
     #[arg(long)]
     check: bool,
 
+    /// Print the inferred error-sets to stdout instead of executing the
+    /// script (`docs/spec/04-errors.md`, error-set inference).
+    #[arg(long)]
+    dump_error_sets: bool,
+
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
@@ -127,6 +132,23 @@ fn main() -> ExitCode {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),
         Err(code) => return code,
+    }
+
+    if cli.dump_error_sets {
+        let inferred = brasa_errorset::infer(
+            &lowered.hir,
+            &lowered.roots,
+            &resolved.resolutions,
+            &checked.types,
+        );
+        match render_diagnostics(&inferred.diagnostics, &sources, color) {
+            Ok(false) => {}
+            Ok(true) => return ExitCode::from(65),
+            Err(code) => return code,
+        }
+
+        println!("{}", brasa_errorset::dump::dump(&lowered.hir, &inferred));
+        return ExitCode::from(0);
     }
 
     if cli.check {
