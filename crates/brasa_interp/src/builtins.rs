@@ -46,7 +46,6 @@
 //!   `panics.AssertionFailed` (`docs/spec/03-types.md`, float rules).
 
 use std::cmp::Ordering;
-use std::io::Write;
 use std::rc::Rc;
 
 use brasa_resolver::{
@@ -764,8 +763,8 @@ impl Interp<'_> {
 
     /// The `std::io` members (BRS-34, `docs/spec/05-stdlib.md`):
     /// `puts`/`print` mirror the prelude printers, `eprint` writes to
-    /// the real process stderr, and the readers consume the real
-    /// process stdin through the shared [`io_glue`].
+    /// the run's error stream, and the readers consume the run's input
+    /// stream through the shared [`io_glue`].
     pub(crate) fn io_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
         match (name, args.as_slice()) {
             ("puts" | "print" | "eprint", [value]) => {
@@ -773,11 +772,11 @@ impl Interp<'_> {
                 let text = self.display(&value)?;
                 self.write_io(name, &text)
             }
-            ("readLine", []) => Ok(match io_glue::read_line() {
+            ("readLine", []) => Ok(match io_glue::read_line(self.input) {
                 Some(line) => Value::some(Value::str(line)),
                 None => Value::NONE,
             }),
-            ("readAll", []) => Ok(Value::str(io_glue::read_all())),
+            ("readAll", []) => Ok(Value::str(io_glue::read_all(self.input))),
             ("puts" | "print" | "eprint" | "readLine" | "readAll", _) => {
                 Err(self.fatal(format!("brasa: invalid argument(s) to `io.{name}`")))
             }
@@ -862,7 +861,7 @@ impl Interp<'_> {
         let result = match name {
             "puts" => writeln!(self.out, "{text}"),
             "print" => write!(self.out, "{text}"),
-            _ => write!(std::io::stderr(), "{text}"),
+            _ => write!(self.err, "{text}"),
         };
 
         match result {
@@ -952,6 +951,7 @@ mod tests {
     use brasa_typeck::TypeTables;
 
     use crate::interp::Interp;
+    use crate::io_glue::Streams;
     use crate::table::OrderedSet;
     use crate::value::{Value, value_eq};
 
@@ -965,7 +965,14 @@ mod tests {
         let res = Resolutions::default();
         let types = TypeTables::default();
         let mut out = Vec::new();
-        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16, &[]);
+        let mut err = Vec::new();
+        let mut input = std::io::empty();
+        let streams = Streams {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+        };
+        let mut interp = Interp::new(&hir, &res, &types, streams, 16, &[]);
 
         let set = set_of(vec![Value::Int(1)]);
 
@@ -1005,7 +1012,14 @@ mod tests {
         let res = Resolutions::default();
         let types = TypeTables::default();
         let mut out = Vec::new();
-        let mut interp = Interp::new(&hir, &res, &types, &mut out, 16, &[]);
+        let mut err = Vec::new();
+        let mut input = std::io::empty();
+        let streams = Streams {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+        };
+        let mut interp = Interp::new(&hir, &res, &types, streams, 16, &[]);
 
         let set = set_of(vec![Value::Int(2), Value::Int(1)]);
         let text = interp.display(&set).expect("display succeeds");

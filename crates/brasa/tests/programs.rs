@@ -354,8 +354,22 @@ flake.lock  (lock version 7, 4 direct inputs, 5 locked nodes, 1 follows edge)
 /// shape: the script always exits 0 and produces exactly one of two
 /// well-formed outputs — the report skeleton on stdout, or the refusal
 /// on stderr when git is missing or the tree is not a checkout.
+///
+/// The report header names the checkout's directory, which a clean
+/// clone is free to choose, so the expectation is derived from this
+/// test's own location rather than pinned to one name.
 #[test]
 fn example_real_gitreport() {
+    let checkout = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .expect("the workspace root canonicalizes");
+    let expected_header = format!(
+        "release report for {}\n",
+        checkout
+            .file_name()
+            .expect("the workspace root has a name")
+            .to_string_lossy()
+    );
+
     for backend in BACKENDS {
         let output = run_with_backend(&example_path("real/gitreport.brs"), backend);
 
@@ -381,8 +395,8 @@ fn example_real_gitreport() {
             "[{backend}] expected empty stderr, got: {stderr}"
         );
         assert!(
-            stdout.starts_with("release report for brasa\n"),
-            "[{backend}] stdout: {stdout}"
+            stdout.starts_with(&expected_header),
+            "[{backend}] expected the header {expected_header:?} in: {stdout}"
         );
 
         for marker in [

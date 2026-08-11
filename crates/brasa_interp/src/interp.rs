@@ -29,7 +29,7 @@
 //!   yet: touching a member is a clean runtime error.
 
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::rc::Rc;
 
 use brasa_hir::{
@@ -39,6 +39,7 @@ use brasa_hir::{
 use brasa_resolver::{CtorRes, DefRef, LocalId, Res, Resolutions};
 use brasa_typeck::{TypeTables, WrapDecision};
 
+use crate::io_glue::Streams;
 use crate::table::{OrderedMap, OrderedSet};
 use crate::value::{
     BoundBuiltin, BoundMethod, ClosureValue, EnumValue, StructValue, Value, value_cmp, value_eq,
@@ -128,7 +129,11 @@ pub(crate) struct Interp<'a> {
     types: &'a TypeTables,
     /// Values of `TopLet` items, keyed by their `ItemId`.
     globals: HashMap<ItemId, Value>,
-    pub(crate) out: &'a mut dyn Write,
+    pub(crate) out: &'a mut (dyn Write + Send),
+    /// Where `io.eprint` writes (`docs/spec/05-stdlib.md`).
+    pub(crate) err: &'a mut (dyn Write + Send),
+    /// What `io.readLine`/`io.readAll` consume.
+    pub(crate) input: &'a mut (dyn BufRead + Send),
     /// Active function names, outermost first.
     stack: Vec<String>,
     max_depth: usize,
@@ -153,7 +158,7 @@ impl<'a> Interp<'a> {
         hir: &'a Hir,
         res: &'a Resolutions,
         types: &'a TypeTables,
-        out: &'a mut dyn Write,
+        streams: Streams<'a>,
         max_depth: usize,
         args: &[String],
     ) -> Self {
@@ -162,7 +167,9 @@ impl<'a> Interp<'a> {
             res,
             types,
             globals: HashMap::new(),
-            out,
+            out: streams.out,
+            err: streams.err,
+            input: streams.input,
             stack: Vec::new(),
             max_depth,
             regex_cache: HashMap::new(),

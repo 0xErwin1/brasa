@@ -1,11 +1,11 @@
 //! CLI-level `std::io` tests (BRS-34, `docs/spec/05-stdlib.md`).
 //!
-//! `io.readLine`/`io.readAll` consume the REAL process stdin and
-//! `io.eprint` writes to the real stderr, so the library-level parity
-//! harness (which only injects a stdout sink) cannot exercise them.
-//! These tests run the built `brasa` binary with piped stdin on BOTH
-//! backends and assert identical stdout, stderr, and exit status —
-//! the CLI is the parity oracle here.
+//! The library-level parity harness injects all three streams, so it
+//! pins the `std::io` semantics themselves. What only the CLI can pin
+//! is the WIRING: that `brasa` hands the real process stdin, stdout,
+//! and stderr to the run. These tests drive the built binary with piped
+//! stdin on BOTH backends and assert identical stdout, stderr, and exit
+//! status.
 
 use std::io::Write;
 use std::path::Path;

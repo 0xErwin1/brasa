@@ -1,12 +1,13 @@
-//! Backend-agnostic stdin glue for `std::io` (BRS-34,
+//! Backend-agnostic stream glue for `std::io` (BRS-34,
 //! `docs/spec/05-stdlib.md`), shared by the walker and the VM.
 //!
 //! Decisions recorded here (mirrored in the spec):
 //!
-//! - Both backends read the REAL process stdin through the same OS
-//!   handle; there is no per-run stdin injection (the library-level
-//!   parity harness cannot pipe stdin, so `readLine`/`readAll` are
-//!   pinned by CLI-level tests instead).
+//! - A run is wired to three streams ([`Streams`]) instead of reaching
+//!   for the process handles directly, so `io.eprint` and the stdin
+//!   readers are observable to the parity harness exactly like `puts`.
+//!   The CLI wires the real process streams; nothing else about the
+//!   surface changes.
 //! - Input decodes as lossy UTF-8 (invalid bytes become U+FFFD),
 //!   consistent with `std::proc`'s output capture — a Unix filter must
 //!   never die on a stray byte.
@@ -18,13 +19,25 @@
 //!   yields what was readable). Inventing an error type for a
 //!   condition scripts cannot meaningfully handle was ruled out.
 
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Write};
 
-/// One stdin line without its trailing newline; `None` at end of
+/// The streams one run is wired to: program output, the `io.eprint`
+/// sink, and the source `io.readLine`/`io.readAll` consume.
+///
+/// The backends run on their own thread, so every stream must be
+/// `Send`. Note that `std::io::StdinLock` is not, which is why the
+/// process default buffers [`std::io::Stdin`] instead.
+pub struct Streams<'a> {
+    pub out: &'a mut (dyn Write + Send),
+    pub err: &'a mut (dyn Write + Send),
+    pub input: &'a mut (dyn BufRead + Send),
+}
+
+/// One line from `input` without its trailing newline; `None` at end of
 /// input.
-pub fn read_line() -> Option<String> {
+pub fn read_line(input: &mut dyn BufRead) -> Option<String> {
     let mut bytes = Vec::new();
-    let _ = std::io::stdin().lock().read_until(b'\n', &mut bytes);
+    let _ = input.read_until(b'\n', &mut bytes);
 
     if bytes.is_empty() {
         return None;
@@ -40,10 +53,10 @@ pub fn read_line() -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The whole remaining stdin, newlines intact.
-pub fn read_all() -> String {
+/// The whole remaining input, newlines intact.
+pub fn read_all(input: &mut dyn BufRead) -> String {
     let mut bytes = Vec::new();
-    let _ = std::io::stdin().lock().read_to_end(&mut bytes);
+    let _ = input.read_to_end(&mut bytes);
 
     String::from_utf8_lossy(&bytes).into_owned()
 }

@@ -272,6 +272,7 @@ version = "0.1.0"
 dependencies = [
  "brasa_bytecode",
  "brasa_codegen",
+ "brasa_errorset",
  "brasa_hir",
  "brasa_interp",
  "brasa_parser",

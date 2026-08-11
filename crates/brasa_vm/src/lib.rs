@@ -33,11 +33,11 @@ mod heap;
 mod value;
 mod vm;
 
-pub use brasa_interp::Outcome;
+pub use brasa_interp::{Outcome, Streams};
 pub use heap::{DEFAULT_GC_THRESHOLD, GcRef};
 pub use value::Value;
 
-use std::io::Write;
+use std::io::{BufReader, Write};
 
 use brasa_bytecode::Module;
 
@@ -68,8 +68,10 @@ pub struct RunStats {
 }
 
 /// Runs `<toplevel>` (functions[0]) and then the module's `main` if the
-/// file defines one, writing program output to `out`. `args` are the
-/// script's trailing CLI arguments, served by `env.args()`
+/// file defines one, writing program output to `out`. `io.eprint` and
+/// the stdin readers reach the real process streams;
+/// [`run_with_streams`] wires them elsewhere. `args` are the script's
+/// trailing CLI arguments, served by `env.args()`
 /// (`docs/spec/05-stdlib.md`, BRS-32).
 pub fn run<W: Write + Send>(module: &Module, out: &mut W, args: &[String]) -> Outcome {
     run_with_depth(module, out, DEFAULT_MAX_CALL_DEPTH, args)
@@ -83,7 +85,35 @@ pub fn run_with_depth<W: Write + Send>(
     max_depth: usize,
     args: &[String],
 ) -> Outcome {
-    run_configured(module, out, max_depth, DEFAULT_GC_THRESHOLD, args).0
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    run_configured(
+        module,
+        Streams {
+            out,
+            err: &mut err,
+            input: &mut input,
+        },
+        max_depth,
+        DEFAULT_GC_THRESHOLD,
+        args,
+    )
+    .0
+}
+
+/// [`run_with_depth`] with every stream wired explicitly: the one entry
+/// point through which `io.eprint` and `io.readLine`/`io.readAll` are
+/// observable to a caller (the parity harness runs both backends this
+/// way, including its hot-GC leg — hence the explicit threshold).
+pub fn run_with_streams<'a>(
+    module: &'a Module,
+    streams: Streams<'a>,
+    max_depth: usize,
+    gc_threshold: usize,
+    args: &[String],
+) -> (Outcome, RunStats) {
+    run_configured(module, streams, max_depth, gc_threshold, args)
 }
 
 /// [`run`] with an explicit GC allocation threshold: the collector arms
@@ -94,12 +124,25 @@ pub fn run_with_gc_threshold<W: Write + Send>(
     out: &mut W,
     gc_threshold: usize,
 ) -> (Outcome, RunStats) {
-    run_configured(module, out, DEFAULT_MAX_CALL_DEPTH, gc_threshold, &[])
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    run_configured(
+        module,
+        Streams {
+            out,
+            err: &mut err,
+            input: &mut input,
+        },
+        DEFAULT_MAX_CALL_DEPTH,
+        gc_threshold,
+        &[],
+    )
 }
 
-fn run_configured<W: Write + Send>(
-    module: &Module,
-    out: &mut W,
+fn run_configured<'a>(
+    module: &'a Module,
+    streams: Streams<'a>,
     max_depth: usize,
     gc_threshold: usize,
     args: &[String],
@@ -109,7 +152,7 @@ fn run_configured<W: Write + Send>(
             .name("brasa-vm".to_string())
             .stack_size(VM_STACK_SIZE)
             .spawn_scoped(scope, move || {
-                let mut vm = vm::Vm::new(module, out, max_depth, gc_threshold, args);
+                let mut vm = vm::Vm::new(module, streams, max_depth, gc_threshold, args);
                 let outcome = vm.run();
                 (outcome, vm.run_stats())
             })

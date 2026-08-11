@@ -294,9 +294,11 @@ Signatures closed in M4 (BRS-34):
   `readAll` yields what was readable). A closed read end on any
   output stream (`EPIPE`) is a silent successful exit, like the
   prelude printers.
-- Testing note: both backends read the same OS stdin handle, so the
-  library-level parity harness cannot exercise the readers; they are
-  pinned by CLI-level tests running both backends with piped stdin.
+- Testing note: a run is wired to three streams rather than reaching
+  for the process handles directly, so the library-level parity harness
+  injects stdin and captures stderr, and pins `eprint` and the readers
+  on every backend leg. CLI-level tests keep pinning the wiring itself —
+  that `brasa` hands the REAL process streams to the run.
 
 ## `std::math`, `std::time`, `std::rand`
 

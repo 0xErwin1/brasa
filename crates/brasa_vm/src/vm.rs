@@ -74,7 +74,11 @@ pub(crate) struct Vm<'a> {
     /// Constants pre-materialized at load: string constants are
     /// interned once here, so every `const` push shares one allocation.
     consts: Vec<Value>,
-    pub(crate) out: &'a mut dyn Write,
+    pub(crate) out: &'a mut (dyn Write + Send),
+    /// Where `io.eprint` writes (`docs/spec/05-stdlib.md`).
+    pub(crate) err: &'a mut (dyn Write + Send),
+    /// What `io.readLine`/`io.readAll` consume.
+    pub(crate) input: &'a mut (dyn std::io::BufRead + Send),
     max_depth: usize,
     /// Per-run cache of compiled regex patterns for the string regex
     /// methods, keyed by the pattern text (mirrors the walker's cache).
@@ -96,7 +100,7 @@ pub(crate) struct Vm<'a> {
 impl<'a> Vm<'a> {
     pub(crate) fn new(
         module: &'a Module,
-        out: &'a mut dyn Write,
+        streams: brasa_interp::Streams<'a>,
         max_depth: usize,
         gc_threshold: usize,
         args: &[String],
@@ -121,7 +125,9 @@ impl<'a> Vm<'a> {
             heap: Heap::new(gc_threshold),
             interner,
             consts,
-            out,
+            out: streams.out,
+            err: streams.err,
+            input: streams.input,
             max_depth,
             regex_cache: std::collections::HashMap::new(),
             script_args: args.to_vec(),

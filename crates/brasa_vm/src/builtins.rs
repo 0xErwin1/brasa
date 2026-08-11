@@ -279,9 +279,9 @@ impl Vm<'_> {
 
     /// The `std::io` members, ported from the walker's `io_call`
     /// (BRS-34, `docs/spec/05-stdlib.md`): `puts`/`print` mirror the
-    /// prelude printers, `eprint` writes to the real process stderr,
-    /// and the readers consume the real process stdin through the
-    /// shared `brasa_interp::io_glue`.
+    /// prelude printers, `eprint` writes to the run's error stream, and
+    /// the readers consume the run's input stream through the shared
+    /// `brasa_interp::io_glue`.
     fn io_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
             ("puts" | "print" | "eprint", [value]) => {
@@ -289,11 +289,11 @@ impl Vm<'_> {
                 let text = self.display(&value)?;
                 self.write_io(name, &text)
             }
-            ("readLine", []) => Ok(match io_glue::read_line() {
+            ("readLine", []) => Ok(match io_glue::read_line(self.input) {
                 Some(line) => Value::some(Value::str(line)),
                 None => Value::NONE,
             }),
-            ("readAll", []) => Ok(Value::str(io_glue::read_all())),
+            ("readAll", []) => Ok(Value::str(io_glue::read_all(self.input))),
             ("puts" | "print" | "eprint" | "readLine" | "readAll", _) => Err(Signal::Fatal(
                 format!("brasa: invalid argument(s) to `io.{name}`"),
             )),
@@ -307,12 +307,10 @@ impl Vm<'_> {
     /// stderr. A closed read end is a silent exit on every stream,
     /// like the prelude printers.
     fn write_io(&mut self, name: &str, text: &str) -> VmResult {
-        use std::io::Write;
-
         let result = match name {
             "puts" => writeln!(self.out, "{text}"),
             "print" => write!(self.out, "{text}"),
-            _ => write!(std::io::stderr(), "{text}"),
+            _ => write!(self.err, "{text}"),
         };
 
         match result {

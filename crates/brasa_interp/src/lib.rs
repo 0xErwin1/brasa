@@ -26,9 +26,10 @@ pub mod table;
 pub mod time_glue;
 mod value;
 
+pub use io_glue::Streams;
 pub use value::Value;
 
-use std::io::Write;
+use std::io::{BufReader, Write};
 
 use brasa_hir::{Hir, ItemId};
 use brasa_resolver::Resolutions;
@@ -67,8 +68,10 @@ pub enum Outcome {
 }
 
 /// Runs the program rooted at `roots`, writing its output to `out`.
-/// `args` are the script's trailing CLI arguments, served by
-/// `env.args()` (`docs/spec/05-stdlib.md`, BRS-32).
+/// `io.eprint` and the stdin readers reach the real process streams;
+/// [`run_with_streams`] wires them elsewhere. `args` are the script's
+/// trailing CLI arguments, served by `env.args()`
+/// (`docs/spec/05-stdlib.md`, BRS-32).
 pub fn run<W: Write + Send>(
     hir: &Hir,
     roots: &[ItemId],
@@ -99,12 +102,43 @@ pub fn run_with_depth<W: Write + Send>(
     max_depth: usize,
     args: &[String],
 ) -> Outcome {
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    run_with_streams(
+        hir,
+        roots,
+        resolutions,
+        types,
+        Streams {
+            out,
+            err: &mut err,
+            input: &mut input,
+        },
+        max_depth,
+        args,
+    )
+}
+
+/// [`run_with_depth`] with every stream wired explicitly: the one entry
+/// point through which `io.eprint` and `io.readLine`/`io.readAll` are
+/// observable to a caller (the parity harness runs both backends this
+/// way).
+pub fn run_with_streams<'a>(
+    hir: &'a Hir,
+    roots: &[ItemId],
+    resolutions: &'a Resolutions,
+    types: &'a TypeTables,
+    streams: Streams<'a>,
+    max_depth: usize,
+    args: &[String],
+) -> Outcome {
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("brasa-interp".to_string())
             .stack_size(INTERP_STACK_SIZE)
             .spawn_scoped(scope, move || {
-                let mut interp = Interp::new(hir, resolutions, types, out, max_depth, args);
+                let mut interp = Interp::new(hir, resolutions, types, streams, max_depth, args);
                 let result = interp.run_program(roots);
                 finish(&mut interp, result)
             })

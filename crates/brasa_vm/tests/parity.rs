@@ -1,21 +1,37 @@
 //! Walker/VM parity suite: every program runs through the full
 //! frontend once, then through BOTH backends — the reference
 //! tree-walker (`brasa_interp`) and the bytecode VM (`brasa_vm`) — and
-//! the outcome plus captured stdout must be identical. The walker is
-//! the oracle: a disagreement is a VM (or codegen) bug by definition.
+//! the outcome plus every captured stream must be identical. The walker
+//! is the oracle: a disagreement is a VM (or codegen) bug by definition.
+//!
+//! The harness runs exactly the phases the CLI runs, in the CLI's order
+//! — the error-set pass included, since it can reject a program the
+//! checker accepted — and wires all three streams, so `io.eprint` and
+//! `io.readLine`/`io.readAll` are as observable here as `puts`.
 
-use brasa_interp::Outcome;
+use brasa_interp::{Outcome, Streams};
 
-/// Compiles `source` through the whole frontend (it must be clean) and
-/// runs it on both backends with the given call-depth limit, asserting
-/// identical outcome and stdout; returns the shared result.
-fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String) {
-    assert_parity_configured(source, max_depth, &[])
+/// Everything both backends consume, produced by the CLI's phase
+/// sequence with every diagnostic asserted empty.
+struct Frontend {
+    lowered: brasa_hir::LowerResult,
+    resolved: brasa_resolver::ResolveResult,
+    checked: brasa_typeck::TypeckResult,
+    module: brasa_bytecode::Module,
 }
 
-/// [`assert_parity_with_depth`] with explicit script arguments, served
-/// by `env.args()` (BRS-32).
-fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> (Outcome, String) {
+/// What one run of one backend produced.
+#[derive(Debug, PartialEq, Eq)]
+struct Run {
+    outcome: Outcome,
+    stdout: String,
+    stderr: String,
+}
+
+/// Runs `source` through the whole frontend, asserting each phase is
+/// clean. The order mirrors `crates/brasa/src/main.rs`: any phase the
+/// CLI can reject a program on must be able to reject it here too.
+fn compile_frontend(source: &str) -> Frontend {
     let mut sources = brasa_source::SourceMap::new();
     let file = sources.add_file("parity.brs", source.to_string());
 
@@ -40,17 +56,17 @@ fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> 
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let mut walker_out = Vec::new();
-    let walker_outcome = brasa_interp::run_with_depth(
+    let inferred = brasa_errorset::infer(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
-        &mut walker_out,
-        max_depth,
-        args,
     );
-    let walker_stdout = String::from_utf8(walker_out).expect("walker output is UTF-8");
+    assert!(
+        inferred.diagnostics.is_empty(),
+        "{:?}",
+        inferred.diagnostics
+    );
 
     let compiled = brasa_codegen::compile(
         &lowered.hir,
@@ -63,35 +79,117 @@ fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> 
         "{:?}",
         compiled.diagnostics
     );
-    let module = compiled.module;
-    let mut vm_out = Vec::new();
-    let vm_outcome = brasa_vm::run_with_depth(&module, &mut vm_out, max_depth, args);
-    let vm_stdout = String::from_utf8(vm_out).expect("VM output is UTF-8");
 
+    Frontend {
+        lowered,
+        resolved,
+        checked,
+        module: compiled.module,
+    }
+}
+
+/// Compiles `source` through the whole frontend (it must be clean) and
+/// runs it on both backends with the given call-depth limit, asserting
+/// identical outcome and stdout; returns the shared result.
+fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String) {
+    assert_parity_configured(source, max_depth, &[])
+}
+
+/// [`assert_parity_with_depth`] with explicit script arguments, served
+/// by `env.args()` (BRS-32).
+fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> (Outcome, String) {
+    let run = assert_parity_io(source, max_depth, args, b"");
     assert_eq!(
-        walker_outcome, vm_outcome,
-        "outcome parity failed\nwalker stdout: {walker_stdout:?}\nvm stdout: {vm_stdout:?}"
+        run.stderr, "",
+        "a program that writes to stderr must use `assert_success_io`"
     );
-    assert_eq!(walker_stdout, vm_stdout, "stdout parity failed");
+
+    (run.outcome, run.stdout)
+}
+
+/// The full parity comparison: both backends see the same `stdin`, and
+/// their outcome, stdout, AND stderr must agree.
+fn assert_parity_io(source: &str, max_depth: usize, args: &[String], stdin: &[u8]) -> Run {
+    let front = compile_frontend(source);
+
+    let walker = run_walker(&front, max_depth, args, stdin);
+
+    let vm = run_vm(
+        &front,
+        max_depth,
+        brasa_vm::DEFAULT_GC_THRESHOLD,
+        args,
+        stdin,
+    );
+    assert_eq!(walker, vm, "walker/VM parity failed");
 
     // Hot-GC leg (BRS-30): the same module under a tiny allocation
     // threshold, so collections fire constantly mid-run. GC pressure
-    // must never change observable behavior. `run_with_gc_threshold`
-    // has no depth or args parameter, so the depth-limited and
-    // args-carrying tests keep only the default comparison above.
-    if max_depth == brasa_vm::DEFAULT_MAX_CALL_DEPTH && args.is_empty() {
-        let mut hot_out = Vec::new();
-        let (hot_outcome, _) = brasa_vm::run_with_gc_threshold(&module, &mut hot_out, 8);
-        let hot_stdout = String::from_utf8(hot_out).expect("hot-GC VM output is UTF-8");
+    // must never change observable behavior.
+    let hot = run_vm(&front, max_depth, 8, args, stdin);
+    assert_eq!(walker, hot, "hot-GC parity failed");
 
-        assert_eq!(
-            walker_outcome, hot_outcome,
-            "hot-GC outcome parity failed\nwalker stdout: {walker_stdout:?}\nhot stdout: {hot_stdout:?}"
-        );
-        assert_eq!(walker_stdout, hot_stdout, "hot-GC stdout parity failed");
+    walker
+}
+
+fn run_walker(front: &Frontend, max_depth: usize, args: &[String], stdin: &[u8]) -> Run {
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let mut input = stdin;
+
+    let outcome = brasa_interp::run_with_streams(
+        &front.lowered.hir,
+        &front.lowered.roots,
+        &front.resolved.resolutions,
+        &front.checked.types,
+        Streams {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+        },
+        max_depth,
+        args,
+    );
+
+    Run {
+        outcome,
+        stdout: decode(out, "walker stdout"),
+        stderr: decode(err, "walker stderr"),
     }
+}
 
-    (walker_outcome, walker_stdout)
+fn run_vm(
+    front: &Frontend,
+    max_depth: usize,
+    gc_threshold: usize,
+    args: &[String],
+    stdin: &[u8],
+) -> Run {
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let mut input = stdin;
+
+    let (outcome, _) = brasa_vm::run_with_streams(
+        &front.module,
+        Streams {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+        },
+        max_depth,
+        gc_threshold,
+        args,
+    );
+
+    Run {
+        outcome,
+        stdout: decode(out, "VM stdout"),
+        stderr: decode(err, "VM stderr"),
+    }
+}
+
+fn decode(bytes: Vec<u8>, what: &str) -> String {
+    String::from_utf8(bytes).unwrap_or_else(|_| panic!("{what} is UTF-8"))
 }
 
 fn assert_parity(source: &str) -> (Outcome, String) {
@@ -104,6 +202,15 @@ fn assert_success(source: &str, expected_stdout: &str) {
     let (outcome, stdout) = assert_parity(source);
     assert_eq!(outcome, Outcome::Success);
     assert_eq!(stdout, expected_stdout);
+}
+
+/// [`assert_success`] for a program that reads stdin and/or writes
+/// stderr: every stream is pinned, on both backends.
+fn assert_success_io(source: &str, stdin: &[u8], expected_stdout: &str, expected_stderr: &str) {
+    let run = assert_parity_io(source, brasa_vm::DEFAULT_MAX_CALL_DEPTH, &[], stdin);
+    assert_eq!(run.outcome, Outcome::Success);
+    assert_eq!(run.stdout, expected_stdout, "stdout mismatch");
+    assert_eq!(run.stderr, expected_stderr, "stderr mismatch");
 }
 
 // --- arithmetic and overflow panics -----------------------------------
@@ -792,6 +899,10 @@ puts n
     );
 }
 
+/// The caught arm is reachable (the callee's error-set holds both
+/// types) but the raised signal is the OTHER one, so it escapes the
+/// handler. Every arm must stay in the inferred error-set: an arm that
+/// cannot fire is an error-set diagnostic, not a runtime scenario.
 #[test]
 fn rethrow_of_unhandled_signals() {
     let (outcome, stdout) = assert_parity(
@@ -804,11 +915,14 @@ struct BError
   code: int
 end
 
-def boom(): int
+def boom(which: int): int
+  if which == 0
+    throw AError { code: 1 }
+  end
   throw BError { code: 7 }
 end
 
-let v = boom() catch (e)
+let v = boom(1) catch (e)
   AError => 1
 end
 puts v
@@ -1042,17 +1156,20 @@ struct OuterError
   code: int
 end
 
-def inner(): int
+def inner(which: int): int
+  if which == 0
+    throw InnerError { code: 1 }
+  end
   throw OuterError { code: 9 }
 end
 
-def middle(): int
-  inner() catch (e)
+def middle(which: int): int
+  inner(which) catch (e)
     InnerError => 1
   end
 end
 
-let v = middle() catch (e)
+let v = middle(1) catch (e)
   OuterError => e.code
 end
 puts v
@@ -1877,43 +1994,22 @@ impl std::io::Write for FailingWriter {
 
 /// Compiles `source` and runs only the VM into `out`.
 fn run_vm_into<W: std::io::Write + Send>(source: &str, out: &mut W) -> Outcome {
-    let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file("parity.brs", source.to_string());
+    let front = compile_frontend(source);
+    let mut err = Vec::new();
+    let mut input: &[u8] = b"";
 
-    let parsed = brasa_parser::parse(source, file);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-
-    let lowered = brasa_hir::lower(&parsed.ast, &parsed.roots);
-    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-
-    let resolved = brasa_resolver::resolve(&lowered.hir, &lowered.roots);
-    assert!(
-        resolved.diagnostics.is_empty(),
-        "{:?}",
-        resolved.diagnostics
-    );
-
-    let checked = brasa_typeck::check(
-        &lowered.hir,
-        &lowered.roots,
-        &resolved.resolutions,
-        &lowered.sugar_origins,
-    );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-
-    let compiled = brasa_codegen::compile(
-        &lowered.hir,
-        &lowered.roots,
-        &resolved.resolutions,
-        &checked.types,
-    );
-    assert!(
-        compiled.diagnostics.is_empty(),
-        "{:?}",
-        compiled.diagnostics
-    );
-    let module = compiled.module;
-    brasa_vm::run(&module, out, &[])
+    brasa_vm::run_with_streams(
+        &front.module,
+        Streams {
+            out,
+            err: &mut err,
+            input: &mut input,
+        },
+        brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+        brasa_vm::DEFAULT_GC_THRESHOLD,
+        &[],
+    )
+    .0
 }
 
 #[test]
@@ -2318,6 +2414,91 @@ puts blocked
 
     let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700));
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// --- std::io streams (BRS-34) ------------------------------------------
+//
+// `io.eprint` and the stdin readers are wired to the run's streams, so
+// both are compared here on every leg (walker, VM, hot-GC VM) exactly
+// like stdout. The CLI-level suite (`crates/brasa/tests/io_cli.rs`)
+// keeps pinning the same behavior through the real process streams.
+
+#[test]
+fn io_printers_split_across_stdout_and_stderr() {
+    assert_success_io(
+        r##"
+import std::io
+io.puts("to stdout")
+io.print("no newline")
+io.eprint("to stderr")
+io.eprint(42)
+puts "prelude"
+"##,
+        b"",
+        "to stdout\nno newlineprelude\n",
+        "to stderr42",
+    );
+}
+
+#[test]
+fn read_line_strips_newlines_and_reports_end_of_input() {
+    assert_success_io(
+        r##"
+import std::io
+puts io.readLine() ?? "<eof>"
+puts io.readLine() ?? "<eof>"
+puts io.readLine() ?? "<eof>"
+puts io.readLine() ?? "<eof>"
+"##,
+        b"alpha\r\nbeta\nlast without newline",
+        "alpha\nbeta\nlast without newline\n<eof>\n",
+        "",
+    );
+}
+
+#[test]
+fn read_all_takes_the_rest_of_the_input_verbatim() {
+    assert_success_io(
+        r##"
+import std::io
+let first = io.readLine() ?? "<eof>"
+puts "first: #{first}"
+puts "rest: #{io.readAll()}"
+"##,
+        b"one\ntwo\nthree\n",
+        "first: one\nrest: two\nthree\n\n",
+        "",
+    );
+}
+
+#[test]
+fn empty_input_reads_cleanly_on_both_readers() {
+    assert_success_io(
+        r##"
+import std::io
+puts io.readLine() ?? "<eof>"
+puts "all: #{io.readAll()}"
+"##,
+        b"",
+        "<eof>\nall: \n",
+        "",
+    );
+}
+
+/// Invalid UTF-8 decodes lossily rather than failing the run: a Unix
+/// filter must never die on a stray byte (`docs/spec/05-stdlib.md`).
+#[test]
+fn invalid_utf8_input_decodes_lossily() {
+    assert_success_io(
+        r##"
+import std::io
+puts io.readLine() ?? "<eof>"
+puts io.readAll()
+"##,
+        b"ok \xff\xfe end\nrest \xc3\x28\n",
+        "ok \u{fffd}\u{fffd} end\nrest \u{fffd}(\n\n",
+        "",
+    );
 }
 
 // --- std::json (BRS-34) ------------------------------------------------
@@ -2854,4 +3035,439 @@ puts deep == chain(299)
 "##,
         "4214\ntrue\nfalse\n",
     );
+}
+
+// --- stdlib layer cross-check -----------------------------------------
+//
+// Adding one builtin means editing four layers: the checker's signature
+// table (`brasa_typeck::builtins`), the walker's implementation
+// (`brasa_interp::builtins`), the `BUILTINS` registry
+// (`brasa_bytecode::builtin`), and the VM's implementation
+// (`brasa_vm::builtins`). Nothing makes forgetting one a compile error,
+// and the failure surfaces only at runtime, differently per backend.
+//
+// This test closes that hole by driving every registry entry through
+// all four layers at once: a missing checker signature fails the
+// frontend, a missing implementation in either backend fatals on that
+// backend alone and breaks parity, and a registry entry that no longer
+// exists takes its snippet's coverage assertion with it.
+
+/// The `BUILTINS` entries that are not stdlib surface: the code
+/// generator's internal raisers, which a checked program cannot reach
+/// through a stdlib call. They are pinned by id resolution instead of
+/// by a snippet.
+const INTERNAL_BUILTINS: &[&str] = &["<fatal>", "<assert-failed>"];
+
+/// The stdin every cross-check snippet sees, so `io.readLine` and
+/// `io.readAll` have something to consume.
+const CROSS_CHECK_STDIN: &[u8] = b"line\n";
+
+/// Whether `module` reaches `builtin` — either by calling it or by
+/// binding it as a value. Guards against a snippet that compiles and
+/// runs but never actually exercises the entry it claims to cover.
+fn module_reaches(module: &brasa_bytecode::Module, builtin: brasa_bytecode::BuiltinId) -> bool {
+    module.functions.iter().any(|func| {
+        func.chunk.ops().iter().any(|op| {
+            matches!(
+                op,
+                brasa_bytecode::Op::CallBuiltin { builtin: found, .. }
+                    | brasa_bytecode::Op::BindBuiltin(found)
+                    if *found == builtin
+            )
+        })
+    })
+}
+
+/// One snippet per stdlib `BUILTINS` entry, keyed by the entry's name.
+/// Each snippet must succeed on both backends and must be re-runnable:
+/// the harness executes it three times (walker, VM, hot-GC VM).
+///
+/// `dir` is a scratch directory holding a read-only fixture at `ro/`
+/// (`ro/a.txt` and `ro/sub/b.txt`); the mutating `std::fs` snippets own
+/// disjoint paths under it and reset themselves.
+fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
+    let math = "import std::math\n";
+    let proc = "import std::proc\n";
+    let env = "import std::env\n";
+    let fs = "import std::fs\n";
+    let json = "import std::json\n";
+    let io = "import std::io\n";
+    let time = "import std::time\n";
+    let rand = "import std::rand\n";
+
+    // A JSON document holding one node of every kind, for the accessors.
+    let doc = concat!(
+        "import std::json\n",
+        "let d = json.parse(\"{\\\"s\\\": \\\"x\\\", \\\"n\\\": 1, \\\"f\\\": 1.5, ",
+        "\\\"b\\\": true, \\\"z\\\": null, \\\"v\\\": [1], \\\"o\\\": {\\\"k\\\": 1}}\")\n"
+    );
+
+    let map = "let m: Map<string, int> = { \"a\": 1 }\n";
+
+    vec![
+        // Prelude printers.
+        ("puts", "puts 1\n".to_string()),
+        ("print", "print(\"x\")\nputs \"\"\n".to_string()),
+        // The universal derived `toString`, as a bound value: the call
+        // form compiles to `Op::ToString`, not to this entry.
+        ("toString", "let f = [1].toString\nputs f()\n".to_string()),
+        // string.
+        ("len", "puts \"ab\".len()\n".to_string()),
+        ("count", "puts \"aa\".count(\"a\")\n".to_string()),
+        ("trim", "puts \"  x  \".trim()\n".to_string()),
+        ("trimStart", "puts \"  x\".trimStart()\n".to_string()),
+        ("trimEnd", "puts \"x  \".trimEnd()\n".to_string()),
+        ("toUpper", "puts \"a\".toUpper()\n".to_string()),
+        ("toLower", "puts \"A\".toLower()\n".to_string()),
+        ("contains?", "puts \"ab\".contains?(\"a\")\n".to_string()),
+        (
+            "startsWith?",
+            "puts \"ab\".startsWith?(\"a\")\n".to_string(),
+        ),
+        ("endsWith?", "puts \"ab\".endsWith?(\"b\")\n".to_string()),
+        ("split", "puts \"a,b\".split(\",\")\n".to_string()),
+        ("lines", "puts \"a\\nb\".lines()\n".to_string()),
+        ("chars", "puts \"ab\".chars()\n".to_string()),
+        ("bytes", "puts \"ab\".bytes()\n".to_string()),
+        ("slice", "puts \"abc\".slice(0, 2)\n".to_string()),
+        ("repeat", "puts \"a\".repeat(2)\n".to_string()),
+        ("replace", "puts \"aa\".replace(\"a\", \"b\")\n".to_string()),
+        ("padStart", "puts \"7\".padStart(2, \"0\")\n".to_string()),
+        ("padEnd", "puts \"7\".padEnd(2, \"0\")\n".to_string()),
+        ("find", "puts \"abc\".find(\"b\") ?? -1\n".to_string()),
+        ("toInt", "puts \"1\".toInt()\n".to_string()),
+        ("toFloat", "puts \"1.5\".toFloat()\n".to_string()),
+        ("match?", "puts \"ab\".match?(\"a\")\n".to_string()),
+        ("captures", "puts \"ab\".captures(\"(a)\")\n".to_string()),
+        (
+            "replaceRe",
+            "puts \"a1\".replaceRe(\"[0-9]\", \"#\")\n".to_string(),
+        ),
+        ("scan", "puts \"a1\".scan(\"[0-9]\")\n".to_string()),
+        // Vector.
+        ("push", "let v = [1]\nv.push(2)\nputs v\n".to_string()),
+        ("pop", "let v = [1]\nputs v.pop() ?? -1\n".to_string()),
+        ("first", "let v = [1]\nputs v.first() ?? -1\n".to_string()),
+        ("last", "let v = [1]\nputs v.last() ?? -1\n".to_string()),
+        ("reverse", "let v = [1, 2]\nputs v.reverse()\n".to_string()),
+        (
+            "join",
+            "let v = [\"a\", \"b\"]\nputs v.join(\",\")\n".to_string(),
+        ),
+        ("map", "let v = [1]\nputs v.map(|n| n + 1)\n".to_string()),
+        (
+            "filter",
+            "let v = [1]\nputs v.filter(|n| n > 0)\n".to_string(),
+        ),
+        ("each", "let v = [1]\nv.each(|n| puts(n))\n".to_string()),
+        (
+            "sortBy",
+            "let v = [2, 1]\nputs v.sortBy(|n| n)\n".to_string(),
+        ),
+        (
+            "reduce",
+            "let v = [1, 2]\nputs v.reduce(0, |acc, x| acc + x)\n".to_string(),
+        ),
+        ("any?", "let v = [1]\nputs v.any?(|n| n > 0)\n".to_string()),
+        ("all?", "let v = [1]\nputs v.all?(|n| n > 0)\n".to_string()),
+        ("sort", "let v = [2, 1]\nputs v.sort()\n".to_string()),
+        ("zip", "let v = [1]\nputs v.zip([\"a\"])\n".to_string()),
+        (
+            "flatten",
+            "let v = [[1], [2]]\nputs v.flatten()\n".to_string(),
+        ),
+        ("uniq", "let v = [1, 1]\nputs v.uniq()\n".to_string()),
+        // Map.
+        ("keys", format!("{map}puts m.keys()\n")),
+        ("values", format!("{map}puts m.values()\n")),
+        ("insert", format!("{map}m.insert(\"b\", 2)\nputs m.len()\n")),
+        ("remove", format!("{map}puts m.remove(\"a\") ?? -1\n")),
+        ("get", format!("{map}puts m.get(\"a\") ?? -1\n")),
+        ("has?", format!("{map}puts m.has?(\"a\")\n")),
+        ("entries", format!("{map}puts m.entries()\n")),
+        ("merge", format!("{map}puts m.merge({{ \"b\": 2 }})\n")),
+        // Set.
+        (
+            "add",
+            "let s = Set([1])\ns.add(2)\nputs s.len()\n".to_string(),
+        ),
+        ("union", "puts Set([1]).union(Set([2]))\n".to_string()),
+        (
+            "intersect",
+            "puts Set([1]).intersect(Set([1]))\n".to_string(),
+        ),
+        ("diff", "puts Set([1]).diff(Set([2]))\n".to_string()),
+        // std::math.
+        ("math.sqrt", format!("{math}puts math.sqrt(4.0)\n")),
+        ("math.floor", format!("{math}puts math.floor(1.7)\n")),
+        ("math.ceil", format!("{math}puts math.ceil(1.2)\n")),
+        ("math.round", format!("{math}puts math.round(1.5)\n")),
+        ("math.pow", format!("{math}puts math.pow(2.0, 3.0)\n")),
+        ("math.abs", format!("{math}puts math.abs(-1)\n")),
+        ("math.min", format!("{math}puts math.min(1, 2)\n")),
+        ("math.max", format!("{math}puts math.max(1, 2)\n")),
+        ("math.pi", format!("{math}puts math.pi\n")),
+        ("math.e", format!("{math}puts math.e\n")),
+        // std::proc, plus the `Output` field reads.
+        (
+            "proc.run",
+            format!("{proc}puts proc.run([\"/bin/sh\", \"-c\", \"printf hi\"]).stdout\n"),
+        ),
+        (
+            "proc.tryRun",
+            format!("{proc}puts proc.tryRun(\"true\").code\n"),
+        ),
+        (
+            "proc.shell",
+            format!("{proc}puts proc.shell(\"printf hi\").stdout\n"),
+        ),
+        (
+            "stdout",
+            format!("{proc}let o = proc.shell(\"printf hi\")\nputs o.stdout\n"),
+        ),
+        (
+            "stderr",
+            format!("{proc}let o = proc.shell(\"printf e 1>&2\")\nputs o.stderr\n"),
+        ),
+        (
+            "code",
+            format!("{proc}let o = proc.shell(\"true\")\nputs o.code\n"),
+        ),
+        // std::env. `env.cd` targets the current directory so the
+        // process cwd never moves: this binary runs its tests in
+        // parallel and another test pins relative-path resolution.
+        (
+            "env.get",
+            format!("{env}puts env.get(\"BRASA_CROSS_CHECK_MISSING\")\n"),
+        ),
+        (
+            "env.set",
+            format!(
+                "{env}env.set(\"BRASA_CROSS_CHECK\", \"v\")\nputs env.get(\"BRASA_CROSS_CHECK\")\n"
+            ),
+        ),
+        ("env.vars", format!("{env}puts env.vars().len() > 0\n")),
+        ("env.args", format!("{env}puts env.args()\n")),
+        ("env.cwd", format!("{env}puts env.cwd().len() > 0\n")),
+        (
+            "env.cd",
+            format!("{env}env.cd(env.cwd())\nputs \"cd ok\"\n"),
+        ),
+        // std::fs: read-only members over the fixture.
+        ("fs.read", format!("{fs}puts fs.read(\"{dir}/ro/a.txt\")\n")),
+        (
+            "fs.exists?",
+            format!("{fs}puts fs.exists?(\"{dir}/ro/a.txt\")\n"),
+        ),
+        (
+            "fs.isFile?",
+            format!("{fs}puts fs.isFile?(\"{dir}/ro/a.txt\")\n"),
+        ),
+        ("fs.isDir?", format!("{fs}puts fs.isDir?(\"{dir}/ro\")\n")),
+        ("fs.ls", format!("{fs}puts fs.ls(\"{dir}/ro\")\n")),
+        ("fs.glob", format!("{fs}puts fs.glob(\"{dir}/ro/*.txt\")\n")),
+        ("fs.walk", format!("{fs}puts fs.walk(\"{dir}/ro\")\n")),
+        // std::fs: mutating members, each on paths it owns alone and
+        // re-runnable from any starting state.
+        (
+            "fs.write",
+            format!(
+                "{fs}fs.write(\"{dir}/write.txt\", \"x\")\nputs fs.read(\"{dir}/write.txt\")\n"
+            ),
+        ),
+        (
+            "fs.append",
+            format!(
+                "{fs}fs.write(\"{dir}/append.txt\", \"x\")\n\
+                 fs.append(\"{dir}/append.txt\", \"y\")\n\
+                 puts fs.read(\"{dir}/append.txt\")\n"
+            ),
+        ),
+        (
+            "fs.mkdir",
+            format!(
+                "{fs}let p = \"{dir}/mkdir\"\n\
+                 if fs.exists?(p)\n  fs.rmAll(p)\nend\n\
+                 fs.mkdir(p)\nputs fs.isDir?(p)\n"
+            ),
+        ),
+        (
+            "fs.mkdirAll",
+            format!(
+                "{fs}let p = \"{dir}/mkdirall\"\n\
+                 if fs.exists?(p)\n  fs.rmAll(p)\nend\n\
+                 fs.mkdirAll(p + \"/a/b\")\nputs fs.isDir?(p + \"/a/b\")\n"
+            ),
+        ),
+        (
+            "fs.rm",
+            format!(
+                "{fs}let p = \"{dir}/rm.txt\"\n\
+                 fs.write(p, \"x\")\nfs.rm(p)\nputs fs.exists?(p)\n"
+            ),
+        ),
+        (
+            "fs.rmAll",
+            format!(
+                "{fs}let p = \"{dir}/rmall\"\n\
+                 fs.mkdirAll(p + \"/a\")\nfs.rmAll(p)\nputs fs.exists?(p)\n"
+            ),
+        ),
+        (
+            "fs.cp",
+            format!(
+                "{fs}fs.write(\"{dir}/cp-src.txt\", \"x\")\n\
+                 fs.cp(\"{dir}/cp-src.txt\", \"{dir}/cp-dst.txt\")\n\
+                 puts fs.read(\"{dir}/cp-dst.txt\")\n"
+            ),
+        ),
+        (
+            "fs.mv",
+            format!(
+                "{fs}fs.write(\"{dir}/mv-src.txt\", \"x\")\n\
+                 fs.mv(\"{dir}/mv-src.txt\", \"{dir}/mv-dst.txt\")\n\
+                 puts fs.read(\"{dir}/mv-dst.txt\")\n"
+            ),
+        ),
+        // std::fs: the pure path helpers.
+        ("fs.join", format!("{fs}puts fs.join(\"a\", \"b\")\n")),
+        ("fs.base", format!("{fs}puts fs.base(\"a/b.txt\")\n")),
+        ("fs.dir", format!("{fs}puts fs.dir(\"a/b.txt\")\n")),
+        ("fs.ext", format!("{fs}puts fs.ext(\"a/b.txt\")\n")),
+        ("fs.abs", format!("{fs}puts fs.abs(\"/a/./b\")\n")),
+        // std::json.
+        ("json.parse", format!("{json}puts json.parse(\"1\")\n")),
+        (
+            "json.stringify",
+            format!("{json}puts json.stringify(json.parse(\"1\"))\n"),
+        ),
+        (
+            "asString",
+            format!("{doc}puts d[\"s\"].asString() ?? \"?\"\n"),
+        ),
+        ("asInt", format!("{doc}puts d[\"n\"].asInt() ?? -1\n")),
+        ("asFloat", format!("{doc}puts d[\"f\"].asFloat() ?? -1.0\n")),
+        ("asBool", format!("{doc}puts d[\"b\"].asBool() ?? false\n")),
+        (
+            "asArray",
+            format!("{doc}let items: Vector<Json> = d[\"v\"].asArray() ?? []\nputs items.len()\n"),
+        ),
+        (
+            "asObject",
+            format!(
+                "{doc}let members: Map<string, Json> = d[\"o\"].asObject() ?? {{}}\n\
+                 puts members.len()\n"
+            ),
+        ),
+        ("null?", format!("{doc}puts d[\"z\"].null?()\n")),
+        // std::io.
+        ("io.puts", format!("{io}io.puts(\"x\")\n")),
+        ("io.print", format!("{io}io.print(\"x\")\nputs \"\"\n")),
+        ("io.eprint", format!("{io}io.eprint(\"x\")\n")),
+        (
+            "io.readLine",
+            format!("{io}puts io.readLine() ?? \"<eof>\"\n"),
+        ),
+        ("io.readAll", format!("{io}puts io.readAll()\n")),
+        // std::time. Only pinned properties: the clock members move.
+        ("time.now", format!("{time}puts time.now() > 0.0\n")),
+        (
+            "time.nowMillis",
+            format!("{time}puts time.nowMillis() > 0\n"),
+        ),
+        (
+            "time.sleep",
+            format!("{time}time.sleep(0)\nputs \"slept\"\n"),
+        ),
+        ("time.iso", format!("{time}puts time.iso(0)\n")),
+        // std::rand. Seeded or single-outcome, so every leg agrees.
+        (
+            "rand.seed",
+            format!("{rand}rand.seed(1)\nputs \"seeded\"\n"),
+        ),
+        ("rand.int", format!("{rand}puts rand.int(3..=3)\n")),
+        ("rand.float", format!("{rand}puts rand.float() < 1.0\n")),
+        ("rand.choice", format!("{rand}puts rand.choice([7])\n")),
+        ("rand.shuffle", format!("{rand}puts rand.shuffle([9])\n")),
+    ]
+}
+
+#[test]
+fn every_builtin_crosses_all_four_stdlib_layers() {
+    use std::collections::BTreeSet;
+
+    let tmp = fs_temp_dir("crosscheck");
+    std::fs::create_dir_all(tmp.join("ro/sub")).expect("fixture dirs");
+    std::fs::write(tmp.join("ro/a.txt"), "a").expect("fixture written");
+    std::fs::write(tmp.join("ro/sub/b.txt"), "b").expect("fixture written");
+
+    let snippets = builtin_snippets(&tmp.display().to_string());
+
+    let covered: BTreeSet<&str> = snippets.iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        covered.len(),
+        snippets.len(),
+        "the snippet table names a builtin twice"
+    );
+
+    let surface: BTreeSet<&str> = brasa_bytecode::BUILTINS
+        .iter()
+        .map(|def| def.name)
+        .filter(|name| !INTERNAL_BUILTINS.contains(name))
+        .collect();
+    assert_eq!(
+        covered, surface,
+        "the snippet table and the BUILTINS registry describe different surfaces"
+    );
+
+    for name in INTERNAL_BUILTINS {
+        assert!(
+            brasa_bytecode::builtin_id(name).is_some(),
+            "the code generator's internal `{name}` entry left the registry"
+        );
+    }
+
+    for (name, source) in &snippets {
+        let id = brasa_bytecode::builtin_id(name)
+            .unwrap_or_else(|| panic!("`{name}` is not in the registry"));
+
+        // The checker must know the signature, or this panics.
+        let front = compile_frontend(source);
+        assert!(
+            module_reaches(&front.module, id),
+            "the `{name}` snippet compiles without reaching builtin id {id:?}"
+        );
+
+        let walker = run_walker(
+            &front,
+            brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+            &[],
+            CROSS_CHECK_STDIN,
+        );
+        assert_eq!(
+            walker.outcome,
+            Outcome::Success,
+            "`{name}` failed on the walker: {walker:?}"
+        );
+
+        let vm = run_vm(
+            &front,
+            brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+            brasa_vm::DEFAULT_GC_THRESHOLD,
+            &[],
+            CROSS_CHECK_STDIN,
+        );
+        assert_eq!(walker, vm, "`{name}` disagrees between the backends");
+
+        let hot = run_vm(
+            &front,
+            brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+            8,
+            &[],
+            CROSS_CHECK_STDIN,
+        );
+        assert_eq!(walker, hot, "`{name}` disagrees under GC pressure");
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp);
 }
