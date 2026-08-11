@@ -6,7 +6,8 @@ item types
   i0 m -> Map<string, int>
   i2 read -> Option<int>
   i3 nested -> Map<string, Vector<int>>
-  i5 v -> Vector<int>
+  i5 options -> Map<string, Option<int>>
+  i8 v -> Vector<int>
 expr types
   e0 -> Map<string, int>
   e1 -> Map<string, int>
@@ -23,10 +24,20 @@ expr types
   e12 -> int
   e13 -> int
   e14 -> Vector<int>
-  e15 -> int
-  e16 -> int
-  e17 -> Vector<int>
-  e18 -> Vector<int>
+  e15 -> Map<string, Option<int>>
+  e16 -> Map<string, Option<int>>
+  e17 -> string
+  e18 -> Option<Option<int>>
   e19 -> int
-  e20 -> int
-  e21 -> int
+  e20 -> Option<int>
+  e21 -> Map<string, Option<int>>
+  e22 -> string
+  e23 -> Option<Option<int>>
+  e24 -> Option<int>
+  e25 -> int
+  e26 -> int
+  e27 -> Vector<int>
+  e28 -> Vector<int>
+  e29 -> int
+  e30 -> int
+  e31 -> int

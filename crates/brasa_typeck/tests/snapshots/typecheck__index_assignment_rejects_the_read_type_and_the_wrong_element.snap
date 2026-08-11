@@ -16,10 +16,17 @@ expression: rendered
    │          ──┬─  
    │            ╰─── expected `int`
 ───╯
-[T001] Error: mismatched types: expected `int`, found `string`
-   ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:7:8 ]
+[T001] Error: mismatched types: expected `Option<int>`, found `int`
+   ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:7:16 ]
    │
- 7 │ v[0] = "x"
-   │        ──┬─  
-   │          ╰─── expected `int`
+ 7 │ options["a"] = 1
+   │                ┬  
+   │                ╰── expected `Option<int>`
 ───╯
+[T001] Error: mismatched types: expected `int`, found `string`
+    ╭─[ index_assignment_rejects_the_read_type_and_the_wrong_element.brs:10:8 ]
+    │
+ 10 │ v[0] = "x"
+    │        ──┬─  
+    │          ╰─── expected `int`
+────╯

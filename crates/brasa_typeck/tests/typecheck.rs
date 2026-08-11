@@ -278,6 +278,10 @@ let read = m["a"]
 let nested: Map<string, Vector<int>> = {}
 nested["xs"] = [1, 2]
 
+let options: Map<string, Option<int>> = {}
+options["a"] = Some(1)
+options["b"] = None
+
 let v = [1, 2]
 v[0] = 9
 "#
@@ -292,6 +296,9 @@ typecheck_error_test!(
 let m: Map<string, int> = {}
 m["a"] = Some(1)
 m["b"] = "s"
+
+let options: Map<string, Option<int>> = {}
+options["a"] = 1
 
 let v = [1, 2]
 v[0] = "x"

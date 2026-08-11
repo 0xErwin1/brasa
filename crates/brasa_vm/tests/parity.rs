@@ -481,6 +481,28 @@ puts(nested["xs"])
     );
 }
 
+/// The write rule takes the declared value type, so a `Map` whose value
+/// type is ITSELF an `Option` stays coherent: the write is an
+/// `Option<int>` and the read wraps it once more. That second wrap is
+/// load-bearing rather than noise — it is what keeps a present key
+/// holding `None` (`Some(None)`) distinguishable from an absent one
+/// (`None`).
+#[test]
+fn map_of_options_keeps_presence_distinguishable_from_absence() {
+    assert_success(
+        r##"
+let m: Map<string, Option<int>> = {}
+m["a"] = Some(1)
+m["b"] = None
+puts(m["a"])
+puts(m["b"])
+puts(m["z"])
+puts(m)
+"##,
+        "Some(Some(1))\nSome(None)\nNone\n{ \"a\": Some(1), \"b\": None }\n",
+    );
+}
+
 /// The capture-order contract exercised end to end: `self` first when
 /// captured, then free locals in ascending `LocalId` order, chained
 /// through nested lambdas (the codegen `closures_and_captures` shape).
