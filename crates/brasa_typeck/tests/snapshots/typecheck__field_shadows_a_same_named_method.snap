@@ -1,0 +1,21 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+assertion_line: 1092
+expression: rendered
+---
+[T006] Error: cannot call a value of type `string`
+    ╭─[ field_shadows_a_same_named_method.brs:19:6 ]
+    │
+ 19 │ puts b.tag()
+    │      ────┬───  
+    │          ╰───── not callable
+────╯
+[T027] Error: `Both` does not satisfy `Tagged`
+    ╭─[ field_shadows_a_same_named_method.brs:20:6 ]
+    │
+ 20 │ puts describe(b)
+    │      ──────┬─────  
+    │            ╰─────── constraint not satisfied
+    │ 
+    │ Note: `Both` has no member `tag` with a compatible signature
+────╯

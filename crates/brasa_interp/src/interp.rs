@@ -44,9 +44,14 @@ use crate::value::{
     BoundBuiltin, BoundMethod, ClosureValue, EnumValue, StructValue, Value, value_cmp, value_eq,
 };
 
-/// Maximum nesting `toString` renders. Cyclic values are detected
-/// exactly (`Interp::render_cell`) and never reach this; it only bounds
-/// the host stack for absurdly deep ACYCLIC values, and says so.
+/// Maximum nesting `toString` renders, a bound on the host stack.
+///
+/// A back-edge is normally caught first and exactly, by
+/// `Interp::render_cell`. The exception is a cycle whose period exceeds
+/// this limit: the path detector needs to come all the way around
+/// before it sees a repeat, so the nesting check trips first. The
+/// message therefore reports the nesting it measured and does not claim
+/// to know whether a cycle caused it.
 const MAX_DISPLAY_DEPTH: usize = 10_000;
 
 /// What `toString` renders in place of a value already being rendered

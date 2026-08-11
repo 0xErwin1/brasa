@@ -150,7 +150,12 @@ define what it does on one. The rules, in both backends:
   `Node { v: [<cycle>] }`.
 - **Nesting depth is not a cycle.** `toString` still refuses to render
   more than 10000 levels of nesting, but that limit is about the host
-  stack and says only that; it never claims to have found a cycle.
+  stack and says only that; it never claims to have found a cycle. The
+  converse holds too and is why the message is worded that way: a cycle
+  whose period exceeds the limit trips it before the back-edge comes
+  back around, so a value reported as too deeply nested may in fact be
+  cyclic. Only the marker `<cycle>` is a positive statement about a
+  cycle; the nesting message is a statement about depth alone.
 - **Ordering never sees a cycle**: `Comparable` is closed to `int`,
   `float`, `string`, and `char`, so `<`/`<=`/`>`/`>=` and sort keys never
   descend into a container at all.

@@ -1081,3 +1081,35 @@ let wrongValues: Map<string, string> = { "b": "s" }
 stock.merge(wrongValues)
 "#
 );
+
+/// A struct may declare a field and a method of the same name, and the
+/// checker resolves that name to the FIELD. This is what makes the VM's
+/// two dynamic-dispatch ops safe to resolve it differently
+/// (`docs/spec/07-bytecode.md`, "Dispatch through a generic
+/// constraint"): calling it is not callable, and the struct satisfies
+/// no interface declaring that method, so no checked program ever
+/// reaches the divergence.
+typecheck_error_test!(
+    field_shadows_a_same_named_method,
+    r#"
+interface Tagged
+  def tag(self): string
+end
+
+struct Both
+  tag: string
+
+  def tag(self): string
+    "method"
+  end
+end
+
+def describe<T: Tagged>(v: T): string
+  v.tag()
+end
+
+let b = Both { tag: "field" }
+puts b.tag()
+puts describe(b)
+"#
+);
