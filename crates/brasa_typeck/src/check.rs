@@ -2108,17 +2108,26 @@ impl<'a> Checker<'a> {
     /// - exactly one resolved panic name (`panics.X`, BRS-24) →
     ///   `string`: the runtime binds the panic's detail message
     ///   (`brasa_interp`'s `eval_catch`; `04-errors.md`);
+    /// - exactly one resolved native-error name (`string.ParseError`,
+    ///   BRS-41) → `string`, for the same reason: a native error
+    ///   carries only a message, and the runtime binds it in the arm —
+    ///   symmetric with panic arms;
     /// - a `|` group → `Unknown` (the spec binds "what's common to
     ///   both"; common-interface narrowing is deferred to error-set
     ///   work, BRS-22/23);
-    /// - `_`, dotted names other than `panics.X` (stdlib errors —
-    ///   unresolved until M4), and unresolved names → `Unknown`.
+    /// - `_`, dotted names in namespaces that have not landed (`fs.`,
+    ///   `proc.`, `json.` — M4), and unresolved names → `Unknown`.
     fn catch_arm_binding_type(&self, id: ExprId, arm_index: usize, arm: &CatchArm) -> Type {
         let [CatchType::Named { .. }] = arm.types.as_slice() else {
             return Type::Unknown;
         };
 
-        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0)) {
+        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0))
+            || self
+                .res
+                .catch_arm_native_errors
+                .contains_key(&(id, arm_index, 0))
+        {
             return Type::String;
         }
 

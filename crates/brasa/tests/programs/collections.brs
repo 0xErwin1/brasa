@@ -96,5 +96,7 @@ puts "ñandú".len()
 puts "abc".slice(1, 3)
 puts "banana".count("an")
 puts "brasa".find("as") ?? -1
-puts "42".toInt() ?? -1
-puts "nope".toInt() ?? -1
+puts "42".toInt()
+puts "nope".toInt() catch (e)
+  string.ParseError => -1
+end

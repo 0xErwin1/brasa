@@ -144,6 +144,21 @@ pub const PANIC_UNION: &[&str] = &[
     "panics.StackOverflow",
 ];
 
+/// The canonical qualified name of the native `string` parse error
+/// (`docs/spec/05-stdlib.md`: `toInt`/`toFloat` throw it).
+pub const STRING_PARSE_ERROR: &str = "string.ParseError";
+
+/// The closed list of stdlib-native errors whose namespaces have
+/// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
+/// the canonical list, like [`PANIC_UNION`]: the resolver validates
+/// dotted `catch` arm names in these namespaces against it, the
+/// error-set pass tags native throwers with these names, and the
+/// interpreter raises them verbatim. M4 extends it with the `fs`,
+/// `proc`, and `json` errors; other dotted roots stay unchecked until
+/// then. Unlike panics, these ARE errors: they appear in error-sets and
+/// `_` catches them (`docs/spec/04-errors.md`).
+pub const NATIVE_ERRORS: &[&str] = &[STRING_PARSE_ERROR];
+
 /// What a value-namespace reference resolved to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Res {
@@ -217,8 +232,11 @@ pub struct Resolutions {
     /// Resolved bare `CatchType::Named` arm types. `CatchType` lives
     /// inline in its arm and has no arena id, so the key is positional:
     /// (catch expr, arm index, index within the arm's `|` group).
-    /// `panics.X` names live in [`Resolutions::catch_arm_panics`];
-    /// other dotted names (stdlib errors) are absent until M4.
+    /// `panics.X` names live in [`Resolutions::catch_arm_panics`],
+    /// stdlib-native error names in
+    /// [`Resolutions::catch_arm_native_errors`]; dotted names in
+    /// namespaces that have not landed yet (`fs.`, `proc.`, `json.`)
+    /// are absent until M4.
     pub catch_arm_types: HashMap<(ExprId, usize, usize), TypeRes>,
     /// `catch` arm names matching a member of the closed panic union
     /// ([`PANIC_UNION`]), keyed like [`Resolutions::catch_arm_types`];
@@ -229,6 +247,15 @@ pub struct Resolutions {
     /// error-set checks, which only consume `catch_arm_types`, must not
     /// see them.
     pub catch_arm_panics: HashMap<(ExprId, usize, usize), &'static str>,
+    /// `catch` arm names matching a member of the closed native-error
+    /// list ([`NATIVE_ERRORS`]), keyed like
+    /// [`Resolutions::catch_arm_types`]; the value is the canonical
+    /// qualified name. A separate table from both `catch_arm_types`
+    /// (native errors resolve to no `TypeRes` — they are not types in
+    /// scope) and `catch_arm_panics` (native errors ARE errors: they
+    /// subtract from error-sets and count toward `catch_all`
+    /// exhaustiveness, panics do neither).
+    pub catch_arm_native_errors: HashMap<(ExprId, usize, usize), &'static str>,
     /// Resolved `throws Type | ...` declaration lists, aligned with the
     /// declaring function/method's `Throws::Types` names; `None` marks a
     /// name that resolved to nothing (reported as `R003`). Interface

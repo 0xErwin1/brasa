@@ -77,10 +77,11 @@ pub enum ErrorTag {
     Item(ItemId),
     /// A thrown primitive value (`throw "boom"`).
     Primitive(Primitive),
-    /// A dotted stdlib error name (`fs.NotFound`). Unused until the M4
-    /// stdlib signatures land (BRS-41); carried so the representation
-    /// does not change shape then.
-    Opaque(String),
+    /// A stdlib-native error, by its canonical qualified name from
+    /// `brasa_resolver::NATIVE_ERRORS` (`string.ParseError`; the `fs`,
+    /// `proc`, and `json` errors join in M4). Nominal like the other
+    /// tags: the name IS the identity.
+    Opaque(&'static str),
 }
 
 /// Variant rank for the manual [`Ord`]: items first, then primitives,

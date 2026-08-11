@@ -13,7 +13,9 @@
 //! - `count` counts non-overlapping occurrences; an empty needle counts
 //!   zero. `split("")` yields one string per scalar. `repeat(n)` with
 //!   `n <= 0` is the empty string. `toInt`/`toFloat` parse the exact
-//!   string (no trimming) and return `None` on failure.
+//!   string — no trimming, Rust `str::parse` semantics — and throw the
+//!   native `string.ParseError` on failure (BRS-41,
+//!   `docs/spec/05-stdlib.md`).
 //! - `float.toInt` truncates with Rust `as` semantics: saturating at
 //!   the `int` bounds, `NaN` becomes `0`.
 //! - `reverse`, `map`, `filter`, and `sortBy` return new vectors;
@@ -23,6 +25,9 @@
 //!   `panics.AssertionFailed` (`docs/spec/03-types.md`, float rules).
 
 use std::cmp::Ordering;
+use std::rc::Rc;
+
+use brasa_resolver::STRING_PARSE_ERROR;
 
 use crate::interp::{EvalResult, Interp, PanicKind, Signal};
 use crate::value::{Value, value_cmp, value_eq};
@@ -54,6 +59,16 @@ impl Interp<'_> {
 
     fn builtin_error(&self, name: &str) -> Signal {
         Signal::Fatal(format!("brasa: unknown builtin method `{name}`"))
+    }
+
+    /// Raises a stdlib-native error: an ordinary error signal carrying
+    /// a [`Value::NativeError`], caught by naming its qualified name or
+    /// by `_` like any thrown value.
+    fn native_error(&self, name: &'static str, message: String) -> Signal {
+        Signal::Error(Value::NativeError {
+            name,
+            message: Rc::from(message),
+        })
     }
 
     fn int_builtin(&mut self, v: i64, name: &str, args: &[Value]) -> EvalResult {
@@ -128,14 +143,12 @@ impl Interp<'_> {
                 }
                 None => Ok(Value::NONE),
             },
-            ("toInt", []) => Ok(s
-                .parse::<i64>()
-                .map(|v| Value::some(Value::Int(v)))
-                .unwrap_or(Value::NONE)),
-            ("toFloat", []) => Ok(s
-                .parse::<f64>()
-                .map(|v| Value::some(Value::Float(v)))
-                .unwrap_or(Value::NONE)),
+            ("toInt", []) => s.parse::<i64>().map(Value::Int).map_err(|_| {
+                self.native_error(STRING_PARSE_ERROR, format!("cannot parse {s:?} as int"))
+            }),
+            ("toFloat", []) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+                self.native_error(STRING_PARSE_ERROR, format!("cannot parse {s:?} as float"))
+            }),
             _ => Err(self.builtin_error(name)),
         }
     }

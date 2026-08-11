@@ -13,7 +13,7 @@ item types
   i7 one -> int
   i8 keys -> Vector<string>
   i9 trimmed -> string
-  i10 parsed -> Option<int>
+  i10 parsed -> int
 local types
   l0 nums -> Vector<int>
   l1 acc -> int
@@ -110,5 +110,5 @@ expr types
   e78 -> () -> string
   e79 -> string
   e80 -> string
-  e81 -> () -> Option<int>
-  e82 -> Option<int>
+  e81 -> () -> int
+  e82 -> int

@@ -91,6 +91,11 @@ end
   catches panics** (BAML rule, adopted).
 - Matching is **nominal**: `catch` distinguishes by the declared type of
   the thrown value, not by its shape.
+- Stdlib-native errors are named by their dotted module-qualified name
+  (`string.ParseError`, `fs.NotFound` — `05-stdlib.md`), so they never
+  collide with a user-defined `ParseError`. They behave as ordinary
+  errors: they appear in error-sets, an arm naming them catches them,
+  and `_` catches them too (unlike panics).
 - Re-throwing with wrapping is a normal `throw` inside the arm:
 
 ```ruby

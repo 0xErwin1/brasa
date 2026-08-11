@@ -1,0 +1,13 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R012] Error: unknown stdlib error `string.Nope`
+   ╭─[ unknown_native_error.brs:4:5 ]
+   │
+ 4 │     string.Nope => 0
+   │     ─────┬─────  
+   │          ╰─────── no such stdlib error
+   │ 
+   │ Note: known stdlib errors: string.ParseError
+───╯

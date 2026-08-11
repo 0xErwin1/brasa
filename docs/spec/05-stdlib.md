@@ -11,8 +11,9 @@ signatures are closed module by module during M4.
   There are no `.brs` stdlib files to parse on every startup;
   `Option` and `Json` are types known to the compiler. A thin Brasa layer
   might exist in the future, never on the startup path.
-- Errors via `throw` (`*Error` structs per module: `fs.NotFound`,
-  `proc.NonZeroExit`, `json.ParseError`); expected absence via `Option`.
+- Errors via `throw`, named by their dotted module-qualified name
+  (`string.ParseError`, `fs.NotFound`, `proc.NonZeroExit`,
+  `json.ParseError`); expected absence via `Option`.
 - Every module is imported explicitly (`import std::fs`) except the
   **prelude**: `puts`, `print`, `Option`/`Some`/`None`, `Vector`, `Map`,
   `Set`, ranges, and primitive type methods are always available.
@@ -28,8 +29,9 @@ Highest priority.
 - Cleanup: `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`.
 - Search: `contains?`, `startsWith?`, `endsWith?`, `find` (-> Option),
   `count`.
-- Transformation: `replace`, `toUpper`, `toLower`, `toInt` (-> throw
-  `ParseError`), `toFloat`.
+- Transformation: `replace`, `toUpper`, `toLower`, `toInt`, `toFloat`
+  (both throw `string.ParseError` on parse failure; `int.toFloat` is a
+  pure conversion).
 - Built-in regex: `match?(re)`, `captures(re)` (-> Option<Vector<string>>),
   `replaceRe(re, with)`, `scan(re)`.
 

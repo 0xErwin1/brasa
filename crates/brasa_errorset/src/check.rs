@@ -44,7 +44,7 @@ use brasa_hir::{CatchArm, CatchType, ExprId, FuncDef, Hir, Item, Throws};
 use brasa_resolver::{DefRef, Resolutions};
 use brasa_source::Span;
 
-use crate::collect::caught_tag;
+use crate::collect::{arm_tag, caught_tag};
 use crate::dump::{def_ref_name, tag_name};
 use crate::{ErrorSet, ErrorTag};
 
@@ -84,19 +84,20 @@ pub(crate) fn catch_expr(
 
     // E001, named arms: a type a CLOSED subject set cannot throw is
     // unreachable whether the arm is guarded or not — the guard runs
-    // only after the type matches. Panic arms (`panics.X`, in
-    // `catch_arm_panics`, never read here) handle panics rather than
-    // errors and are exempt; stdlib-error dotted names resolve in M4
-    // and unresolved names subtract nothing, so all are skipped, like
-    // the subtraction in `Collector::catch`.
+    // only after the type matches. Native-error arms (BRS-41) check
+    // like named types: their `Opaque` tag is in the set or the arm is
+    // unreachable. Panic arms (`panics.X`, in `catch_arm_panics`, never
+    // read here) handle panics rather than errors and are exempt;
+    // dotted names in namespaces that have not landed (M4) and
+    // unresolved names map to no tag, so they are skipped, like the
+    // subtraction in `Collector::catch`.
     if !subject.open {
         for (arm_index, arm) in arms.iter().enumerate() {
             for (type_index, catch_type) in arm.types.iter().enumerate() {
                 let CatchType::Named { name, span } = catch_type else {
                     continue;
                 };
-                let arm_res = res.catch_arm_types.get(&(id, arm_index, type_index));
-                let Some(tag) = arm_res.and_then(|&arm_res| caught_tag(hir, arm_res)) else {
+                let Some(tag) = arm_tag(hir, res, (id, arm_index, type_index)) else {
                     continue;
                 };
 
@@ -147,8 +148,7 @@ pub(crate) fn catch_expr(
             match catch_type {
                 CatchType::Wildcard => unguarded_wildcard = true,
                 CatchType::Named { .. } => {
-                    let arm_res = res.catch_arm_types.get(&(id, arm_index, type_index));
-                    if let Some(tag) = arm_res.and_then(|&arm_res| caught_tag(hir, arm_res)) {
+                    if let Some(tag) = arm_tag(hir, res, (id, arm_index, type_index)) {
                         remaining.remove(&tag);
                     }
                 }

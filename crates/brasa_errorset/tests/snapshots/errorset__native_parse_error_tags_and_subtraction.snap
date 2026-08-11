@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  parse -> {Boom, string.ParseError}
+  lenient -> {}
+  strict -> {}
+  wildcarded -> {}

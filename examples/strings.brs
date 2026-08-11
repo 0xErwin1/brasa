@@ -27,6 +27,6 @@ end
 
 # Parsing throws; catch gives the fallback.
 let n = "not-a-number".toInt() catch (e)
-  ParseError => -1
+  string.ParseError => -1
 end
 puts "parsed: #{n}"

@@ -128,6 +128,71 @@ puts d
 }
 
 #[test]
+fn parse_failure_is_caught_by_the_named_native_arm_binding_the_message() {
+    let source = "\
+let n = \"abc\".toInt() catch (e)
+  string.ParseError => e.len()
+end
+puts n
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    // The arm binds the message string, so `len` counts its scalars.
+    assert_eq!(
+        output,
+        "cannot parse \"abc\" as int".len().to_string() + "\n"
+    );
+}
+
+#[test]
+fn parse_failure_is_caught_by_the_wildcard_arm() {
+    let source = "\
+let n = \"abc\".toInt() catch (e)
+  _ => -1
+end
+puts n
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    assert_eq!(output, "-1\n");
+}
+
+#[test]
+fn uncaught_parse_failure_is_an_error_with_the_qualified_name() {
+    let (outcome, output) = execute("puts \"abc\".toInt()\n", 64);
+
+    let Outcome::Error { message } = outcome else {
+        panic!("expected an error outcome, got {outcome:?}");
+    };
+    assert_eq!(
+        message,
+        "error: string.ParseError: cannot parse \"abc\" as int"
+    );
+    assert!(output.is_empty());
+}
+
+#[test]
+fn to_float_failure_throws_the_same_native_error() {
+    let source = "\
+let x = \"1.5x\".toFloat() catch (e)
+  string.ParseError => 0.0
+end
+let y = \" 1 \".toInt() catch (e)
+  string.ParseError => -1
+end
+puts y
+puts x
+";
+    let (outcome, output) = execute(source, 64);
+
+    assert_eq!(outcome, Outcome::Success);
+    // Parsing is exact (no trimming): `" 1 "` fails too.
+    assert_eq!(output, "-1\n0.0\n");
+}
+
+#[test]
 fn main_runs_after_the_top_level() {
     let source = "\
 puts \"top\"

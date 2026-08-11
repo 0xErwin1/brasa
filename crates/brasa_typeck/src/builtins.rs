@@ -4,8 +4,9 @@
 //! This is the minimal M1 slice of `docs/spec/05-stdlib.md` — exact
 //! stdlib signatures close module by module during M4, so this table
 //! only carries what the checker needs now. `string.toInt`/`toFloat`
-//! return `Option` here; whether they throw instead is settled with the
-//! M4 signatures.
+//! return the parsed number directly and throw `string.ParseError` on
+//! failure (BRS-41); the error contribution is the error-set pass's
+//! concern, not this table's.
 
 use crate::types::{Type, unify};
 
@@ -76,8 +77,8 @@ fn string_method(name: &str) -> Option<MethodSig> {
         "repeat" => Some(sig(vec![Type::Int], Type::String)),
         "replace" => Some(sig(vec![Type::String, Type::String], Type::String)),
         "find" => Some(sig(vec![Type::String], Type::option(Type::Int))),
-        "toInt" => Some(sig(vec![], Type::option(Type::Int))),
-        "toFloat" => Some(sig(vec![], Type::option(Type::Float))),
+        "toInt" => Some(sig(vec![], Type::Int)),
+        "toFloat" => Some(sig(vec![], Type::Float)),
         _ => None,
     }
 }
@@ -160,6 +161,17 @@ mod tests {
 
         let slice = method(&Type::String, "slice").expect("slice exists");
         assert_eq!(slice.params, vec![Type::Int, Type::Int]);
+    }
+
+    #[test]
+    fn parsing_methods_return_the_number_directly() {
+        let to_int = method(&Type::String, "toInt").expect("toInt exists");
+        assert!(to_int.params.is_empty());
+        assert!(matches!(&to_int.ret, RetRule::Fixed(t) if *t == Type::Int));
+
+        let to_float = method(&Type::String, "toFloat").expect("toFloat exists");
+        assert!(to_float.params.is_empty());
+        assert!(matches!(&to_float.ret, RetRule::Fixed(t) if *t == Type::Float));
     }
 
     #[test]

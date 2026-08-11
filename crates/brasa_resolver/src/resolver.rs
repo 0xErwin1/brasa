@@ -26,8 +26,9 @@
 //!   namespace (`docs/spec/04-errors.md`, arms match error types
 //!   nominally); `panics.X` names are validated against the builtin
 //!   closed panic union (BRS-24, no import needed — like the prelude);
-//!   other dotted names (stdlib errors) are skipped until their
-//!   namespaces land (M4).
+//!   `string.X` names are validated against the closed native-error
+//!   list (BRS-41); other dotted names (`fs.`, `proc.`, `json.`) are
+//!   skipped until their namespaces land (M4).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -41,8 +42,8 @@ use brasa_hir::{
 use brasa_source::Span;
 
 use crate::tables::{
-    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, PANIC_UNION, Res,
-    Resolutions, TypeRes,
+    BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, LocalId, LocalInfo, NATIVE_ERRORS,
+    PANIC_UNION, Res, Resolutions, TypeRes,
 };
 
 /// Which position a constructor name was written in. The builtin `Set`
@@ -904,10 +905,12 @@ impl<'h> Resolver<'h> {
                 // Bare arm type names resolve here; `panics.X` names
                 // check against the builtin closed panic union (BRS-24,
                 // `docs/spec/04-errors.md` — no import needed, like the
-                // prelude); other dotted names (stdlib errors) are
-                // skipped until their namespaces land (M4). Whatever
-                // `lookup_type` returns is recorded as-is — the type
-                // checker decides what the binding narrows to per arm.
+                // prelude); `string.X` names check against the closed
+                // native-error list (BRS-41); other dotted names
+                // (`fs.`, `proc.`, `json.`) are skipped until their
+                // namespaces land (M4). Whatever `lookup_type` returns
+                // is recorded as-is — the type checker decides what the
+                // binding narrows to per arm.
                 for (arm_index, arm) in arms.iter().enumerate() {
                     for (type_index, arm_type) in arm.types.iter().enumerate() {
                         let CatchType::Named { name, span } = arm_type else {
@@ -916,6 +919,10 @@ impl<'h> Resolver<'h> {
                         if name.contains('.') {
                             if name.starts_with("panics.") {
                                 self.resolve_panic_arm(id, arm_index, type_index, name, *span);
+                            } else if name.starts_with("string.") {
+                                self.resolve_native_error_arm(
+                                    id, arm_index, type_index, name, *span,
+                                );
                             }
                             continue;
                         }
@@ -983,6 +990,39 @@ impl<'h> Resolver<'h> {
                         "the panic union is closed",
                     )
                     .with_note(format!("the panic union: {}", PANIC_UNION.join(", "))),
+                );
+            }
+        }
+    }
+
+    /// A `string.`-qualified `catch` arm name: the native-error list is
+    /// closed (`docs/spec/05-stdlib.md`), so the name either matches a
+    /// member of [`NATIVE_ERRORS`] — recorded in
+    /// `catch_arm_native_errors` with the canonical `&'static str` — or
+    /// is an `R012` error. Mirrors [`Self::resolve_panic_arm`].
+    fn resolve_native_error_arm(
+        &mut self,
+        id: ExprId,
+        arm_index: usize,
+        type_index: usize,
+        name: &str,
+        span: Span,
+    ) {
+        match NATIVE_ERRORS.iter().find(|&&error| error == name) {
+            Some(&error) => {
+                self.res
+                    .catch_arm_native_errors
+                    .insert((id, arm_index, type_index), error);
+            }
+            None => {
+                self.error(
+                    err_at(
+                        codes::R_UNKNOWN_NATIVE_ERROR,
+                        span,
+                        format!("unknown stdlib error `{name}`"),
+                        "no such stdlib error",
+                    )
+                    .with_note(format!("known stdlib errors: {}", NATIVE_ERRORS.join(", "))),
                 );
             }
         }

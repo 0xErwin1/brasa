@@ -1,0 +1,27 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 parse -> (string) -> int
+  i1 widened -> float
+  i2 parsed -> int
+local types
+  l0 s -> string
+  l1 e -> unknown
+expr types
+  e0 -> string
+  e1 -> () -> int
+  e2 -> int
+  e3 -> string
+  e4 -> () -> int
+  e5 -> int
+  e6 -> int
+  e7 -> int
+  e8 -> int
+  e9 -> string
+  e10 -> () -> float
+  e11 -> float
+  e12 -> (string) -> int
+  e13 -> string
+  e14 -> int

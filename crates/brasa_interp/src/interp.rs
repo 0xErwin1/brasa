@@ -982,9 +982,18 @@ impl<'a> Interp<'a> {
     }
 
     /// `catch` semantics (`docs/spec/04-errors.md`): arm matching is
-    /// nominal by type name; `_` catches any error but never a panic;
-    /// a panic is caught only by an arm naming its exact qualified type;
-    /// an unmatched signal propagates automatically.
+    /// nominal by type name; `_` catches any error — including a native
+    /// error, which IS an error — but never a panic; a panic or a
+    /// native error is caught by an arm naming its exact qualified name
+    /// (`panics.IndexOutOfBounds`, `string.ParseError`); an unmatched
+    /// signal propagates automatically. Exact name equality is enough
+    /// for every case: user type names never contain `.`, so a dotted
+    /// arm can only match a dotted (panic or native) tag.
+    ///
+    /// The binding mirrors the checker's per-arm narrowing
+    /// (`brasa_typeck`, `catch_arm_binding_type`): a named arm catching
+    /// a native error binds the message `string` — like a panic arm
+    /// binds the detail — while `_` binds the error value itself.
     fn eval_catch(
         &mut self,
         frame: &mut Frame,
@@ -1006,22 +1015,22 @@ impl<'a> Interp<'a> {
         let is_panic = matches!(signal, Signal::Panic(_));
 
         for arm in arms {
-            let matches = arm.types.iter().any(|ty| match ty {
+            let matched = arm.types.iter().find(|ty| match ty {
                 CatchType::Wildcard => !is_panic,
-                CatchType::Named { name, .. } => {
-                    if is_panic {
-                        name == &tag
-                    } else {
-                        !name.contains('.') && name == &tag
-                    }
-                }
+                CatchType::Named { name, .. } => name == &tag,
             });
-            if !matches {
+            let Some(matched) = matched else {
                 continue;
-            }
+            };
 
+            let bound = match (&bound, matched) {
+                (Value::NativeError { message, .. }, CatchType::Named { .. }) => {
+                    Value::str(message.as_ref())
+                }
+                _ => bound.clone(),
+            };
             if let Some(&local) = self.res.catch_bindings.get(&id) {
-                frame.locals.insert(local, bound.clone());
+                frame.locals.insert(local, bound);
             }
             if let Some(guard) = arm.guard
                 && !self.eval_bool(frame, guard)?
@@ -1053,6 +1062,7 @@ impl<'a> Interp<'a> {
             Value::Option(_) => "Option".to_string(),
             Value::Struct(s) => self.item_name(s.item),
             Value::Enum(e) => self.item_name(e.item),
+            Value::NativeError { name, .. } => name.to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }
@@ -1543,6 +1553,10 @@ impl<'a> Interp<'a> {
             Value::Func(item) => Ok(format!("<function {}>", self.item_name(*item))),
             Value::Closure(_) => Ok("<lambda>".to_string()),
             Value::BoundMethod(_) | Value::BoundBuiltin(_) => Ok("<bound method>".to_string()),
+            // Only the message: the uncaught-error path (`crate::finish`)
+            // prepends the nominal tag itself, producing
+            // `error: string.ParseError: <message>` without duplication.
+            Value::NativeError { message, .. } => Ok(message.to_string()),
         }
     }
 

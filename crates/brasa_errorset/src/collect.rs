@@ -10,7 +10,8 @@
 //! | direct `FuncDef` item | that item's current set |
 //! | declared struct method | that method's current set |
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
-//! | stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors in M2; `string.toInt` stays `Option` until BRS-41 |
+//! | stdlib module member (`fs.read(...)`, `math.sqrt(...)`) | nothing — native, no errors until their signatures close in M4 |
+//! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
 //! | immediately-invoked lambda literal | that lambda's set |
 //! | anything else (local, parameter, `TopLet`, struct field, or generic receiver holding a function) | opens the set — indirect calls are unknowable until BRS-25's per-call-site precision |
@@ -28,7 +29,7 @@ use brasa_diagnostics::Diagnostic;
 use brasa_hir::{
     ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, LambdaBody, Stmt, StmtId,
 };
-use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, TypeRes};
+use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, TypeRes};
 use brasa_typeck::{Type, TypeTables};
 
 use crate::{ErrorSet, ErrorTag, Primitive, check};
@@ -287,9 +288,16 @@ impl<'a> Collector<'a> {
                 set.union_with(&self.args(args));
                 set.union_with(&self.struct_method(item, name));
             }
+            // The two throwing builtin methods: parse failure raises
+            // the native `string.ParseError` (BRS-41), so a
+            // string-receiver call contributes its opaque tag.
+            Some(Type::String) if matches!(name, "toInt" | "toFloat") => {
+                set.union_with(&self.args(args));
+                set.tags.insert(ErrorTag::Opaque(STRING_PARSE_ERROR));
+            }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, and enums (whose only member is the
-            // derived `toString`). Builtin methods themselves throw
+            // derived `toString`). Every other builtin method throws
             // nothing in M2; only function arguments they may invoke
             // contribute (HOF transparency).
             Some(
@@ -380,6 +388,9 @@ impl<'a> Collector<'a> {
     ///
     /// Subtraction rules:
     /// - an unguarded arm naming `T` subtracts `T`'s tag;
+    /// - an unguarded arm naming a native error (`string.ParseError`,
+    ///   recorded in `catch_arm_native_errors`) subtracts its `Opaque`
+    ///   tag — native errors are ordinary errors, unlike panics;
     /// - an unguarded `_` subtracts everything AND closes openness —
     ///   `_` catches every remaining error (never panics), so nothing
     ///   unknowable escapes either (decision recorded here);
@@ -388,8 +399,9 @@ impl<'a> Collector<'a> {
     /// - panic arms (`panics.X`, recorded in `catch_arm_panics`, which
     ///   this pass never reads) subtract nothing: panics are not in
     ///   error-sets (`docs/spec/04-errors.md`);
-    /// - other dotted (stdlib errors, unresolved until M4) and
-    ///   unresolved arm names subtract nothing.
+    /// - dotted names in namespaces that have not landed (`fs.`,
+    ///   `proc.`, `json.` — M4) and unresolved arm names subtract
+    ///   nothing.
     ///
     /// `catch_all` filters identically: exhaustiveness enforcement is a
     /// check on the subject's contribution set, not a set
@@ -420,8 +432,8 @@ impl<'a> Collector<'a> {
                         set.open = false;
                     }
                     CatchType::Named { .. } => {
-                        let res = self.res.catch_arm_types.get(&(id, arm_index, type_index));
-                        if let Some(tag) = res.and_then(|&res| caught_tag(self.hir, res)) {
+                        if let Some(tag) = arm_tag(self.hir, self.res, (id, arm_index, type_index))
+                        {
                             set.tags.remove(&tag);
                         }
                     }
@@ -458,6 +470,25 @@ fn tag_of(ty: Option<&Type>) -> Option<ErrorTag> {
         Type::Unit => Some(ErrorTag::Primitive(Primitive::Unit)),
         _ => None,
     }
+}
+
+/// The tag one named `catch` arm slot subtracts (and, in the checks,
+/// matches against the subject set): a native-error name maps to its
+/// `Opaque` tag, a resolved type name through [`caught_tag`]. Panic
+/// slots live in `catch_arm_panics`, which neither table here covers,
+/// so they map to nothing — panics are not in error-sets.
+pub(crate) fn arm_tag(
+    hir: &Hir,
+    res: &Resolutions,
+    key: (ExprId, usize, usize),
+) -> Option<ErrorTag> {
+    if let Some(&native) = res.catch_arm_native_errors.get(&key) {
+        return Some(ErrorTag::Opaque(native));
+    }
+
+    res.catch_arm_types
+        .get(&key)
+        .and_then(|&type_res| caught_tag(hir, type_res))
 }
 
 /// The tag an unguarded `catch` arm naming a resolved type subtracts —

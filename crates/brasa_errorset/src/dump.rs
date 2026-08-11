@@ -77,7 +77,7 @@ pub(crate) fn tag_name(hir: &Hir, tag: &ErrorTag) -> String {
     match tag {
         ErrorTag::Item(item) => item_name(hir, *item),
         ErrorTag::Primitive(primitive) => primitive.name().to_string(),
-        ErrorTag::Opaque(name) => name.clone(),
+        ErrorTag::Opaque(name) => name.to_string(),
     }
 }
 

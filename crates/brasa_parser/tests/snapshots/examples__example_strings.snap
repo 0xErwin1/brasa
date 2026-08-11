@@ -107,7 +107,7 @@ Let n
       Field(toInt)
         StringLit
           Text(raw=false) "not-a-number"
-    arm ParseError
+    arm string.ParseError
         Unary(-)
           Int(1)
 Call

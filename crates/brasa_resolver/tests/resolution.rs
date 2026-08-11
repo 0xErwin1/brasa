@@ -194,6 +194,30 @@ end
 "#
 );
 
+resolution_test!(
+    catch_arm_native_errors,
+    r#"
+def parse(s: string): int
+  s.toInt() catch (e)
+    string.ParseError => -1
+    _ => -2
+  end
+end
+"#
+);
+
+resolution_error_test!(
+    unknown_native_error,
+    r#"
+def go(s: string): int
+  s.toInt() catch (e)
+    string.Nope => 0
+    _ => 1
+  end
+end
+"#
+);
+
 resolution_error_test!(
     unknown_panic,
     r#"

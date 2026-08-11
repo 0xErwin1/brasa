@@ -179,6 +179,39 @@ dbflux is warm
 }
 
 #[test]
+fn example_strings() {
+    let expected = "\
+Hello, Brasa World
+HELLO, BRASA WORLD
+Hello, Brasa Script
+words: 3
+starts? true
+joined: <a>, <b>, <c>
+
+line one \\n stays literal
+project: brasa
+
+ñ
+a
+n
+d
+ú
+parsed: -1
+";
+    assert_example("strings.brs", expected);
+}
+
+#[test]
+fn example_errors() {
+    let expected = "\
+recovered: timeout
+parsed: 42
+out of range gives 0
+";
+    assert_example("errors.brs", expected);
+}
+
+#[test]
 fn example_shapes() {
     let expected = "\
 circle: area 12.56636

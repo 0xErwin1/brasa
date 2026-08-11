@@ -56,6 +56,16 @@ pub enum Value {
     BoundMethod(Rc<BoundMethod>),
     /// A builtin method accessed without calling it (`v.push` as a value).
     BoundBuiltin(Rc<BoundBuiltin>),
+    /// A stdlib-native error (BRS-41, `docs/spec/05-stdlib.md`): the
+    /// canonical qualified name from `brasa_resolver::NATIVE_ERRORS`
+    /// plus a human-readable message. The name is the nominal tag
+    /// `catch` matches against; the message is what a named arm binds
+    /// (and what `toString` renders — the uncaught-error path prepends
+    /// the name itself, `crate::finish`).
+    NativeError {
+        name: &'static str,
+        message: Rc<str>,
+    },
 }
 
 #[derive(Debug)]
@@ -172,6 +182,13 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
                     .all(|(a, b)| value_eq(a, b))
         }
         (Value::Func(x), Value::Func(y)) => x == y,
+        (
+            Value::NativeError { name, message },
+            Value::NativeError {
+                name: name2,
+                message: message2,
+            },
+        ) => name == name2 && message == message2,
         (Value::Closure(x), Value::Closure(y)) => Rc::ptr_eq(x, y),
         (Value::BoundMethod(x), Value::BoundMethod(y)) => Rc::ptr_eq(x, y),
         (Value::BoundBuiltin(x), Value::BoundBuiltin(y)) => Rc::ptr_eq(x, y),

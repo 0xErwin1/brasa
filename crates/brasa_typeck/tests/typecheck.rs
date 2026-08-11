@@ -748,6 +748,21 @@ let total = recover(true) + 1
 );
 
 typecheck_test!(
+    native_error_arm_narrowing,
+    r#"
+def parse(s: string): int
+  s.toInt() catch (e)
+    string.ParseError => e.len()
+    _ => -1
+  end
+end
+
+let widened = "1.5".toFloat()
+let parsed = parse("42")
+"#
+);
+
+typecheck_test!(
     panic_arm_narrowing,
     r#"
 def guard(n: int): int

@@ -77,6 +77,9 @@ pub const R_NOT_AN_INTERFACE: &str = "R010";
 /// A `panics.`-qualified `catch` arm naming no member of the closed
 /// panic union.
 pub const R_UNKNOWN_PANIC: &str = "R011";
+/// A `catch` arm in a landed stdlib-error namespace (`string.`) naming
+/// no member of the closed native-error list.
+pub const R_UNKNOWN_NATIVE_ERROR: &str = "R012";
 
 // --- type checker (T) ---
 
@@ -214,6 +217,7 @@ mod tests {
         super::R_UNKNOWN_STD_MODULE,
         super::R_NOT_AN_INTERFACE,
         super::R_UNKNOWN_PANIC,
+        super::R_UNKNOWN_NATIVE_ERROR,
         super::T_MISMATCHED_TYPES,
         super::T_INVALID_OPERANDS,
         super::T_CANNOT_COMPARE_EQUALITY,

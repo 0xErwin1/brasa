@@ -31,6 +31,7 @@ pub fn dump(hir: &Hir, res: &Resolutions) -> String {
     dump_catch_bindings(hir, res, &mut out);
     dump_catch_arm_types(hir, res, &mut out);
     dump_catch_arm_panics(res, &mut out);
+    dump_catch_arm_native_errors(res, &mut out);
     dump_constraints(hir, res, &mut out);
     dump_struct_lits(hir, res, &mut out);
     dump_types(hir, res, &mut out);
@@ -376,6 +377,25 @@ fn dump_catch_arm_panics(res: &Resolutions, out: &mut String) {
         })
         .collect();
     section(out, "catch arm panics", lines);
+}
+
+fn dump_catch_arm_native_errors(res: &Resolutions, out: &mut String) {
+    let mut keys: Vec<&(brasa_hir::ExprId, usize, usize)> =
+        res.catch_arm_native_errors.keys().collect();
+    keys.sort_by_key(|(id, arm, ty)| (id.index(), *arm, *ty));
+
+    let lines = keys
+        .into_iter()
+        .map(|&key| {
+            let (id, arm_index, type_index) = key;
+            format!(
+                "e{} arm {arm_index} type {type_index} -> native error {}",
+                id.index(),
+                res.catch_arm_native_errors[&key]
+            )
+        })
+        .collect();
+    section(out, "catch arm native errors", lines);
 }
 
 fn dump_constraints(hir: &Hir, res: &Resolutions, out: &mut String) {

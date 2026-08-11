@@ -319,6 +319,75 @@ end
 "#
 );
 
+errorset_test!(
+    native_parse_error_tags_and_subtraction,
+    r#"
+struct Boom
+  detail: string
+end
+
+def parse(s: string): int
+  if s.len() == 0
+    throw Boom { detail: "empty" }
+  end
+  s.toInt()
+end
+
+def lenient(s: string): int
+  s.toInt() catch (e)
+    string.ParseError => -1
+  end
+end
+
+def strict(s: string): int
+  parse(s) catch_all (e)
+    Boom => -1
+    string.ParseError => -2
+  end
+end
+
+def wildcarded(s: string): int
+  parse(s) catch_all (e)
+    Boom => -1
+    _ => -2
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e001_unreachable_native_arm,
+    r#"
+def calm(n: int): int
+  n catch (e)
+    string.ParseError => -1
+  end
+end
+"#
+);
+
+errorset_error_test!(
+    e002_catch_all_missing_native_error,
+    r#"
+struct Boom
+  detail: string
+end
+
+def parse(s: string): int
+  if s.len() == 0
+    throw Boom { detail: "empty" }
+  end
+  s.toInt()
+end
+
+def strict(s: string): int
+  parse(s) catch_all (e)
+    Boom => -1
+  end
+end
+"#
+);
+
 errorset_error_test!(
     e001_unreachable_arms,
     r#"

@@ -1,0 +1,18 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param s
+  l1 catch e
+func params
+  parse -> [l0]
+exprs
+  e0 s -> local l0
+catch bindings
+  e7 e -> l1
+catch arm native errors
+  e7 arm 0 type 0 -> native error string.ParseError
+types
+  t0 string -> builtin string
+  t1 int -> builtin int
