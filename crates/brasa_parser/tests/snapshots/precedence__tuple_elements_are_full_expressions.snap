@@ -1,0 +1,12 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"let p = (1 + 2, f(x))\")"
+---
+Let p
+  TupleLit
+    Binary(+)
+      Int(1)
+      Int(2)
+    Call
+      Ident(f)
+      Ident(x)

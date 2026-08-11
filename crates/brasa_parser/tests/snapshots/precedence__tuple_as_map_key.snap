@@ -1,0 +1,12 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"let m = { (0, 0): \\\"origin\\\" }\")"
+---
+Let m
+  MapLit
+    entry
+      TupleLit
+        Int(0)
+        Int(0)
+      StringLit
+        Text(raw=false) "origin"

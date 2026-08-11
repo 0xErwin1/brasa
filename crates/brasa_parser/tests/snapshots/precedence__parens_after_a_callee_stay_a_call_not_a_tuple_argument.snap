@@ -1,0 +1,13 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"puts (1, 2)\\nputs((1, 2))\")"
+---
+Call
+  Ident(puts)
+  Int(1)
+  Int(2)
+Call
+  Ident(puts)
+  TupleLit
+    Int(1)
+    Int(2)

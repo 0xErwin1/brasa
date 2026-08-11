@@ -214,6 +214,11 @@ four comparable primitives, and derived `toString` (recursion-capped at
 depth 100) all behave exactly as the walker's `value_eq` / `value_cmp` /
 `display`; the VM reuses the same rules over the new representation.
 
+A tuple renders in source form, which means the one-element tuple keeps
+its comma: `(1, "a")`, but `(7,)`. Bare parentheses around a single value
+mean grouping in expression position (`docs/spec/02-grammar.md`), so
+dropping the comma would render a one-element tuple as a scalar.
+
 ### GC: precise mark & sweep over the mutable kinds (BRS-29)
 
 Reference cycles ARE constructible in the language: the checker accepts
@@ -341,7 +346,7 @@ All targets are absolute instruction indices.
 |----|----------|-------|-----------|
 | `make_vector` | `n` | `v… → vec` | Vector literal from the top `n` values |
 | `make_map` | `n` | `(k v)… → map` | Map literal from `n` pairs; structural key dedupe, first occurrence keeps its position, last value wins |
-| `make_tuple` | `n` | `v… → tup` | Tuple from the top `n` values |
+| `make_tuple` | `n` | `v… → tup` | Tuple from the top `n` values (`n >= 1`; there are no zero-element tuples). Emitted by a tuple expression `(a, b)` |
 | `make_set_from_vector` | | `vec → set` | The `Set(v)` constructor: dedupe by structural equality, first occurrence kept, insertion order preserved |
 | `make_struct` | `struct` | `f… → s` | Struct literal; field count and order come from the shape, initializers already evaluated in written order and reordered to declaration order by codegen |
 | `make_enum` | `enum, variant, argc` | `p… → e` | Enum variant with `argc` payload values |

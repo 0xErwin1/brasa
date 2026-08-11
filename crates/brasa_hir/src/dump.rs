@@ -351,6 +351,12 @@ fn dump_expr(hir: &Hir, id: ExprId, depth: usize, out: &mut String) {
                 dump_expr(hir, *value, depth + 2, out);
             }
         }
+        Expr::TupleLit(elements) => {
+            line(out, depth, "TupleLit");
+            for element in elements {
+                dump_expr(hir, *element, depth + 1, out);
+            }
+        }
         Expr::StructLit { type_name, fields } => {
             line(out, depth, &format!("StructLit({type_name})"));
             for (name, value) in fields {

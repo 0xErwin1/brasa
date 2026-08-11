@@ -517,8 +517,8 @@ puts v
     assert!(stdout.is_empty());
 }
 
-/// Tuples only arise from Map iteration in M1 (no tuple literal
-/// exists), so tuple destructuring rides on `for` over a map.
+/// Tuple destructuring over the pairs a `for` loop yields from a Map,
+/// the tuple source that predates tuple expressions.
 #[test]
 fn match_on_map_iteration_tuples() {
     assert_success(
@@ -533,6 +533,119 @@ for pair in grid
 end
 "##,
         "a: zero\nb: 2\n",
+    );
+}
+
+// --- tuple expressions -------------------------------------------------
+
+#[test]
+fn tuple_construction_nesting_and_display() {
+    assert_success(
+        r##"
+let pair = (1, "a")
+let one = (7,)
+let nested = (1, (2, "b"))
+let trailing = (1, 2,)
+let computed = (1 + 2, "x" + "y")
+let grouped = (1 + 2) * 3
+puts pair
+puts one
+puts nested
+puts trailing
+puts computed
+puts grouped
+puts((1, 2).toString())
+puts "in a string: #{(1, 2)}"
+"##,
+        "(1, \"a\")\n(7,)\n(1, (2, \"b\"))\n(1, 2)\n(3, \"xy\")\n9\n(1, 2)\nin a string: (1, 2)\n",
+    );
+}
+
+#[test]
+fn tuple_equality_is_structural() {
+    assert_success(
+        r##"
+puts((1, "a") == (1, "a"))
+puts((1, "a") != (1, "b"))
+puts((1, (2, 3)) == (1, (2, 3)))
+puts((1, [2, 3]) == (1, [2, 3]))
+let a = (1, 2)
+let b = a
+puts(a == b)
+"##,
+        "true\ntrue\ntrue\ntrue\ntrue\n",
+    );
+}
+
+#[test]
+fn tuple_as_map_and_set_key() {
+    assert_success(
+        r##"
+let grid: Map<(int, int), string> = { (0, 0): "origin", (1, 2): "b" }
+puts grid[(0, 0)]
+puts grid[(1, 2)]
+puts grid[(9, 9)]
+grid.insert((3, 4), "c")
+puts grid[(3, 4)]
+puts grid.has?((1, 2))
+puts grid.len()
+
+let seen = Set([(0, 0), (1, 1), (0, 0)])
+puts seen.len()
+puts seen.has?((1, 1))
+puts seen.has?((5, 5))
+"##,
+        "Some(\"origin\")\nSome(\"b\")\nNone\nSome(\"c\")\ntrue\n3\n2\ntrue\nfalse\n",
+    );
+}
+
+#[test]
+fn match_and_for_destructure_constructed_tuples() {
+    assert_success(
+        r##"
+def describe(p: (int, string)): string
+  match p
+    (0, s) => "zero #{s}"
+    (n, "stop") => "halt at #{n}"
+    (n, s) => "#{n} #{s}"
+  end
+end
+
+puts describe((0, "a"))
+puts describe((4, "stop"))
+puts describe((7, "go"))
+
+let points = [(0, 0), (1, 2)]
+for pt in points
+  let label = match pt
+    (x, y) => "#{x}/#{y}"
+  end
+  puts label
+end
+"##,
+        "zero a\nhalt at 4\n7 go\n0/0\n1/2\n",
+    );
+}
+
+#[test]
+fn tuples_flow_through_functions_and_collections() {
+    assert_success(
+        r##"
+def swap(p: (int, string)): (string, int)
+  match p
+    (n, s) => (s, n)
+  end
+end
+
+let pairs = [(1, "a"), (2, "b")]
+let swapped = pairs.map(|p| swap(p))
+puts swapped
+puts swapped.len()
+
+let nested: Vector<(int, (int, int))> = [(1, (2, 3))]
+puts nested
+"##,
+        "[(\"a\", 1), (\"b\", 2)]\n2\n[(1, (2, 3))]\n",
     );
 }
 

@@ -191,7 +191,14 @@ Notes on kind boundaries:
 - `T007` covers every receiver kind (struct, builtin, generic); the
   message names the receiver. `T008` stays separate: the member exists,
   only the element type is wrong.
-- `T014` covers empty vector and empty map literals.
+- `T014` covers empty vector and empty map literals. It never fires for
+  a tuple expression: tuples have no empty form and every element
+  carries its own type.
+- `T001` covers tuple expressions in both directions. With an expected
+  tuple type of the same arity the mismatch is reported at the offending
+  element; on an arity mismatch — where positions no longer correspond —
+  it is reported once against the whole tuple, so `(1, 2, 3)` under
+  `(int, int)` reads ``expected `(int, int)`, found `(int, int, int)` ``.
 - `T016` covers `if` branches and `match` arms; `catch` arms report
   against the subject's type as plain `T001` mismatches.
 - `T018` covers pattern-shape failures against the scrutinee's type,

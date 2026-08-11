@@ -888,6 +888,11 @@ impl<'h> Resolver<'h> {
                     self.resolve_expr(*value);
                 }
             }
+            Expr::TupleLit(elements) => {
+                for &element in elements {
+                    self.resolve_expr(element);
+                }
+            }
             Expr::StructLit { type_name, fields } => {
                 match self.lookup_type(type_name) {
                     Some(res) => {

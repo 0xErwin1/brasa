@@ -177,6 +177,11 @@ impl Walker<'_> {
                     self.expr(value);
                 }
             }
+            Expr::TupleLit(elements) => {
+                for &element in elements {
+                    self.expr(element);
+                }
+            }
             Expr::StructLit { fields, .. } => {
                 for &(_, value) in fields {
                     self.expr(value);

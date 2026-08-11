@@ -21,6 +21,15 @@ Value vs reference:
   to the GC heap. `==` is ALWAYS structural (compares content, not
   identity); there is no identity operator in v1.
 
+Tuples are positional and immutable: there is no element assignment, and
+a tuple's type is the tuple of its elements' types with no unification
+across positions. `(1, "a"): (int, string)`. Arity is part of the type,
+so `(int, int)` and `(int, int, int)` never match. An expected tuple type
+of the same arity propagates element-wise, which is what lets
+`let p: (int, Vector<int>) = (1, [])` infer the empty vector. Elements
+are read by destructuring (a `match` arm or a `for` binding), not by an
+index expression: there is no `p.0`.
+
 ## Inference
 
 **Local** inference (Rust/Swift style, not global Hindley-Milner):

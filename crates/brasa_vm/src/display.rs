@@ -53,7 +53,7 @@ impl<'a> Vm<'a> {
             }
             Value::Tuple(items) => {
                 let parts = self.render_all(items, depth)?;
-                Ok(format!("({})", parts.join(", ")))
+                Ok(render_tuple(&parts))
             }
             Value::Vector(items) => {
                 let items = self.heap.vector(*items).borrow().clone();
@@ -157,6 +157,17 @@ impl<'a> Vm<'a> {
         }
         Ok(parts)
     }
+}
+
+/// Renders tuple elements in source syntax. A one-element tuple keeps
+/// its comma (`(1,)`): bare parentheses around a single expression mean
+/// grouping, so without the comma the output would read back as a
+/// scalar (`docs/spec/02-grammar.md`).
+fn render_tuple(parts: &[String]) -> String {
+    if let [only] = parts {
+        return format!("({only},)");
+    }
+    format!("({})", parts.join(", "))
 }
 
 /// Floats always show the decimal point: `1.0`, never `1`. `NaN`,

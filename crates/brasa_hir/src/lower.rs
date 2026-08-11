@@ -483,6 +483,9 @@ impl LowerCtx<'_> {
                     .map(|(key, value)| (self.lower_expr(*key), self.lower_expr(*value)))
                     .collect(),
             ),
+            ast::Expr::TupleLit(elements) => {
+                Expr::TupleLit(elements.iter().map(|e| self.lower_expr(*e)).collect())
+            }
             ast::Expr::StructLit { type_name, fields } => Expr::StructLit {
                 type_name: type_name.clone(),
                 fields: fields

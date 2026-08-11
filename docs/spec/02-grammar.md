@@ -135,7 +135,8 @@ pipe_target = postfix                                 # a |> f(b) ; any callable
 
 primary     = INT | FLOAT | STRING | CHAR | "true" | "false" | "unit"
             | IDENT | "self"
-            | "(" expr ")"
+            | "(" expr ")"                            # grouping
+            | tuple_lit
             | vector_lit | map_lit | struct_lit | lambda
             | if_expr | match_expr
             | TYPE_IDENT ( "(" args? ")" )?           # enum constructor
@@ -146,6 +147,7 @@ postfix     = primary ( "(" args? ")"
                       | "?." IDENT
                       | catch_clause )*
 
+tuple_lit   = "(" expr "," ( expr ( "," expr )* )? ","? ")"
 vector_lit  = "[" ( expr ( "," expr )* )? "]"
 map_lit     = "{" ( map_entry ( "," map_entry )* )? "}"
 map_entry   = expr ":" expr
@@ -202,6 +204,9 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 |------|------------|
 | `{` for map literal vs struct literal vs `do` block | struct lit requires a preceding `TYPE_IDENT {`; map lit only in expression position; blocks use `do/end`, never braces |
 | `\|` for lambda vs `\|\|` logical | `\|\|` lexes as one or-token, but at the START of an expression there is no left operand, so it can never be logical or: **decision: a leading `\|\|` is an empty lambda parameter list**. `\|\| expr`, the spaced `\| \| expr`, `do \|\| ... end`, and a bare `do ... end` all spell a parameterless lambda; elsewhere `\|\|` stays logical or |
+| `(` for grouping vs tuple expression | a **top-level comma inside the parentheses** is the whole distinction: `(a)` is a grouped expression, `(a, b)` is a tuple, and the one-element tuple is spelled `(a,)`. **Decision**: expressions cannot give up parenthesized grouping, so arity alone cannot carry the meaning the way it does in patterns and types (`(int)` is a one-element tuple type, `(x)` a one-element tuple pattern — neither position has a grouping form to collide with). The comma therefore marks the tuple, and it is required for arity 1. A trailing comma is allowed at every arity (`(a, b,)`), consistent with every other comma-separated list |
+| `()` | not a zero-element tuple: there are no zero-element tuples. `()` in expression position is a parse error; the unit value is spelled `unit` |
+| tuple argument vs argument list | the existing "parentheses right after a callee are a call" rule wins: `f(1, 2)` is a two-argument call and `puts (1, 2)` is `puts(1, 2)`, never a call with one tuple argument. Pass a tuple by writing its own parentheses: `f((1, 2))` |
 | `<` for generics vs comparison in expressions | generics only appear after `def f` / `TYPE_IDENT` in type position; in an expression, `<` is always comparison (no turbofish in v1) |
 | `if` expression vs statement | same node; the checker types it when all branches match |
 | `puts` | not a keyword: it's a stdlib function (`io.puts`, re-exported to the prelude) |
@@ -219,7 +224,12 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 Cross-cutting notes:
 
 - **Trailing commas are allowed** in every comma-separated list: args,
-  params, Vector/Map/Set literals, struct literals, generics.
+  params, Vector/Map/Set literals, tuple expressions/patterns/types,
+  struct literals, generics.
+- Tuple **patterns** and **types** need no comma marker at arity 1,
+  because neither position has a grouping form: `(int)` is the
+  one-element tuple type and `(x)` the one-element tuple pattern. Only
+  the expression form needs `(a,)`.
 - Ranges produce values of type `Range` (see doc 03); they are not
   syntax exclusive to `for`.
 - Newline tokens are insignificant inside `( )` and `[ ]` delimiters

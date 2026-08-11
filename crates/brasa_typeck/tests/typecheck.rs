@@ -1033,6 +1033,36 @@ let d = s.diff(Set([1]))
 "#
 );
 
+typecheck_test!(
+    tuple_expressions,
+    r#"
+def swap(p: (int, string)): (string, int)
+  match p
+    (n, s) => (s, n)
+  end
+end
+
+let pair = (1, "a")
+let one = (7,)
+let nested = (1, (2, 3))
+let annotated: (int, Vector<int>) = (1, [])
+let swapped = swap(pair)
+let grid: Map<(int, int), string> = { (0, 0): "origin" }
+let cell = grid[(0, 0)]
+let corners = Set([(0, 0), (1, 1)])
+"#
+);
+
+typecheck_error_test!(
+    error_tuple_expressions,
+    r#"
+let element: (int, string) = (1, 2)
+let arity: (int, int) = (1, 2, 3)
+let scalar: int = (1, 2)
+let unhashable = { (1.5, 2): "a" }
+"#
+);
+
 typecheck_error_test!(
     collection_method_errors,
     r#"

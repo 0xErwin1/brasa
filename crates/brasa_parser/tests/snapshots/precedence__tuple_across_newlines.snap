@@ -1,0 +1,8 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"let p = (\\n  1,\\n  2,\\n)\")"
+---
+Let p
+  TupleLit
+    Int(1)
+    Int(2)

@@ -511,7 +511,7 @@ impl<'a> Parser<'a> {
                 self.ast.alloc_expr(Expr::Ident(name), start)
             }
             TokenKind::TypeIdent => self.parse_type_ident_primary(),
-            TokenKind::LParen => self.parse_group(),
+            TokenKind::LParen => self.parse_paren_expr(),
             TokenKind::LBracket => self.parse_vector_lit(),
             TokenKind::LBrace => self.parse_map_lit(),
             // A leading `||` can never be logical or (there is no left
@@ -591,14 +591,45 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_group(&mut self) -> ExprId {
+    /// `"(" expr ")"` (grouping) or `"(" expr ("," expr)* ","? ")"`
+    /// (tuple literal).
+    ///
+    /// A top-level comma is the only thing that separates the two forms,
+    /// per `docs/spec/02-grammar.md`: `(a)` stays a grouping, so the
+    /// one-element tuple needs its comma (`(a,)`). Unlike patterns and
+    /// types — neither of which has a grouping form — an expression
+    /// cannot give up parenthesized grouping, so the comma carries the
+    /// distinction instead.
+    fn parse_paren_expr(&mut self) -> ExprId {
+        let start = self.span();
         self.bump(); // '('
-        let inner = self.parse_expr();
-        self.expect(
-            TokenKind::RParen,
-            "')' to close the parenthesized expression",
-        );
-        inner
+
+        let first = self.parse_expr();
+
+        if !self.at(TokenKind::Comma) {
+            self.expect(
+                TokenKind::RParen,
+                "')' to close the parenthesized expression",
+            );
+            return first;
+        }
+
+        let mut elements = vec![first];
+
+        while self.eat(TokenKind::Comma).is_some() {
+            if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                break;
+            }
+            let checkpoint = self.pos;
+            elements.push(self.parse_expr());
+            self.ensure_progress(checkpoint);
+        }
+
+        let close = self.expect(TokenKind::RParen, "')' to close the tuple");
+        let end = close.map(|t| t.span).unwrap_or(start);
+
+        self.ast
+            .alloc_expr(Expr::TupleLit(elements), Span::merge(&start, &end))
     }
 
     fn parse_vector_lit(&mut self) -> ExprId {

@@ -119,6 +119,8 @@ pub enum Expr {
     },
     VectorLit(Vec<ExprId>),
     MapLit(Vec<(ExprId, ExprId)>),
+    /// `(a, b)`; always at least one element, mirroring the AST node.
+    TupleLit(Vec<ExprId>),
     StructLit {
         type_name: String,
         fields: Vec<(String, ExprId)>,

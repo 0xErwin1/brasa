@@ -172,6 +172,12 @@ pub enum Expr {
     },
     VectorLit(Vec<ExprId>),
     MapLit(Vec<(ExprId, ExprId)>),
+    /// `(a, b)`. Always at least one element: a comma at the top level of
+    /// a parenthesized expression is what distinguishes a tuple from a
+    /// grouping, so `(a)` never reaches this node (see
+    /// `docs/spec/02-grammar.md`'s ambiguity table) and the one-element
+    /// tuple is spelled `(a,)`.
+    TupleLit(Vec<ExprId>),
     StructLit {
         type_name: String,
         fields: Vec<(String, ExprId)>,

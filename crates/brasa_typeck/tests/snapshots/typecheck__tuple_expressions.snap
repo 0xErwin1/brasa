@@ -1,0 +1,58 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 swap -> ((int, string)) -> (string, int)
+  i1 pair -> (int, string)
+  i2 one -> (int)
+  i3 nested -> (int, (int, int))
+  i4 annotated -> (int, Vector<int>)
+  i5 swapped -> (string, int)
+  i6 grid -> Map<(int, int), string>
+  i7 cell -> Option<string>
+  i8 corners -> Set<(int, int)>
+local types
+  l0 p -> (int, string)
+  l1 n -> int
+  l2 s -> string
+expr types
+  e0 -> (int, string)
+  e1 -> string
+  e2 -> int
+  e3 -> (string, int)
+  e4 -> (string, int)
+  e5 -> int
+  e6 -> string
+  e7 -> (int, string)
+  e8 -> int
+  e9 -> (int)
+  e10 -> int
+  e11 -> int
+  e12 -> int
+  e13 -> (int, int)
+  e14 -> (int, (int, int))
+  e15 -> int
+  e16 -> Vector<int>
+  e17 -> (int, Vector<int>)
+  e18 -> ((int, string)) -> (string, int)
+  e19 -> (int, string)
+  e20 -> (string, int)
+  e21 -> int
+  e22 -> int
+  e23 -> (int, int)
+  e24 -> string
+  e25 -> Map<(int, int), string>
+  e26 -> Map<(int, int), string>
+  e27 -> int
+  e28 -> int
+  e29 -> (int, int)
+  e30 -> Option<string>
+  e31 -> int
+  e32 -> int
+  e33 -> (int, int)
+  e34 -> int
+  e35 -> int
+  e36 -> (int, int)
+  e37 -> Vector<(int, int)>
+  e38 -> Set<(int, int)>

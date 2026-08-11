@@ -205,3 +205,30 @@ snapshot_test!(
     interface_with_throws_member,
     "interface Fetcher\n  def fetch(url: string): string throws NetError\nend"
 );
+
+// -- (h) tuple expressions vs grouping -------------------------------------
+// A top-level comma inside the parentheses is the whole distinction:
+// `(a)` groups, `(a,)` is the one-element tuple.
+
+snapshot_test!(tuple_two_elements, "let p = (1, \"a\")");
+snapshot_test!(tuple_one_element_needs_its_comma, "let p = (1,)");
+snapshot_test!(tuple_trailing_comma, "let p = (1, 2,)");
+snapshot_test!(tuple_nested, "let p = (1, (2, 3))");
+snapshot_test!(tuple_elements_are_full_expressions, "let p = (1 + 2, f(x))");
+snapshot_test!(tuple_across_newlines, "let p = (\n  1,\n  2,\n)");
+snapshot_test!(
+    group_without_a_comma_stays_a_grouping,
+    "let p = (1 + 2) * 3"
+);
+snapshot_test!(tuple_as_map_key, "let m = { (0, 0): \"origin\" }");
+
+/// The pre-existing "parentheses right after a callee are a call" rule
+/// wins over tuple construction, so a tuple argument needs its own
+/// parentheses (`docs/spec/02-grammar.md`).
+#[test]
+fn parens_after_a_callee_stay_a_call_not_a_tuple_argument() {
+    insta::assert_snapshot!(
+        "parens_after_a_callee_stay_a_call_not_a_tuple_argument",
+        dump_source("puts (1, 2)\nputs((1, 2))")
+    );
+}

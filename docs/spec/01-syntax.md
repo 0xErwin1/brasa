@@ -236,6 +236,35 @@ m["a"]                    # Option<int> — indexing a Map gives Option
 v[0]                      # int — indexing a Vector out of range panics
 ```
 
+## Tuples
+
+```ruby
+let pair = (1, "a")             # (int, string)
+let nested = (1, (2, 3))        # (int, (int, int))
+let one = (7,)                  # (int) — the comma is required
+let grouped = (1 + 2) * 3       # grouping, not a tuple: no comma
+
+let grid: Map<(int, int), string> = { (0, 0): "origin" }
+grid[(0, 0)]                    # Some("origin")
+
+match pair
+  (0, s) => puts "zero #{s}"
+  (n, s) => puts "#{n} #{s}"
+end
+```
+
+- A **top-level comma** inside parentheses is what makes a tuple; `(a)`
+  stays a grouped expression, so the one-element tuple is written
+  `(a,)`. Tuple patterns and types do not need that comma (`(x)`,
+  `(int)`): only expressions have a grouping form to disambiguate from.
+- There are no zero-element tuples; the unit value is `unit`.
+- Parentheses right after a callee are still an argument list, so pass a
+  tuple with its own parentheses: `f((1, 2))`, not `f(1, 2)`.
+- Tuples compare structurally and are `Hashable` when every element is,
+  which is what makes them usable as `Map`/`Set` keys (doc 03).
+- `toString` renders them in source form, keeping the comma at arity 1:
+  `(1, "a")`, `(7,)`.
+
 ## Strings
 
 - Always UTF-8; `char` is a Unicode scalar.

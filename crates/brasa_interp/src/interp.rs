@@ -551,6 +551,14 @@ impl<'a> Interp<'a> {
                 }
                 Ok(Value::Map(Rc::new(std::cell::RefCell::new(entries))))
             }
+            Expr::TupleLit(elements) => {
+                let elements = elements.clone();
+                let mut items = Vec::with_capacity(elements.len());
+                for element in elements {
+                    items.push(self.eval_expr(frame, element)?);
+                }
+                Ok(Value::Tuple(Rc::from(items)))
+            }
             Expr::StructLit { fields, .. } => {
                 let fields = fields.clone();
                 self.eval_struct_lit(frame, id, &fields)
@@ -1547,7 +1555,7 @@ impl<'a> Interp<'a> {
             Value::Tuple(items) => {
                 let items = items.clone();
                 let parts = self.render_all(items.iter(), depth)?;
-                Ok(format!("({})", parts.join(", ")))
+                Ok(render_tuple(&parts))
             }
             Value::Vector(items) => {
                 let items = items.borrow().clone();
@@ -1666,6 +1674,17 @@ impl<'a> Interp<'a> {
 enum LoopFlow {
     Continue,
     Break,
+}
+
+/// Renders tuple elements in source syntax. A one-element tuple keeps
+/// its comma (`(1,)`): bare parentheses around a single expression mean
+/// grouping, so without the comma the output would read back as a
+/// scalar (`docs/spec/02-grammar.md`).
+fn render_tuple(parts: &[String]) -> String {
+    if let [only] = parts {
+        return format!("({only},)");
+    }
+    format!("({})", parts.join(", "))
 }
 
 /// Floats always show the decimal point (`docs/spec/03-types.md`):

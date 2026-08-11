@@ -97,6 +97,13 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
             let n = u16::try_from(pairs.len()).expect("map literal overflow");
             f.emit(Op::MakeMap(n), span);
         }
+        Expr::TupleLit(elements) => {
+            for &element in &elements {
+                compile_expr(f, element);
+            }
+            let n = u16::try_from(elements.len()).expect("tuple literal overflow");
+            f.emit(Op::MakeTuple(n), span);
+        }
         Expr::StructLit { fields, .. } => struct_lit(f, id, &fields, span),
         Expr::Range { lo, hi, inclusive } => {
             compile_expr(f, lo);

@@ -1,0 +1,32 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `string`, found `int`
+   ╭─[ error_tuple_expressions.brs:2:34 ]
+   │
+ 2 │ let element: (int, string) = (1, 2)
+   │                                  ┬  
+   │                                  ╰── expected `string`
+───╯
+[T001] Error: mismatched types: expected `(int, int)`, found `(int, int, int)`
+   ╭─[ error_tuple_expressions.brs:3:25 ]
+   │
+ 3 │ let arity: (int, int) = (1, 2, 3)
+   │                         ────┬────  
+   │                             ╰────── expected `(int, int)`
+───╯
+[T001] Error: mismatched types: expected `int`, found `(int, int)`
+   ╭─[ error_tuple_expressions.brs:4:19 ]
+   │
+ 4 │ let scalar: int = (1, 2)
+   │                   ───┬──  
+   │                      ╰──── expected `int`
+───╯
+[T031] Error: `(float, int)` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
+   ╭─[ error_tuple_expressions.brs:5:20 ]
+   │
+ 5 │ let unhashable = { (1.5, 2): "a" }
+   │                    ────┬───  
+   │                        ╰───── not `Hashable`
+───╯

@@ -662,6 +662,10 @@ impl<'a> Checker<'a> {
                 let entries = entries.clone();
                 self.check_map_lit(id, &entries, expected)
             }
+            Expr::TupleLit(elements) => {
+                let elements = elements.clone();
+                self.check_tuple_lit(&elements, expected)
+            }
             Expr::StructLit { type_name, fields } => {
                 let (type_name, fields) = (type_name.clone(), fields.clone());
                 self.check_struct_lit(id, &type_name, &fields, expected)
@@ -2622,6 +2626,34 @@ impl<'a> Checker<'a> {
             Box::new(key.unwrap_or(Type::Unknown)),
             Box::new(value.unwrap_or(Type::Unknown)),
         )
+    }
+
+    /// Tuples are structural and positional: the literal's type is the
+    /// tuple of its element types, with no unification across positions.
+    ///
+    /// An expected tuple type of the same arity propagates element-wise,
+    /// so `let p: (int, Vector<int>) = (1, [])` infers the empty vector
+    /// and a bad element is reported at that element. Any other
+    /// expectation — an arity mismatch included — is ignored here: the
+    /// elements are inferred on their own and the caller reports the one
+    /// mismatch between the whole tuples, rather than a cascade of
+    /// per-element errors against positions that do not correspond.
+    fn check_tuple_lit(&mut self, elements: &[ExprId], expected: Option<&Type>) -> Type {
+        let expected_elems = match expected {
+            Some(Type::Tuple(tys)) if tys.len() == elements.len() => Some(tys.clone()),
+            _ => None,
+        };
+
+        let found = elements
+            .iter()
+            .enumerate()
+            .map(|(i, &element)| {
+                let slot = expected_elems.as_ref().map(|tys| tys[i].clone());
+                self.check_lit_slot(element, slot)
+            })
+            .collect();
+
+        Type::Tuple(found)
     }
 
     /// Checks one literal element against the running unified type,

@@ -208,6 +208,13 @@ impl<'a> Collector<'a> {
                 }
                 set
             }
+            Expr::TupleLit(elems) => {
+                let mut set = ErrorSet::default();
+                for &elem in elems {
+                    set.union_with(&self.expr(elem));
+                }
+                set
+            }
             Expr::StructLit { fields, .. } => {
                 let mut set = ErrorSet::default();
                 for &(_, value) in fields {
