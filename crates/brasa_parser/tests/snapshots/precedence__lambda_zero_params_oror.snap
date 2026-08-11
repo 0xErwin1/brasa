@@ -1,0 +1,7 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"let f = || 42\")"
+---
+Let f
+  Lambda()
+    Int(42)

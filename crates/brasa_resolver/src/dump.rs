@@ -134,6 +134,7 @@ fn ctor_res_str(hir: &Hir, res: CtorRes) -> String {
     match res {
         CtorRes::OptionSome => "Option::Some".to_string(),
         CtorRes::OptionNone => "Option::None".to_string(),
+        CtorRes::SetCtor => "Set".to_string(),
         CtorRes::EnumVariant {
             enum_item,
             variant_index,

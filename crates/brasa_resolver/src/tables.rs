@@ -163,13 +163,18 @@ pub enum TypeRes {
 }
 
 /// What a constructor reference (`Expr::EnumCtor` or `Pattern::Ctor`)
-/// resolved to. Candidates are `Some`/`None` plus the variants of every
+/// resolved to. Candidates are `Some`/`None`, the builtin `Set`
+/// constructor (expression position only), plus the variants of every
 /// enum in scope; the resolver requires the name to be unambiguous
 /// (the type checker may refine this with expected-type context later).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CtorRes {
     OptionSome,
     OptionNone,
+    /// The builtin `Set(vector)` constructor
+    /// (`docs/spec/01-syntax.md`, collection literals). Never appears
+    /// in `ctor_pattern_res`: `Set(...)` is not a valid pattern.
+    SetCtor,
     EnumVariant {
         enum_item: ItemId,
         variant_index: usize,

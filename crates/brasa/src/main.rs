@@ -141,17 +141,25 @@ fn main() -> ExitCode {
         &checked.types,
         &mut stdout,
     );
-    if let Err(err) = stdout.flush() {
-        eprintln!("brasa: failed to flush output: {err}");
-        return ExitCode::from(70);
-    }
+    let flushed = stdout.flush();
 
+    // The outcome is reported before any flush handling: a script
+    // failure must never be masked by an output-stream condition.
     match outcome {
-        brasa_interp::Outcome::Success => ExitCode::from(0),
         brasa_interp::Outcome::Error { message } | brasa_interp::Outcome::Panic { message } => {
             eprintln!("{message}");
             ExitCode::from(70)
         }
+        brasa_interp::Outcome::Success | brasa_interp::Outcome::BrokenPipe => match flushed {
+            // A closed read end (`brasa ... | head`) is a silent
+            // success, like standard Unix tools; any other flush
+            // failure on a successful run is real.
+            Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => {
+                eprintln!("brasa: failed to flush output: {err}");
+                ExitCode::from(70)
+            }
+            _ => ExitCode::from(0),
+        },
     }
 }
 

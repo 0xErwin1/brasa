@@ -2353,6 +2353,7 @@ impl<'a> Checker<'a> {
                     _ => Type::option(Type::Unknown),
                 }
             }
+            Some(CtorRes::SetCtor) => self.check_set_ctor(span, args, expected),
             Some(CtorRes::EnumVariant {
                 enum_item,
                 variant_index,
@@ -2372,6 +2373,51 @@ impl<'a> Checker<'a> {
 
                 self.check_variant_args(span, enum_item, variant_index, args);
                 Type::Enum(enum_item, vec![])
+            }
+        }
+    }
+
+    /// `Set(v)` builds a `Set<T>` from a `Vector<T>`
+    /// (`docs/spec/01-syntax.md`, collection literals): exactly one
+    /// argument, which must be a `Vector`. An expected `Set<T>` flows
+    /// into the vector's element type.
+    fn check_set_ctor(&mut self, span: Span, args: &[ExprId], expected: Option<&Type>) -> Type {
+        if args.len() != 1 {
+            self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
+                span,
+                format!("`Set` takes exactly 1 argument, found {}", args.len()),
+                "expected 1 argument (a `Vector`)",
+            ));
+            for &arg in args {
+                self.check_expr(arg, None);
+            }
+            return Type::Set(Box::new(Type::Unknown));
+        }
+
+        let elem_expected = match expected {
+            Some(Type::Set(elem)) => Some((**elem).clone()),
+            _ => None,
+        };
+        let arg_ty = match elem_expected {
+            Some(elem) => self.check_expect(args[0], &Type::vector(elem)),
+            None => self.check_expr(args[0], None),
+        };
+
+        match arg_ty {
+            Type::Vector(elem) => Type::Set(elem),
+            flexible if flexible.is_flexible() => Type::Set(Box::new(Type::Unknown)),
+            other => {
+                self.error(err_at(
+                    codes::T_MISMATCHED_TYPES,
+                    span,
+                    format!(
+                        "`Set` takes a `Vector`, found `{}`",
+                        other.display(self.hir)
+                    ),
+                    "expected a `Vector` argument",
+                ));
+                Type::Set(Box::new(Type::Unknown))
             }
         }
     }
@@ -2542,7 +2588,10 @@ impl<'a> Checker<'a> {
         expected: &Type,
     ) {
         match self.res.ctor_pattern_res.get(&id).copied() {
-            None => self.bind_patterns_unknown(args),
+            // Unresolved, and `Set` (which the resolver rejects in
+            // pattern position, so it never lands here with a
+            // resolution): bind the sub-patterns and move on.
+            None | Some(CtorRes::SetCtor) => self.bind_patterns_unknown(args),
             Some(CtorRes::OptionSome) => {
                 let inner = match expected {
                     Type::Option(inner) => (**inner).clone(),

@@ -240,6 +240,32 @@ let parsed = "42".toInt()
 );
 
 typecheck_test!(
+    set_ctor_and_zero_param_lambdas,
+    r#"
+let inferred = Set([1, 2, 2, 3])
+let annotated: Set<string> = Set(["a", "b"])
+let n = inferred.len()
+let seen = annotated.has?("a")
+
+let thunk = || 41 + 1
+let value = thunk()
+let effect = do ||
+  puts "ran"
+end
+effect()
+"#
+);
+
+typecheck_error_test!(
+    set_ctor_arity_and_argument_errors,
+    r#"
+let none = Set()
+let two = Set([1], [2])
+let bad = Set(1)
+"#
+);
+
+typecheck_test!(
     options_and_wrap,
     r#"
 struct Profile

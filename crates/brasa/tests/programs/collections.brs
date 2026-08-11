@@ -58,6 +58,37 @@ puts stock.remove("ash") ?? -1
 puts stock.len()
 puts stock
 
+# Set(vector): a set of the vector's contents, deduplicated by
+# structural equality, first occurrence kept.
+let tags = Set(["hot", "warm", "hot", "cold", "warm"])
+puts tags.len()
+puts tags.has?("cold")
+puts tags
+tags.add("ember")
+tags.add("hot")
+puts tags
+let counts: Set<int> = Set([2, 1, 2])
+puts counts
+
+# Zero-parameter lambdas capture like any other closure: locals by
+# value at creation (a rebind after creation is invisible), heap
+# contents shared (a push after creation is visible).
+def captureByValue(): int
+  let mut mark = 1
+  let peek = || mark
+  mark = 2
+  peek()
+end
+puts captureByValue()
+
+def captureShared(): int
+  let trail = [1]
+  let watch = || trail.len()
+  trail.push(2)
+  watch()
+end
+puts captureShared()
+
 let line = "  Brasa glows  "
 puts line.trim().toUpper()
 puts line.trim().split(" ").len()

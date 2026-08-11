@@ -404,7 +404,14 @@ impl<'a> Parser<'a> {
         (params, body)
     }
 
+    /// `||` lexes as one `OrOr` token, so an empty parameter list shows
+    /// up either as two `Pipe` tokens (`| |`) or as a single `OrOr`
+    /// (`||`); both spell a parameterless lambda
+    /// (`docs/spec/02-grammar.md`, ambiguity table).
     fn parse_lambda_params_if_present(&mut self) -> Vec<LambdaParam> {
+        if self.eat(TokenKind::OrOr).is_some() {
+            return Vec::new();
+        }
         if self.eat(TokenKind::Pipe).is_none() {
             return Vec::new();
         }
@@ -507,7 +514,10 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => self.parse_group(),
             TokenKind::LBracket => self.parse_vector_lit(),
             TokenKind::LBrace => self.parse_map_lit(),
-            TokenKind::Pipe => self.parse_lambda_expr(),
+            // A leading `||` can never be logical or (there is no left
+            // operand yet), so it reads as an empty lambda parameter
+            // list: `|| expr` is a thunk.
+            TokenKind::Pipe | TokenKind::OrOr => self.parse_lambda_expr(),
             TokenKind::If => {
                 let node = self.parse_if();
                 let end = self.span_before_cursor(self.pos);

@@ -149,8 +149,9 @@ impl<'a> Cx<'a> {
 
     fn lower_ctor(&self, id: PatternId, args: &[PatternId], ty: &Type) -> Pat {
         match self.res.ctor_pattern_res.get(&id).copied() {
-            // Unresolved constructor: the resolver already errored.
-            None => Pat::Wild,
+            // Unresolved constructor (the resolver already errored) and
+            // `Set`, which never resolves in pattern position.
+            None | Some(CtorRes::SetCtor) => Pat::Wild,
             Some(CtorRes::OptionSome) => match ty {
                 Type::Option(inner) if args.len() == 1 => {
                     Pat::Ctor(Ctor::OptionSome, vec![self.lower(args[0], inner)])

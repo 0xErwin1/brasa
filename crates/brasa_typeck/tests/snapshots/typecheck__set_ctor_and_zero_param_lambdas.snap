@@ -1,0 +1,42 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 inferred -> Set<int>
+  i1 annotated -> Set<string>
+  i2 n -> int
+  i3 seen -> bool
+  i4 thunk -> () -> int
+  i5 value -> int
+  i6 effect -> () -> unit
+expr types
+  e0 -> int
+  e1 -> int
+  e2 -> int
+  e3 -> int
+  e4 -> Vector<int>
+  e5 -> Set<int>
+  e6 -> string
+  e7 -> string
+  e8 -> Vector<string>
+  e9 -> Set<string>
+  e10 -> Set<int>
+  e11 -> () -> int
+  e12 -> int
+  e13 -> Set<string>
+  e14 -> (string) -> bool
+  e15 -> string
+  e16 -> bool
+  e17 -> int
+  e18 -> int
+  e19 -> int
+  e20 -> () -> int
+  e21 -> () -> int
+  e22 -> int
+  e23 -> (unknown) -> unit
+  e24 -> string
+  e25 -> unit
+  e26 -> () -> unit
+  e27 -> () -> unit
+  e28 -> unit

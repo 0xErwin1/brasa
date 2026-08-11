@@ -205,6 +205,23 @@ end
 "#
 );
 
+resolution_test!(
+    set_ctor_resolves_in_expression_position,
+    r#"
+let s = Set([1, 2, 3])
+"#
+);
+
+resolution_error_test!(
+    set_ctor_is_rejected_in_pattern_position,
+    r#"
+match 1
+  Set(x) => puts x
+  _ => puts "no"
+end
+"#
+);
+
 resolution_error_test!(
     duplicate_definitions,
     r#"

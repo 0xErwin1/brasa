@@ -83,7 +83,8 @@ pub(crate) struct PanicValue {
 /// signal classes of `docs/spec/04-errors.md`; `Fatal` is an
 /// interpreter-level failure no program construct can catch (module not
 /// available, internal invariant breaks, I/O failure on the output
-/// stream).
+/// stream). `BrokenPipe` singles out a closed output stream so the CLI
+/// can exit silently like standard Unix tools.
 #[derive(Debug)]
 pub(crate) enum Signal {
     Return(Value),
@@ -92,6 +93,7 @@ pub(crate) enum Signal {
     Error(Value),
     Panic(PanicValue),
     Fatal(String),
+    BrokenPipe,
 }
 
 pub(crate) type EvalResult<T = Value> = Result<T, Signal>;
@@ -663,6 +665,22 @@ impl<'a> Interp<'a> {
                 _ => Err(self.fatal("brasa: `Some` takes exactly 1 argument")),
             },
             Some(CtorRes::OptionNone) => Ok(Value::NONE),
+            // `Set(v)` is a set of the vector's contents: elements
+            // deduplicated by structural equality, first occurrence
+            // kept, insertion order preserved.
+            Some(CtorRes::SetCtor) => match values.pop() {
+                Some(Value::Vector(items)) if values.is_empty() => {
+                    let items = items.borrow();
+                    let mut set: Vec<Value> = Vec::new();
+                    for item in items.iter() {
+                        if !set.iter().any(|existing| value_eq(existing, item)) {
+                            set.push(item.clone());
+                        }
+                    }
+                    Ok(Value::Set(Rc::new(std::cell::RefCell::new(set))))
+                }
+                _ => Err(self.fatal("brasa: `Set` takes exactly 1 Vector argument")),
+            },
             Some(CtorRes::EnumVariant {
                 enum_item,
                 variant_index,
@@ -954,7 +972,11 @@ impl<'a> Interp<'a> {
                 }
                 Ok(true)
             }
-            None => Err(self.fatal("brasa: unresolved constructor pattern")),
+            // `Set` never resolves in pattern position, so a resolved
+            // `SetCtor` here would be a resolver bug.
+            None | Some(CtorRes::SetCtor) => {
+                Err(self.fatal("brasa: unresolved constructor pattern"))
+            }
         }
     }
 
@@ -1055,6 +1077,9 @@ impl<'a> Interp<'a> {
             };
             return match result {
                 Ok(()) => Ok(Value::Unit),
+                // A closed read end (`brasa ... | head`) is not a
+                // program failure: standard Unix tools exit silently.
+                Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Err(Signal::BrokenPipe),
                 Err(err) => Err(self.fatal(format!("brasa: failed to write output: {err}"))),
             };
         }

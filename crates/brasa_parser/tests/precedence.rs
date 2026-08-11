@@ -92,6 +92,16 @@ snapshot_test!(
 );
 snapshot_test!(trailing_do_bare_ident, "spawn_task do |x|\n  puts x\nend");
 
+// -- (d2) zero-parameter lambdas -------------------------------------------
+// A leading `||` (one `OrOr` token) and the spaced `| |` (two `Pipe`
+// tokens) both spell an empty parameter list; `||` after an operand
+// stays logical or.
+
+snapshot_test!(lambda_zero_params_oror, "let f = || 42");
+snapshot_test!(lambda_zero_params_spaced, "let f = | | 42");
+snapshot_test!(lambda_zero_params_do, "let f = do ||\n  42\nend");
+snapshot_test!(lambda_oror_still_logical_or, "let b = x || y");
+
 // -- (e) error recovery -----------------------------------------------------
 
 #[test]

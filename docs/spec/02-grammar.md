@@ -201,13 +201,14 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | Case | Resolution |
 |------|------------|
 | `{` for map literal vs struct literal vs `do` block | struct lit requires a preceding `TYPE_IDENT {`; map lit only in expression position; blocks use `do/end`, never braces |
-| `|` for lambda vs `||` logical | `||` lexes as or; an empty lambda is written `| |` → the lexer only emits PIPE PIPE if there is a space: **decision: a parameterless lambda uses `do ... end` or `|_|`**, avoiding the case |
+| `\|` for lambda vs `\|\|` logical | `\|\|` lexes as one or-token, but at the START of an expression there is no left operand, so it can never be logical or: **decision: a leading `\|\|` is an empty lambda parameter list**. `\|\| expr`, the spaced `\| \| expr`, `do \|\| ... end`, and a bare `do ... end` all spell a parameterless lambda; elsewhere `\|\|` stays logical or |
 | `<` for generics vs comparison in expressions | generics only appear after `def f` / `TYPE_IDENT` in type position; in an expression, `<` is always comparison (no turbofish in v1) |
 | `if` expression vs statement | same node; the checker types it when all branches match |
 | `puts` | not a keyword: it's a stdlib function (`io.puts`, re-exported to the prelude) |
 | inline `if` vs multi-line | the token after the condition decides: `then` → inline form (single-expression branches), `NL` → block form |
 | call vs field | parentheses are **mandatory** in calls in expression position: `v.len()` calls, `p.x` is field access. Exceptions: statement-position command calls and trailing `do`-blocks (see below) |
 | command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`). A leading `-` binds as binary subtraction, not as a negative first argument: `puts -x` is `puts - x`; write `puts(-x)` |
+| command call vs indexing | a `[` after the callee binds as postfix indexing, not as a vector-literal first argument: `puts [1, 2]` parses as `puts[1, 2]` and fails. Bind the vector first (`let v = [1, 2]` then `puts v`) or use parentheses (`puts([1, 2])`) |
 | unknown escapes | `\<c>` for any `c` outside the escape set (`\n \t \" \\ \#`) is an ERROR in both string and char literals — never silently dropped or passed through. Raw strings are unaffected (no escapes at all) |
 | `?`/`!` ident suffix vs `?.` / `!=` operators | the operator wins: `foo?.bar` is ALWAYS safe-nav (`foo` + `?.`), and `foo!=x` is always `foo != x`. The suffix is absorbed into the ident in any other context (`isDir?`, `isDir?()`). To chain on a predicate: `(x.valid?).toString()` |
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |

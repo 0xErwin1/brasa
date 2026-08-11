@@ -53,6 +53,10 @@ pub enum Outcome {
     Panic {
         message: String,
     },
+    /// The output stream's read end closed mid-write (`EPIPE`, e.g.
+    /// `brasa script.brs | head`). Standard Unix tools treat this as a
+    /// silent, successful exit, so the CLI reports nothing and exits 0.
+    BrokenPipe,
 }
 
 /// Runs the program rooted at `roots`, writing its output to `out`.
@@ -114,6 +118,7 @@ fn finish(interp: &mut Interp<'_>, result: Result<(), Signal>) -> Outcome {
             Outcome::Panic { message }
         }
         Err(Signal::Fatal(message)) => Outcome::Error { message },
+        Err(Signal::BrokenPipe) => Outcome::BrokenPipe,
         // `return`/`break`/`continue` escaping to the top level would be
         // a checker bug; surface it instead of hiding it.
         Err(Signal::Return(_) | Signal::Break | Signal::Continue) => Outcome::Error {

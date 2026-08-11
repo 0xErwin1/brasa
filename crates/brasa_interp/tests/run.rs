@@ -1,11 +1,13 @@
 //! End-to-end interpreter tests: full frontend pipeline into [`run`],
 //! capturing program output through the injectable writer.
 
+use std::io::Write;
+
 use brasa_interp::{Outcome, run_with_depth};
 
 /// Compiles `source` through the whole frontend (it must be clean) and
-/// runs it with the given call-depth limit, capturing stdout.
-fn execute(source: &str, max_depth: usize) -> (Outcome, String) {
+/// runs it with the given call-depth limit, writing into `out`.
+fn run_into<W: Write + Send>(source: &str, out: &mut W, max_depth: usize) -> Outcome {
     let mut sources = brasa_source::SourceMap::new();
     let file = sources.add_file("test.brs", source.to_string());
 
@@ -30,16 +32,53 @@ fn execute(source: &str, max_depth: usize) -> (Outcome, String) {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let mut out = Vec::new();
-    let outcome = run_with_depth(
+    run_with_depth(
         &lowered.hir,
         &lowered.roots,
         &resolved.resolutions,
         &checked.types,
-        &mut out,
+        out,
         max_depth,
-    );
+    )
+}
+
+/// [`run_into`] capturing stdout as a string.
+fn execute(source: &str, max_depth: usize) -> (Outcome, String) {
+    let mut out = Vec::new();
+    let outcome = run_into(source, &mut out, max_depth);
     (outcome, String::from_utf8(out).expect("output is UTF-8"))
+}
+
+/// A writer whose every write fails with the given error kind.
+struct FailingWriter(std::io::ErrorKind);
+
+impl Write for FailingWriter {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(self.0, "injected write failure"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn broken_pipe_on_write_becomes_the_silent_broken_pipe_outcome() {
+    let mut out = FailingWriter(std::io::ErrorKind::BrokenPipe);
+    let outcome = run_into("puts \"hi\"\n", &mut out, 64);
+
+    assert_eq!(outcome, Outcome::BrokenPipe);
+}
+
+#[test]
+fn other_write_errors_stay_fatal() {
+    let mut out = FailingWriter(std::io::ErrorKind::Other);
+    let outcome = run_into("puts \"hi\"\n", &mut out, 64);
+
+    let Outcome::Error { message } = outcome else {
+        panic!("expected an error outcome, got {outcome:?}");
+    };
+    assert!(message.contains("failed to write output"), "{message}");
 }
 
 #[test]

@@ -41,6 +41,15 @@ use crate::tables::{
     TypeRes,
 };
 
+/// Which position a constructor name was written in. The builtin `Set`
+/// constructor only exists in expression position; `Set(...)` in a
+/// pattern is an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CtorPosition {
+    Expr,
+    Pattern,
+}
+
 /// The std modules that exist in v1 (`docs/spec/05-stdlib.md`).
 pub(crate) const STD_MODULES: &[&str] = &["fs", "io", "json", "math", "proc", "rand", "re", "time"];
 
@@ -868,7 +877,7 @@ impl<'h> Resolver<'h> {
             }
             Expr::EnumCtor { name, args } => {
                 let span = hir.span_of_expr(id);
-                if let Some(ctor) = self.resolve_ctor(name, span) {
+                if let Some(ctor) = self.resolve_ctor(name, span, CtorPosition::Expr) {
                     self.res.ctor_expr_res.insert(id, ctor);
                 }
                 for &arg in args {
@@ -904,7 +913,7 @@ impl<'h> Resolver<'h> {
             }
             Pattern::Ctor { name, args } => {
                 let span = hir.span_of_pattern(id);
-                if let Some(ctor) = self.resolve_ctor(name, span) {
+                if let Some(ctor) = self.resolve_ctor(name, span, CtorPosition::Pattern) {
                     self.res.ctor_pattern_res.insert(id, ctor);
                 }
                 for &arg in args {
@@ -921,17 +930,21 @@ impl<'h> Resolver<'h> {
 
     // --- constructors --------------------------------------------------
 
-    /// Candidates are `Some`/`None` plus every variant of every enum in
+    /// Candidates are `Some`/`None`, the builtin `Set` constructor
+    /// (expression position only), plus every variant of every enum in
     /// scope. Exactly one candidate resolves; zero or several are errors
     /// (the type checker may refine ambiguity with expected types in a
     /// later milestone).
-    fn resolve_ctor(&mut self, name: &str, span: Span) -> Option<CtorRes> {
+    fn resolve_ctor(&mut self, name: &str, span: Span, position: CtorPosition) -> Option<CtorRes> {
         let hir = self.hir;
         let mut candidates: Vec<(CtorRes, &str)> = Vec::new();
 
         match name {
             "Some" => candidates.push((CtorRes::OptionSome, "Option")),
             "None" => candidates.push((CtorRes::OptionNone, "Option")),
+            "Set" if position == CtorPosition::Expr => {
+                candidates.push((CtorRes::SetCtor, "Set"));
+            }
             _ => {}
         }
 
@@ -955,12 +968,21 @@ impl<'h> Resolver<'h> {
         match candidates.len() {
             1 => Some(candidates[0].0),
             0 => {
-                self.error(err_at(
-                    codes::R_UNKNOWN_CONSTRUCTOR,
-                    span,
-                    format!("unknown constructor `{name}`"),
-                    "not found in this scope",
-                ));
+                if name == "Set" && position == CtorPosition::Pattern {
+                    self.error(err_at(
+                        codes::R_UNKNOWN_CONSTRUCTOR,
+                        span,
+                        "`Set(...)` is not a valid pattern".to_string(),
+                        "`Set` only constructs values; match on the set's contents with its methods instead",
+                    ));
+                } else {
+                    self.error(err_at(
+                        codes::R_UNKNOWN_CONSTRUCTOR,
+                        span,
+                        format!("unknown constructor `{name}`"),
+                        "not found in this scope",
+                    ));
+                }
                 None
             }
             _ => {

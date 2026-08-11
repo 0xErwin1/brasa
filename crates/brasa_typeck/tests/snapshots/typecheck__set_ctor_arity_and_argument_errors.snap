@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T005] Error: `Set` takes exactly 1 argument, found 0
+   ╭─[ set_ctor_arity_and_argument_errors.brs:2:12 ]
+   │
+ 2 │ let none = Set()
+   │            ───┬──  
+   │               ╰──── expected 1 argument (a `Vector`)
+───╯
+[T005] Error: `Set` takes exactly 1 argument, found 2
+   ╭─[ set_ctor_arity_and_argument_errors.brs:3:11 ]
+   │
+ 3 │ let two = Set([1], [2])
+   │           ───────┬──────  
+   │                  ╰──────── expected 1 argument (a `Vector`)
+───╯
+[T001] Error: `Set` takes a `Vector`, found `int`
+   ╭─[ set_ctor_arity_and_argument_errors.brs:4:11 ]
+   │
+ 4 │ let bad = Set(1)
+   │           ───┬───  
+   │              ╰───── expected a `Vector` argument
+───╯

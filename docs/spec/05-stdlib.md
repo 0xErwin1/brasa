@@ -114,6 +114,10 @@ proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
 - `Map<K, V>`: `len`, `keys`, `values`, `entries`, `insert`, `remove`,
   `has?`, `get` (≡ `[k]`, -> Option), `merge`, `each`.
 - `Set<T>`: `add`, `remove`, `has?`, `union`, `intersect`, `diff`.
+  Built with the `Set(v: Vector<T>) -> Set<T>` constructor
+  (`Set([1, 2, 3])`): a set of the vector's contents, deduplicated by
+  structural equality, first occurrence kept, insertion order
+  preserved. `Set(...)` is constructor-only; it is not a pattern.
 
 ## Out of v1
 
