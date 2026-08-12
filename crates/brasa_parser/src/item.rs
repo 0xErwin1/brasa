@@ -47,10 +47,36 @@ impl<'a> Parser<'a> {
     /// consumed everything belonging to it.
     pub(crate) fn span_before_cursor(&self, checkpoint: usize) -> Span {
         if self.pos > checkpoint {
-            self.tokens[self.pos - 1].span
+            self.prev_span()
         } else {
             self.span()
         }
+    }
+
+    /// The span of the last meaningful token consumed: where a node built
+    /// out of an already-parsed run of tokens ends.
+    ///
+    /// Distinct from [`Self::span_before_cursor`], which answers the same
+    /// question only when handed a checkpoint from *before* the parse —
+    /// passing it the current position always falls through to the
+    /// current, unconsumed token instead, which would stretch the node's
+    /// span over the token that follows it.
+    ///
+    /// Newlines are skipped because [`Parser::normalize`] runs on every
+    /// bump: inside brackets the cursor is already past the newlines that
+    /// followed the token just consumed, and they are not part of the
+    /// node that consumed it.
+    pub(crate) fn prev_span(&self) -> Span {
+        let mut index = self.pos;
+
+        while index > 0 {
+            index -= 1;
+            if self.tokens[index].kind != TokenKind::Newline {
+                return self.tokens[index].span;
+            }
+        }
+
+        self.span()
     }
 
     fn parse_import(&mut self, start: Span) -> ItemId {
@@ -74,7 +100,7 @@ impl<'a> Parser<'a> {
             ImportPath::Std(segments)
         };
 
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
         self.ast
             .alloc_item(Item::Import(Import { path }), Span::merge(&start, &end))
     }
@@ -434,7 +460,7 @@ impl<'a> Parser<'a> {
 
     fn parse_top_let(&mut self, is_pub: bool, start: Span) -> ItemId {
         let let_stmt = self.parse_let_stmt_inner();
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
 
         self.ast.alloc_item(
             Item::TopLet(TopLet { is_pub, let_stmt }),

@@ -6,8 +6,8 @@ expression: rendered
    ╭─[ env_module_call_errors.bras:4:1 ]
    │
  4 │ env.get()
-   │ ─────┬────  
-   │      ╰────── expected 1 argument(s)
+   │ ────┬────  
+   │     ╰────── expected 1 argument(s)
 ───╯
 [T001] Error: mismatched types: expected `string`, found `int`
    ╭─[ env_module_call_errors.bras:5:14 ]
@@ -20,6 +20,6 @@ expression: rendered
    ╭─[ env_module_call_errors.bras:6:1 ]
    │
  6 │ env.unknown("x")
-   │ ────────┬────────  
-   │         ╰────────── unknown member
+   │ ────────┬───────  
+   │         ╰───────── unknown member
 ───╯

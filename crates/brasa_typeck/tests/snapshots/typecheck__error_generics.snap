@@ -6,8 +6,8 @@ expression: rendered
     ╭─[ error_generics.bras:15:3 ]
     │
  15 │   a > b
-    │   ───┬──  
-    │      ╰──── only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered
+    │   ──┬──  
+    │     ╰──── only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered
 ────╯
 [T025] Error: interfaces cannot be used as types in v1; use a generic constraint
     ╭─[ error_generics.bras:18:17 ]
@@ -27,8 +27,8 @@ expression: rendered
     ╭─[ error_generics.bras:27:3 ]
     │
  27 │   value.shout()
-    │   ───────┬──────  
-    │          ╰──────── unknown method
+    │   ──────┬──────  
+    │         ╰──────── unknown method
     │ 
     │ Note: only the constraint's members and the universal `toString` are available on a generic value
 ────╯
@@ -36,8 +36,8 @@ expression: rendered
     ╭─[ error_generics.bras:30:13 ]
     │
  30 │ let clash = maxOf(Box { value: 1 }, Box { value: 2 })
-    │             ─────────────────────┬────────────────────  
-    │                                  ╰────────────────────── constraint not satisfied
+    │             ────────────────────┬────────────────────  
+    │                                 ╰────────────────────── constraint not satisfied
     │ 
     │ Note: `Box` has no member `cmp` with a compatible signature
 ────╯
@@ -45,13 +45,13 @@ expression: rendered
     ╭─[ error_generics.bras:31:15 ]
     │
  31 │ let nothing = emptyOf()
-    │               ─────┬────  
-    │                    ╰────── no argument determines it
+    │               ────┬────  
+    │                   ╰────── no argument determines it
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_generics.bras:32:25 ]
     │
  32 │ let conflict = maxOf(1, "x")
-    │                         ──┬─  
-    │                           ╰─── expected `int`
+    │                         ─┬─  
+    │                          ╰─── expected `int`
 ────╯

@@ -13,29 +13,29 @@ expression: rendered
    ╭─[ json_and_io_module_call_errors.bras:6:16 ]
    │
  6 │ json.stringify("not json")
-   │                ─────┬─────  
-   │                     ╰─────── expected `Json`
+   │                ─────┬────  
+   │                     ╰────── expected `Json`
 ───╯
 [T007] Error: module `json` has no member `decode`
    ╭─[ json_and_io_module_call_errors.bras:7:1 ]
    │
  7 │ json.decode("typed bridge is v2")
-   │ ─────────────────┬────────────────  
-   │                  ╰────────────────── unknown member
+   │ ────────────────┬────────────────  
+   │                 ╰────────────────── unknown member
 ───╯
 [T005] Error: wrong number of arguments: expected 0, found 1
    ╭─[ json_and_io_module_call_errors.bras:8:1 ]
    │
  8 │ io.readLine("no args")
-   │ ───────────┬───────────  
-   │            ╰───────────── expected 0 argument(s)
+   │ ───────────┬──────────  
+   │            ╰──────────── expected 0 argument(s)
 ───╯
 [T007] Error: module `io` has no member `nope`
    ╭─[ json_and_io_module_call_errors.bras:9:1 ]
    │
  9 │ io.nope()
-   │ ─────┬────  
-   │      ╰────── unknown member
+   │ ────┬────  
+   │     ╰────── unknown member
 ───╯
 [T001] Error: mismatched types: expected `string` or `int`, found `bool`
     ╭─[ json_and_io_module_call_errors.bras:12:6 ]
@@ -48,6 +48,6 @@ expression: rendered
     ╭─[ json_and_io_module_call_errors.bras:13:1 ]
     │
  13 │ data.asChar()
-    │ ───────┬──────  
-    │        ╰──────── unknown method
+    │ ──────┬──────  
+    │       ╰──────── unknown method
 ────╯

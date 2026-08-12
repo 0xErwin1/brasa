@@ -20,15 +20,15 @@ expression: rendered
     ╭─[ error_hashable_keys.bras:11:14 ]
     │
  11 │ let nested = Set([[1], [2]])
-    │              ────────┬───────  
-    │                      ╰───────── not `Hashable`
+    │              ───────┬───────  
+    │                     ╰───────── not `Hashable`
 ────╯
 [T031] Error: `Point` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
     ╭─[ error_hashable_keys.bras:12:17 ]
     │
  12 │ let byPoint = { Point { x: 1 }: "origin" }
-    │                 ───────┬───────  
-    │                        ╰───────── not `Hashable`
+    │                 ───────┬──────  
+    │                        ╰──────── not `Hashable`
 ────╯
 [T031] Error: `(int, Vector<int>)` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those
     ╭─[ error_hashable_keys.bras:13:19 ]

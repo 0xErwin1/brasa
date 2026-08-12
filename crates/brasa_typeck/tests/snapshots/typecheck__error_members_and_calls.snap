@@ -6,22 +6,22 @@ expression: rendered
     ╭─[ error_members_and_calls.bras:12:11 ]
     │
  12 │   let a = p.z
-    │           ──┬─  
-    │             ╰─── unknown member
+    │           ─┬─  
+    │            ╰─── unknown member
 ────╯
 [T005] Error: wrong number of arguments: expected 0, found 1
     ╭─[ error_members_and_calls.bras:13:11 ]
     │
  13 │   let b = p.sum(1)
-    │           ────┬────  
-    │               ╰────── expected 0 argument(s)
+    │           ────┬───  
+    │               ╰───── expected 0 argument(s)
 ────╯
 [T022] Error: missing field `y` in struct literal of `Point`
     ╭─[ error_members_and_calls.bras:14:13 ]
     │
  14 │   let lit = Point { x: 1, z: 3 }
-    │             ──────────┬──────────  
-    │                       ╰──────────── field not provided
+    │             ──────────┬─────────  
+    │                       ╰─────────── field not provided
 ────╯
 [T020] Error: unknown field `z` on struct `Point`
     ╭─[ error_members_and_calls.bras:14:30 ]
@@ -34,41 +34,41 @@ expression: rendered
     ╭─[ error_members_and_calls.bras:15:26 ]
     │
  15 │   let pushed = nums.push("no")
-    │                          ──┬──  
-    │                            ╰──── expected `int`
+    │                          ──┬─  
+    │                            ╰─── expected `int`
 ────╯
 [T007] Error: no method `shove` on `Vector<int>`
     ╭─[ error_members_and_calls.bras:16:16 ]
     │
  16 │   let shoved = nums.shove(1)
-    │                ───────┬──────  
-    │                       ╰──────── unknown method
+    │                ──────┬──────  
+    │                      ╰──────── unknown method
 ────╯
 [T008] Error: `join` requires `Vector<string>`, found `Vector<int>`
     ╭─[ error_members_and_calls.bras:17:15 ]
     │
  17 │   let glued = nums.join(", ")
-    │               ────────┬───────  
-    │                       ╰───────── element type is not `string`
+    │               ───────┬───────  
+    │                      ╰───────── element type is not `string`
 ────╯
 [T005] Error: wrong number of arguments: expected 2, found 1
     ╭─[ error_members_and_calls.bras:25:9 ]
     │
  25 │ let r = two(1)
-    │         ───┬───  
-    │            ╰───── expected 2 argument(s)
+    │         ───┬──  
+    │            ╰──── expected 2 argument(s)
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_members_and_calls.bras:26:16 ]
     │
  26 │ let q = two(1, "x")
-    │                ──┬─  
-    │                  ╰─── expected `int`
+    │                ─┬─  
+    │                 ╰─── expected `int`
 ────╯
 [T006] Error: cannot call a value of type `int`
     ╭─[ error_members_and_calls.bras:27:14 ]
     │
  27 │ let called = two(1, 2)(3)
-    │              ──────┬──────  
-    │                    ╰──────── not callable
+    │              ──────┬─────  
+    │                    ╰─────── not callable
 ────╯

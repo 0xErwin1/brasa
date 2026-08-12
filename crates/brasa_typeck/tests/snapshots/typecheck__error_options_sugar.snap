@@ -24,8 +24,8 @@ expression: rendered
     ╭─[ error_options_sugar.bras:10:16 ]
     │
  10 │   let y = a ?? "fallback"
-    │                ─────┬─────  
-    │                     ╰─────── expected `int`
+    │                ─────┬────  
+    │                     ╰────── expected `int`
 ────╯
 [T030] Error: `??` fallback has type `Option<int>`, but the `Option` carries `int`
     ╭─[ error_options_sugar.bras:11:16 ]
@@ -40,6 +40,6 @@ expression: rendered
     ╭─[ error_options_sugar.bras:12:11 ]
     │
  12 │   let u = User { name: "ana" }
-    │           ──────────┬──────────  
-    │                     ╰──────────── field not provided
+    │           ──────────┬─────────  
+    │                     ╰─────────── field not provided
 ────╯

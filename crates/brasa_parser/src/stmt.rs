@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
             TokenKind::Throw => self.parse_throw(start),
             TokenKind::If => {
                 let node = self.parse_if();
-                let end = self.span_before_cursor(self.pos);
+                let end = self.prev_span();
                 self.ast
                     .alloc_stmt(Stmt::If(node), Span::merge(&start, &end))
             }
@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
 
     fn parse_let(&mut self, start: Span) -> StmtId {
         let let_stmt = self.parse_let_stmt_inner();
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
         self.ast
             .alloc_stmt(Stmt::Let(let_stmt), Span::merge(&start, &end))
     }
@@ -147,7 +147,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
         self.ast
             .alloc_stmt(Stmt::Return(value), Span::merge(&start, &end))
     }
@@ -155,7 +155,7 @@ impl<'a> Parser<'a> {
     fn parse_throw(&mut self, start: Span) -> StmtId {
         self.bump(); // 'throw'
         let value = self.parse_expr();
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
         self.ast
             .alloc_stmt(Stmt::Throw(value), Span::merge(&start, &end))
     }
@@ -179,7 +179,7 @@ impl<'a> Parser<'a> {
         };
 
         let Some(op) = op else {
-            let end = self.span_before_cursor(self.pos);
+            let end = self.prev_span();
             return self
                 .ast
                 .alloc_stmt(Stmt::Expr(target), Span::merge(&start, &end));
@@ -187,7 +187,7 @@ impl<'a> Parser<'a> {
 
         self.bump();
         let value = self.parse_expr();
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
 
         self.ast.alloc_stmt(
             Stmt::Assign { target, op, value },
@@ -220,7 +220,7 @@ impl<'a> Parser<'a> {
             args.push(self.parse_expr());
         }
 
-        let end = self.span_before_cursor(self.pos);
+        let end = self.prev_span();
         self.ast.alloc_expr(
             brasa_ast::Expr::Call { callee: expr, args },
             Span::merge(&start, &end),

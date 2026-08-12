@@ -15,11 +15,11 @@ expression: rendered
    ╭─[ duplicate_definitions.bras:4:3 ]
    │
  3 │   let a = 1
-   │   ─────┬────  
-   │        ╰────── previously defined here
+   │   ────┬────  
+   │       ╰────── previously defined here
  4 │   let a = 2
-   │   ─────┬────  
-   │        ╰────── redefined here
+   │   ────┬────  
+   │       ╰────── redefined here
 ───╯
 [R006] Error: duplicate definition of `twice`
    ╭─[ duplicate_definitions.bras:8:1 ]
@@ -45,8 +45,8 @@ expression: rendered
     │ ╰───────── previously defined here
     │ 
  11 │     let twice = 3
-    │     ───────┬──────  
-    │            ╰──────── redefined here
+    │     ──────┬──────  
+    │           ╰──────── redefined here
 ────╯
 [R006] Error: duplicate definition of `x`
     ╭─[ duplicate_definitions.bras:18:10 ]

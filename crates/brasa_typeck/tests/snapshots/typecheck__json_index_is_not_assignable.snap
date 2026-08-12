@@ -6,13 +6,13 @@ expression: rendered
    ╭─[ json_index_is_not_assignable.bras:5:1 ]
    │
  5 │ data["a"] = data["b"]
-   │ ───────────┬──────────  
-   │            ╰──────────── `Json` is immutable
+   │ ──────────┬──────────  
+   │           ╰──────────── `Json` is immutable
 ───╯
 [T009] Error: cannot assign into a `Json` value
    ╭─[ json_index_is_not_assignable.bras:6:1 ]
    │
  6 │ data["a"][0] = data["b"]
-   │ ────────────┬────────────  
-   │             ╰────────────── `Json` is immutable
+   │ ────────────┬───────────  
+   │             ╰───────────── `Json` is immutable
 ───╯

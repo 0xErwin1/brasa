@@ -6,8 +6,8 @@ expression: rendered
     ╭─[ comparable_is_not_satisfied_by_an_unrelated_constraint.bras:11:3 ]
     │
  11 │   maxOf(a, b)
-    │   ──────┬─────  
-    │         ╰─────── constraint not satisfied
+    │   ─────┬─────  
+    │        ╰─────── constraint not satisfied
     │ 
     │ Note: `U` has no member `cmp` with a compatible signature
 ────╯

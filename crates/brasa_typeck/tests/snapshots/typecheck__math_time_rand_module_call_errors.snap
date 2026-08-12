@@ -13,8 +13,8 @@ expression: rendered
    ╭─[ math_time_rand_module_call_errors.bras:7:10 ]
    │
  7 │ math.abs("x")
-   │          ──┬─  
-   │            ╰─── expected `int` or `float`
+   │          ─┬─  
+   │           ╰─── expected `int` or `float`
 ───╯
 [T001] Error: mismatched types: expected `int`, found `float`
    ╭─[ math_time_rand_module_call_errors.bras:8:13 ]
@@ -27,15 +27,15 @@ expression: rendered
    ╭─[ math_time_rand_module_call_errors.bras:9:1 ]
    │
  9 │ math.pi()
-   │ ─────┬────  
-   │      ╰────── not callable
+   │ ────┬────  
+   │     ╰────── not callable
 ───╯
 [T007] Error: module `math` has no member `nope`
     ╭─[ math_time_rand_module_call_errors.bras:10:1 ]
     │
  10 │ math.nope(1)
-    │ ──────┬──────  
-    │       ╰──────── unknown member
+    │ ──────┬─────  
+    │       ╰─────── unknown member
 ────╯
 [T001] Error: mismatched types: expected `int`, found `float`
     ╭─[ math_time_rand_module_call_errors.bras:11:12 ]
@@ -48,8 +48,8 @@ expression: rendered
     ╭─[ math_time_rand_module_call_errors.bras:12:1 ]
     │
  12 │ time.nope()
-    │ ──────┬─────  
-    │       ╰─────── unknown member
+    │ ─────┬─────  
+    │      ╰─────── unknown member
 ────╯
 [T001] Error: mismatched types: expected `Range`, found `int`
     ╭─[ math_time_rand_module_call_errors.bras:13:10 ]
@@ -62,13 +62,13 @@ expression: rendered
     ╭─[ math_time_rand_module_call_errors.bras:14:13 ]
     │
  14 │ rand.choice("abc")
-    │             ───┬──  
-    │                ╰──── expected `Vector<unknown>`
+    │             ──┬──  
+    │               ╰──── expected `Vector<unknown>`
 ────╯
 [T007] Error: module `rand` has no member `nope`
     ╭─[ math_time_rand_module_call_errors.bras:15:1 ]
     │
  15 │ rand.nope()
-    │ ──────┬─────  
-    │       ╰─────── unknown member
+    │ ─────┬─────  
+    │      ╰─────── unknown member
 ────╯

@@ -13,8 +13,8 @@ expression: rendered
    ╭─[ proc_module_call_errors.bras:5:1 ]
    │
  5 │ proc.run(["true"], "x", "y")
-   │ ──────────────┬──────────────  
-   │               ╰──────────────── expected 1 to 2 argument(s)
+   │ ──────────────┬─────────────  
+   │               ╰─────────────── expected 1 to 2 argument(s)
 ───╯
 [T001] Error: mismatched types: expected `string`, found `int`
    ╭─[ proc_module_call_errors.bras:6:12 ]
@@ -27,13 +27,13 @@ expression: rendered
    ╭─[ proc_module_call_errors.bras:7:1 ]
    │
  7 │ proc.nope()
-   │ ──────┬─────  
-   │       ╰─────── unknown member
+   │ ─────┬─────  
+   │      ╰─────── unknown member
 ───╯
 [T007] Error: no method `bogus` on `Output`
    ╭─[ proc_module_call_errors.bras:9:11 ]
    │
  9 │ let bad = r.bogus
-   │           ────┬───  
-   │               ╰───── unknown method
+   │           ───┬───  
+   │              ╰───── unknown method
 ───╯

@@ -6,8 +6,8 @@ expression: rendered
    ╭─[ coalesce_fallback_mismatch_and_contextless_literal_still_report.bras:3:21 ]
    │
  3 │ let wrong = ints ?? "x"
-   │                     ──┬─  
-   │                       ╰─── expected `Vector<int>`
+   │                     ─┬─  
+   │                      ╰─── expected `Vector<int>`
 ───╯
 [T030] Error: `??` fallback has type `Option<int>`, but the `Option` carries `int`
    ╭─[ coalesce_fallback_mismatch_and_contextless_literal_still_report.bras:6:25 ]

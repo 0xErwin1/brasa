@@ -6,8 +6,8 @@ expression: rendered
     ╭─[ a_generic_method_does_not_satisfy_a_fixed_interface_signature.bras:18:13 ]
     │
  18 │ let boxed = use(Impl { n: 1 })
-    │             ─────────┬─────────  
-    │                      ╰─────────── constraint not satisfied
+    │             ─────────┬────────  
+    │                      ╰────────── constraint not satisfied
     │ 
     │ Note: `Impl` has no member `box` with a compatible signature
 ────╯

@@ -6,8 +6,8 @@ expression: rendered
    ╭─[ self_imports_and_order.bras:2:1 ]
    │
  2 │ import std::teleport
-   │ ──────────┬──────────  
-   │           ╰──────────── no such std module
+   │ ──────────┬─────────  
+   │           ╰─────────── no such std module
    │ 
    │ Note: known std modules: env, fs, io, json, math, proc, rand, time
 ───╯
@@ -27,6 +27,6 @@ expression: rendered
    │      ──┬──  
    │        ╰──── used here
  9 │ let early = 1
-   │ ───────┬──────  
-   │        ╰──────── defined here
+   │ ──────┬──────  
+   │       ╰──────── defined here
 ───╯

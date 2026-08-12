@@ -20,8 +20,8 @@ expression: rendered
    ╭─[ unknown_names_types_and_ctors.bras:4:11 ]
    │
  4 │   let s = Nope { x: 1 }
-   │           ───────┬──────  
-   │                  ╰──────── not found in this scope
+   │           ──────┬──────  
+   │                 ╰──────── not found in this scope
 ───╯
 [R004] Error: unknown constructor `Whatever`
    ╭─[ unknown_names_types_and_ctors.bras:6:5 ]

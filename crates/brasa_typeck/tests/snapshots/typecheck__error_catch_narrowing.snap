@@ -6,13 +6,13 @@ expression: rendered
     ╭─[ error_catch_narrowing.bras:11:17 ]
     │
  11 │   ParseError => e.line
-    │                 ───┬───  
-    │                    ╰───── unknown member
+    │                 ───┬──  
+    │                    ╰──── unknown member
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_catch_narrowing.bras:12:8 ]
     │
  12 │   _ => "not an int"
-    │        ──────┬──────  
-    │              ╰──────── expected `int`
+    │        ──────┬─────  
+    │              ╰─────── expected `int`
 ────╯

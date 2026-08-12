@@ -24,8 +24,8 @@ expression: rendered
     ╭─[ error_constraint_annotations.bras:11:3 ]
     │
  11 │   Point { x: true }
-    │   ─────────┬────────  
-    │            ╰────────── constraint not satisfied
+    │   ────────┬────────  
+    │           ╰────────── constraint not satisfied
     │ 
     │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
@@ -42,8 +42,8 @@ expression: rendered
     ╭─[ error_constraint_annotations.bras:14:22 ]
     │
  14 │ let q: Point<bool> = Point { x: true }
-    │                      ─────────┬────────  
-    │                               ╰────────── constraint not satisfied
+    │                      ────────┬────────  
+    │                              ╰────────── constraint not satisfied
     │ 
     │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯

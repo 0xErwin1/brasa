@@ -6,8 +6,8 @@ expression: rendered
    ╭─[ error_operators.bras:3:15 ]
    │
  3 │   let mixed = a + b
-   │               ───┬──  
-   │                  ╰──── operands must be two `int`s or two `float`s
+   │               ──┬──  
+   │                 ╰──── operands must be two `int`s or two `float`s
    │ 
    │ Note: there are no implicit numeric conversions: convert explicitly with `toFloat()` or `toInt()`
 ───╯
@@ -15,15 +15,15 @@ expression: rendered
    ╭─[ error_operators.bras:4:17 ]
    │
  4 │   let bad_sub = s - s
-   │                 ───┬──  
-   │                    ╰──── operands must be two `int`s or two `float`s
+   │                 ──┬──  
+   │                   ╰──── operands must be two `int`s or two `float`s
 ───╯
 [T004] Error: cannot compare `int` and `string` with `<`
    ╭─[ error_operators.bras:5:15 ]
    │
  5 │   let cross = a < s
-   │               ───┬──  
-   │                  ╰──── both sides must have the same type
+   │               ──┬──  
+   │                 ╰──── both sides must have the same type
 ───╯
 [T001] Error: mismatched types: expected `bool`, found `int`
    ╭─[ error_operators.bras:6:25 ]
@@ -43,8 +43,8 @@ expression: rendered
    ╭─[ error_operators.bras:8:17 ]
    │
  8 │   let indexed = "abc"[0]
-   │                 ───┬──  
-   │                    ╰──── cannot index a string
+   │                 ──┬──  
+   │                   ╰──── cannot index a string
    │ 
    │ Note: use `chars()` or `slice(from, to)` instead
 ───╯

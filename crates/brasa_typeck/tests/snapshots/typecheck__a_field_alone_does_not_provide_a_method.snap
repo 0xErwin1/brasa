@@ -6,15 +6,15 @@ expression: rendered
     ╭─[ a_field_alone_does_not_provide_a_method.bras:15:6 ]
     │
  15 │ puts b.tag()
-    │      ────┬───  
-    │          ╰───── not callable
+    │      ───┬───  
+    │         ╰───── not callable
 ────╯
 [T027] Error: `Both` does not satisfy `Tagged`
     ╭─[ a_field_alone_does_not_provide_a_method.bras:16:6 ]
     │
  16 │ puts describe(b)
-    │      ──────┬─────  
-    │            ╰─────── constraint not satisfied
+    │      ─────┬─────  
+    │           ╰─────── constraint not satisfied
     │ 
     │ Note: `Both` has no member `tag` with a compatible signature
 ────╯
