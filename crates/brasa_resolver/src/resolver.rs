@@ -238,7 +238,10 @@ impl<'h> Resolver<'h> {
                     self.check_enum_hygiene(def);
                     self.enums.push(root);
                 }
-                Item::InterfaceDef(def) => self.declare_module_type(&def.name, root, span),
+                Item::InterfaceDef(def) => {
+                    self.declare_module_type(&def.name, root, span);
+                    self.check_member_hygiene(&def.methods);
+                }
                 Item::Stmt(_) => {}
             }
         }
@@ -267,26 +270,49 @@ impl<'h> Resolver<'h> {
     }
 
     /// Struct definition hygiene (BRS-57): fields and methods share one
-    /// member namespace, so a method that repeats a field name is a
-    /// duplicate-definition error just like a repeated field is. A
-    /// struct body may interleave fields and methods, so the labels are
-    /// ordered by position rather than by which list the member came
-    /// from.
+    /// member namespace, so a method that repeats a field name — or an
+    /// earlier method's name — is a duplicate-definition error just
+    /// like a repeated field is. A struct body may interleave fields
+    /// and methods, so the labels are ordered by position rather than
+    /// by which list the member came from.
     fn check_struct_hygiene(&mut self, def: &'h StructDef) {
-        let fields = self.check_duplicate_fields(&def.fields);
+        let mut seen = self.check_duplicate_fields(&def.fields);
 
+        // One namespace, so a method collides with an earlier field AND
+        // with an earlier method. The first declaration keeps the slot,
+        // matching `check_enum_hygiene`: a triple `a`/`a`/`a` blames
+        // both later ones on the first rather than chaining.
         for method in &def.methods {
-            let Some(&field_span) = fields.get(method.name.as_str()) else {
+            let Some(&prev) = seen.get(method.name.as_str()) else {
+                seen.insert(&method.name, method.name_span);
                 continue;
             };
 
-            let (prev_span, span) = if field_span.start <= method.name_span.start {
-                (field_span, method.name_span)
+            let (prev_span, span) = if prev.start <= method.name_span.start {
+                (prev, method.name_span)
             } else {
-                (method.name_span, field_span)
+                (method.name_span, prev)
             };
 
             self.duplicate_error(&method.name, span, prev_span);
+        }
+    }
+
+    /// Interface member hygiene, for a named `interface` and for an
+    /// anonymous inline constraint alike: one member namespace, like a
+    /// struct's. A repeated member is worse than dead code here — a
+    /// second declaration at a different signature makes the interface
+    /// unsatisfiable by construction, and the failure surfaces later as
+    /// a satisfaction error blaming an innocent type.
+    fn check_member_hygiene(&mut self, members: &'h [IfaceMember]) {
+        let mut seen: HashMap<&'h str, Span> = HashMap::new();
+
+        for member in members {
+            if let Some(&prev_span) = seen.get(member.name.as_str()) {
+                self.duplicate_error(&member.name, member.name_span, prev_span);
+            } else {
+                seen.insert(&member.name, member.name_span);
+            }
         }
     }
 
@@ -522,6 +548,7 @@ impl<'h> Resolver<'h> {
                     );
                     self.type_frames.push(self_frame);
 
+                    self.check_member_hygiene(members);
                     for member in members {
                         self.resolve_iface_member(member);
                     }

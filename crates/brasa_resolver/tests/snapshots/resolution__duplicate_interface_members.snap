@@ -1,0 +1,33 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R006] Error: duplicate definition of `greet`
+   ╭─[ duplicate_interface_members.brs:4:7 ]
+   │
+ 3 │   def greet(self): string
+   │       ──┬──  
+   │         ╰──── previously defined here
+ 4 │   def greet(self): string
+   │       ──┬──  
+   │         ╰──── redefined here
+───╯
+[R006] Error: duplicate definition of `size`
+   ╭─[ duplicate_interface_members.brs:9:7 ]
+   │
+ 8 │   def size(self): int
+   │       ──┬─  
+   │         ╰─── previously defined here
+ 9 │   def size(self): string
+   │       ──┬─  
+   │         ╰─── redefined here
+───╯
+[R006] Error: duplicate definition of `a`
+    ╭─[ duplicate_interface_members.brs:12:39 ]
+    │
+ 12 │ def inline<T: { def a(self): int, def a(self): int }>(t: T): int
+    │                     ┬                 ┬  
+    │                     ╰──────────────────── previously defined here
+    │                                       │  
+    │                                       ╰── redefined here
+────╯

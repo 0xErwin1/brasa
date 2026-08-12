@@ -346,6 +346,67 @@ end
 // method may not repeat a field name (BRS-57). `Shadowed` is the
 // soundness case the rejection closes: the checker used to type
 // `b.tag()` from the field while both runtimes dispatched the method.
+// Fields and methods share one namespace, so a method collides with an
+// earlier METHOD too, not only with a field. The triple pins that the
+// first declaration keeps the slot: both later ones are blamed on it
+// rather than chaining, matching how repeated enum variants report.
+resolution_error_test!(
+    duplicate_struct_methods,
+    r#"
+struct Counter
+  n: int
+
+  def label(self): string
+    "first"
+  end
+
+  def label(self): string
+    "second"
+  end
+end
+
+struct Triple
+  def a(self): int
+    1
+  end
+
+  def a(self): int
+    2
+  end
+
+  def a(self): int
+    3
+  end
+end
+"#
+);
+
+// A repeated interface member is worse than dead code: a second
+// declaration at a DIFFERENT signature makes the interface
+// unsatisfiable by construction, and without this the failure surfaced
+// later as a satisfaction error blaming an innocent type.
+//
+// An ANONYMOUS inline constraint is the same namespace and gets the
+// same check — it was the third place this defect lived.
+resolution_error_test!(
+    duplicate_interface_members,
+    r#"
+interface Greeter
+  def greet(self): string
+  def greet(self): string
+end
+
+interface Widened
+  def size(self): int
+  def size(self): string
+end
+
+def inline<T: { def a(self): int, def a(self): int }>(t: T): int
+  t.a()
+end
+"#
+);
+
 // `Reversed` declares the method first, pinning that the labels follow
 // source order rather than the field/method split. A callable field
 // with no same-named method (`Fine`) stays legal.

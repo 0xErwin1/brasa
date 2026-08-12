@@ -144,9 +144,17 @@ Notes on kind boundaries:
   literals, and named constraints.
 - `R006` covers every same-scope name clash: items, locals, generic
   parameters, struct/variant fields, and enum variants. A struct's
-  fields and its methods are one member namespace, so a method may not
-  repeat a field name either; the labels follow source order, since a
-  struct body may interleave the two. A field holding a callable stays
+  fields and its methods are one member namespace, so a method may
+  repeat neither a field name nor an earlier METHOD name; the labels
+  follow source order, since a struct body may interleave the two, and
+  the first declaration keeps the slot, so a name declared three times
+  blames both later ones on the first. An interface's members are one
+  namespace on the same terms — a repeated member there is worse than
+  dead code, because a second declaration at a different signature
+  makes the interface unsatisfiable by construction and the failure
+  would otherwise surface as a satisfaction error blaming an innocent
+  type. An anonymous inline constraint is the same namespace and gets
+  the same check. A field holding a callable stays
   a legitimate way to provide a member (`07-bytecode.md`, "Dispatch
   through a generic constraint") — only the collision is rejected.
 - `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
