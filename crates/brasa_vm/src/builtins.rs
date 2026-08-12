@@ -16,7 +16,7 @@ use brasa_interp::table::{OrderedMap, OrderedSet};
 use brasa_interp::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
-use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
+use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
 /// The canonical qualified name of the native `string` parse error
 /// (mirrors `brasa_resolver::STRING_PARSE_ERROR`).
@@ -786,38 +786,38 @@ impl Vm<'_> {
             }
             ("map", [f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                let mut mapped = Vec::with_capacity(snapshot.len());
-                for item in snapshot {
-                    mapped.push(self.call_callable(f.clone(), vec![item])?);
-                }
+                let f = f.clone();
+                let mapped = self.collect_rooted(recv, snapshot, |this, item| {
+                    this.call_callable(f.clone(), vec![item]).map(Some)
+                })?;
                 Ok(self.heap.alloc_vector(mapped))
             }
             ("filter", [f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                let mut kept = Vec::new();
-                for item in snapshot {
-                    match self.call_callable(f.clone(), vec![item.clone()])? {
-                        Value::Bool(true) => kept.push(item),
-                        Value::Bool(false) => {}
-                        _ => {
-                            return Err(Signal::Fatal(
-                                "brasa: `filter` predicate must return a bool".to_string(),
-                            ));
-                        }
+                let f = f.clone();
+                let kept = self.collect_rooted(recv, snapshot, |this, item| {
+                    match this.call_callable(f.clone(), vec![item.clone()])? {
+                        Value::Bool(true) => Ok(Some(item)),
+                        Value::Bool(false) => Ok(None),
+                        _ => Err(Signal::Fatal(
+                            "brasa: `filter` predicate must return a bool".to_string(),
+                        )),
                     }
-                }
+                })?;
                 Ok(self.heap.alloc_vector(kept))
             }
             ("each", [f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                for item in snapshot {
-                    self.call_callable(f.clone(), vec![item])?;
-                }
+                let f = f.clone();
+                self.collect_rooted(recv, snapshot, |this, item| {
+                    this.call_callable(f.clone(), vec![item])?;
+                    Ok(None)
+                })?;
                 Ok(Value::Unit)
             }
             ("sortBy", [f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                self.sort_by(snapshot, f.clone())
+                self.sort_by(recv, snapshot, f.clone())
             }
             ("sort", []) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
@@ -825,47 +825,43 @@ impl Vm<'_> {
             }
             ("reduce", [init, f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                let mut acc = init.clone();
-                for item in snapshot {
-                    acc = self.call_callable(f.clone(), vec![acc, item])?;
-                }
-                Ok(acc)
+                let (init, f) = (init.clone(), f.clone());
+                self.fold_rooted(recv, snapshot, init, |this, acc, item| {
+                    this.call_callable(f.clone(), vec![acc, item])
+                })
             }
             ("find", [f]) => {
                 let snapshot = self.heap.vector(items).borrow().clone();
-                for item in snapshot {
-                    match self.call_callable(f.clone(), vec![item.clone()])? {
-                        Value::Bool(true) => return Ok(Value::some(item)),
-                        Value::Bool(false) => {}
-                        _ => {
-                            return Err(Signal::Fatal(
-                                "brasa: `find` predicate must return a bool".to_string(),
-                            ));
-                        }
+                let f = f.clone();
+                let found = self.find_rooted(recv, snapshot, |this, item| {
+                    match this.call_callable(f.clone(), vec![item.clone()])? {
+                        Value::Bool(true) => Ok(Step::Stop(Value::some(item))),
+                        Value::Bool(false) => Ok(Step::Continue),
+                        _ => Err(Signal::Fatal(
+                            "brasa: `find` predicate must return a bool".to_string(),
+                        )),
                     }
-                }
-                Ok(Value::NONE)
+                })?;
+                Ok(found.unwrap_or(Value::NONE))
             }
             // `any?` short-circuits on the first `true`, `all?` on the
             // first `false`; the empty vector is `false`/`true`.
             ("any?" | "all?", [f]) => {
                 let deciding = name == "any?";
                 let snapshot = self.heap.vector(items).borrow().clone();
-                for item in snapshot {
-                    match self.call_callable(f.clone(), vec![item])? {
-                        Value::Bool(found) => {
-                            if found == deciding {
-                                return Ok(Value::Bool(deciding));
-                            }
+                let f = f.clone();
+                let found = self.find_rooted(recv, snapshot, |this, item| {
+                    match this.call_callable(f.clone(), vec![item])? {
+                        Value::Bool(found) if found == deciding => {
+                            Ok(Step::Stop(Value::Bool(deciding)))
                         }
-                        _ => {
-                            return Err(Signal::Fatal(format!(
-                                "brasa: `{name}` predicate must return a bool"
-                            )));
-                        }
+                        Value::Bool(_) => Ok(Step::Continue),
+                        _ => Err(Signal::Fatal(format!(
+                            "brasa: `{name}` predicate must return a bool"
+                        ))),
                     }
-                }
-                Ok(Value::Bool(!deciding))
+                })?;
+                Ok(found.unwrap_or(Value::Bool(!deciding)))
             }
             // Pairs up to the shorter length; the leftovers of the
             // longer vector are dropped.
@@ -939,31 +935,25 @@ impl Vm<'_> {
         Ok(self.heap.alloc_vector(sorted))
     }
 
-    fn sort_by(&mut self, items: Vec<Value>, f: Value) -> VmResult {
-        let mut keyed = Vec::with_capacity(items.len());
-        for item in items {
-            let key = self.call_callable(f.clone(), vec![item.clone()])?;
+    fn sort_by(&mut self, recv: &Value, items: Vec<Value>, f: Value) -> VmResult {
+        let mut keyed = self.key_rooted(recv, items, |this, item| {
+            let key = this.call_callable(f.clone(), vec![item.clone()])?;
             match &key {
-                Value::Float(v) if v.is_nan() => {
-                    return Err(self.panic(
-                        ASSERTION_FAILED,
-                        "cannot sort by a NaN key (floats with NaN do not order)",
-                    ));
-                }
-                Value::Int(_) | Value::Float(_) | Value::Str(_) | Value::Char(_) => {}
-                _ => {
-                    return Err(Signal::Fatal(
-                        "brasa: `sortBy` key must be an int, float, string, or char".to_string(),
-                    ));
-                }
+                Value::Float(v) if v.is_nan() => Err(this.panic(
+                    ASSERTION_FAILED,
+                    "cannot sort by a NaN key (floats with NaN do not order)",
+                )),
+                Value::Int(_) | Value::Float(_) | Value::Str(_) | Value::Char(_) => Ok(key),
+                _ => Err(Signal::Fatal(
+                    "brasa: `sortBy` key must be an int, float, string, or char".to_string(),
+                )),
             }
-            keyed.push((key, item));
-        }
+        })?;
 
         keyed.sort_by(|(a, _), (b, _)| value_cmp(a, b).unwrap_or(Ordering::Equal));
         Ok(self
             .heap
-            .alloc_vector(keyed.into_iter().map(|(_, v)| v).collect()))
+            .alloc_vector(keyed.into_iter().map(|(_, item)| item).collect()))
     }
 
     fn map_builtin(&mut self, recv: &Value, name: &str, args: &[Value]) -> VmResult {
@@ -1046,9 +1036,11 @@ impl Vm<'_> {
             }
             ("each", [f]) => {
                 let snapshot = self.heap.map(entries).borrow().entries().to_vec();
-                for (key, value) in snapshot {
-                    self.call_callable(f.clone(), vec![key, value])?;
-                }
+                let f = f.clone();
+                self.each_pair_rooted(recv, snapshot, |this, key, value| {
+                    this.call_callable(f.clone(), vec![key, value])?;
+                    Ok(())
+                })?;
                 Ok(Value::Unit)
             }
             _ => Err(builtin_error(name)),

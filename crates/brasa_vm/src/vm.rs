@@ -40,6 +40,10 @@ pub(crate) const INTEGER_OVERFLOW: &str = "panics.IntegerOverflow";
 pub(crate) const ASSERTION_FAILED: &str = "panics.AssertionFailed";
 pub(crate) const STACK_OVERFLOW: &str = "panics.StackOverflow";
 
+/// Native-root-stack capacity kept between traversals; anything a large
+/// traversal grew beyond this is released when the stack empties.
+const NATIVE_ROOT_FLOOR: usize = 64;
+
 /// Non-local control flow, mirroring the walker's signal classes.
 /// `Return`/`Break`/`Continue` do not exist here: they compile away.
 #[derive(Debug)]
@@ -55,6 +59,14 @@ pub(crate) enum Signal {
 }
 
 pub(crate) type VmResult<T = Value> = Result<T, Signal>;
+
+/// What one step of an early-exiting rooted traversal decided
+/// ([`Vm::find_rooted`]).
+pub(crate) enum Step {
+    Continue,
+    /// Stop the traversal; this is the builtin's result.
+    Stop(Value),
+}
 
 /// One call frame. `ip` is pre-advanced: it always points at the next
 /// instruction, so the faulting/call-site index is uniformly `ip - 1`.
@@ -73,6 +85,14 @@ pub(crate) struct Vm<'a> {
     globals: Vec<Option<Value>>,
     stack: Vec<Value>,
     frames: Vec<Frame>,
+    /// Shadow root stack for values a native call holds only in Rust
+    /// locals (BRS-62). Builtin higher-order functions pop their
+    /// operands off the value stack and keep receiver, callback,
+    /// snapshot, and accumulators in Rust; rendering does the same with
+    /// the fields it extracted. Collection runs inside those calls, so
+    /// whatever they hold has to be reachable from here or the
+    /// collector would sweep it out from under them.
+    native_roots: Vec<Value>,
     pub(crate) heap: Heap,
     interner: Interner,
     /// Constants pre-materialized at load: string constants are
@@ -126,6 +146,7 @@ impl<'a> Vm<'a> {
             globals: vec![None; module.globals.len()],
             stack: Vec::new(),
             frames: Vec::new(),
+            native_roots: Vec::new(),
             heap: Heap::new(gc_threshold),
             interner,
             consts,
@@ -151,6 +172,7 @@ impl<'a> Vm<'a> {
             heap_allocations: heap.allocations,
             gc_collections: heap.collections,
             live_heap_objects: heap.live,
+            peak_heap_objects: self.heap.arena_slots(),
             interned_strings: self.interner.len(),
             intern_hits: self.interner.hits(),
         }
@@ -158,7 +180,7 @@ impl<'a> Vm<'a> {
 
     fn run_program(&mut self) -> Result<(), Signal> {
         self.enter_function(FuncId(0), 0, 0)?;
-        self.execute(1, true)?;
+        self.execute(1)?;
         self.stack.clear();
 
         if let Some(main) = self.find_main() {
@@ -168,7 +190,7 @@ impl<'a> Vm<'a> {
                 ));
             }
             self.enter_function(main, 0, 0)?;
-            self.execute(1, true)?;
+            self.execute(1)?;
             self.stack.clear();
         }
 
@@ -309,19 +331,21 @@ impl<'a> Vm<'a> {
     /// crossed the boundary (the signal propagates to the caller with
     /// the frames below intact).
     ///
-    /// Only the program-level loops (`run_program`) pass `safepoint`:
-    /// between two instructions there, every live value sits on the
-    /// value stack or in a global slot, so the collector's root set is
-    /// exact. Nested bounded loops (builtin HOFs, `toString` rendering,
-    /// the post-run error rendering) hold values in Rust locals the
-    /// collector cannot see, so they never collect — garbage created
-    /// inside one nested call is reclaimed at the next top-level
-    /// instruction boundary.
-    fn execute(&mut self, min_frames: usize, safepoint: bool) -> Result<(), Signal> {
+    /// Every instruction boundary is a safepoint, nested loops
+    /// included: the root set is the value stack, the global slots, and
+    /// the native root stack that bounded callers park their Rust-local
+    /// values on (BRS-62). A nested loop that did not collect would let
+    /// a long-running builtin HOF hold the whole run's garbage, since
+    /// its callback never reaches a top-level boundary.
+    fn execute(&mut self, min_frames: usize) -> Result<(), Signal> {
         while self.frames.len() >= min_frames {
-            if safepoint && self.heap.should_collect() {
-                self.heap
-                    .collect(self.stack.iter().chain(self.globals.iter().flatten()));
+            if self.heap.should_collect() {
+                self.heap.collect(
+                    self.stack
+                        .iter()
+                        .chain(self.globals.iter().flatten())
+                        .chain(self.native_roots.iter()),
+                );
             }
 
             let frame = self.frames.last_mut().expect("loop condition holds");
@@ -370,6 +394,263 @@ impl<'a> Vm<'a> {
             let frame = self.frames.pop().expect("bounded above min_frames");
             self.stack.truncate(frame.ret_base);
         }
+    }
+
+    // --- native roots (BRS-62) -----------------------------------------
+
+    /// Keeps `values` reachable for the duration of `body`.
+    ///
+    /// A native call that reenters compiled code — a builtin invoking
+    /// its callback, rendering invoking a user `toString` — can trigger
+    /// a collection while the values it extracted live only in a Rust
+    /// local. Holding the container they came from is not enough: the
+    /// reentered code may empty it.
+    pub(crate) fn with_rooted<R>(
+        &mut self,
+        values: &[Value],
+        body: impl FnOnce(&mut Self) -> VmResult<R>,
+    ) -> VmResult<R> {
+        let mark = self.native_roots.len();
+        self.native_roots.extend_from_slice(values);
+
+        let result = body(self);
+        self.unroot(mark);
+
+        result
+    }
+
+    /// Pops back to `mark`, releasing the buffer once nothing is parked.
+    ///
+    /// Truncation alone keeps the capacity, and a traversal parks the
+    /// caller's whole collection here — so without this a single
+    /// `bigVector.map(f)` would hold that much memory for the rest of
+    /// the run. The retained floor keeps the ordinary small traversals
+    /// from reallocating on every call.
+    fn unroot(&mut self, mark: usize) {
+        self.native_roots.truncate(mark);
+
+        if mark == 0 {
+            if self.native_roots.capacity() > NATIVE_ROOT_FLOOR {
+                self.native_roots.shrink_to(NATIVE_ROOT_FLOOR);
+            }
+            // The collector's allowance was measured while this stack
+            // held the traversal's snapshot. That marking cost is gone
+            // now, so a following phase should not hold garbage against
+            // it.
+            //
+            // Deliberately unpinned: the effect is real but too small
+            // to assert on, because the residue self-corrects — the
+            // next collection is at most one allowance away and
+            // recomputes the floor from the roots that remain by then.
+            // Measured on a 20k traversal followed by 3k SURVIVING
+            // allocations, with and without this call: identical
+            // `peak_heap_objects` (5004, set by the traversal itself),
+            // 20 collections against 18, 105 fewer objects retained.
+            // With 4k DYING allocations instead, the case this is
+            // actually for: 505 collections against 503, peak again
+            // identical, 3 objects retained against 4.
+            self.heap.relax_mark_floor();
+        }
+    }
+
+    /// Runs `step` once per element of `snapshot`, keeping `recv`, the
+    /// whole snapshot, and everything `step` returns reachable for the
+    /// whole traversal, and returns the values `step` kept.
+    ///
+    /// Taking `recv` is what makes these helpers the mechanical guard
+    /// for the rule stated on [`Vm::builtin_with_args`]. Every operand
+    /// was popped off the value stack before the builtin ran, so a
+    /// temporary receiver is swept by the first nested collection; a
+    /// future callback-taking builtin that reads its receiver after a
+    /// call would then read a recycled slot, and if the slot were
+    /// reused by the same heap kind it would read foreign data instead
+    /// of tripping the kind-mismatch assertion. Rooting it here costs
+    /// one clone per traversal, not per element, and a callback-taking
+    /// builtin cannot forget it: every one of them reenters through one
+    /// of these five helpers. Rendering reenters too and does not —
+    /// `display` roots what it holds itself.
+    ///
+    /// The callback is rooted too, but by [`Vm::call_callable`] rather
+    /// than here — every caller that hands a closure to compiled code
+    /// needs that, not just these traversals.
+    ///
+    /// The snapshot is moved onto the native root stack rather than
+    /// copied onto it: these traversals run over the caller's entire
+    /// collection, so a second copy would be a second peak.
+    pub(crate) fn collect_rooted(
+        &mut self,
+        recv: &Value,
+        snapshot: Vec<Value>,
+        mut step: impl FnMut(&mut Self, Value) -> VmResult<Option<Value>>,
+    ) -> VmResult<Vec<Value>> {
+        let mark = self.native_roots.len();
+        self.native_roots.push(recv.clone());
+
+        let base = self.native_roots.len();
+        self.native_roots.extend(snapshot);
+        let end = self.native_roots.len();
+
+        for ix in base..end {
+            let item = self.native_roots[ix].clone();
+            match step(self, item) {
+                Ok(Some(kept)) => self.native_roots.push(kept),
+                Ok(None) => {}
+                Err(signal) => {
+                    self.unroot(mark);
+                    return Err(signal);
+                }
+            }
+        }
+
+        let kept = self.native_roots.split_off(end);
+        self.unroot(mark);
+
+        Ok(kept)
+    }
+
+    /// Like [`Vm::collect_rooted`] for a traversal that stops at the
+    /// first [`Step::Stop`], whose value it returns; `None` means the
+    /// traversal ran to the end.
+    pub(crate) fn find_rooted(
+        &mut self,
+        recv: &Value,
+        snapshot: Vec<Value>,
+        mut step: impl FnMut(&mut Self, Value) -> VmResult<Step>,
+    ) -> VmResult<Option<Value>> {
+        let mark = self.native_roots.len();
+        self.native_roots.push(recv.clone());
+
+        let base = self.native_roots.len();
+        self.native_roots.extend(snapshot);
+        let end = self.native_roots.len();
+
+        let mut found = None;
+        for ix in base..end {
+            let item = self.native_roots[ix].clone();
+            match step(self, item) {
+                Ok(Step::Continue) => {}
+                Ok(Step::Stop(value)) => {
+                    found = Some(value);
+                    break;
+                }
+                Err(signal) => {
+                    self.unroot(mark);
+                    return Err(signal);
+                }
+            }
+        }
+
+        self.unroot(mark);
+        Ok(found)
+    }
+
+    /// Like [`Vm::collect_rooted`] over a snapshot of pairs, which the
+    /// root stack carries flattened. Map entries are pairs in the host,
+    /// not in the language, so this keeps them out of the `Value`
+    /// domain instead of boxing each one in a tuple just to pass
+    /// through the rooting API.
+    ///
+    /// It accumulates nothing: its one caller discards every result,
+    /// and an accumulation region above the pairs would put a value at
+    /// the index a mispaired read lands on — turning an odd region from
+    /// an immediate out-of-bounds panic into a silent misread.
+    pub(crate) fn each_pair_rooted(
+        &mut self,
+        recv: &Value,
+        snapshot: Vec<(Value, Value)>,
+        mut step: impl FnMut(&mut Self, Value, Value) -> VmResult<()>,
+    ) -> VmResult<()> {
+        let mark = self.native_roots.len();
+        self.native_roots.push(recv.clone());
+
+        let base = self.native_roots.len();
+        self.native_roots
+            .extend(snapshot.into_iter().flat_map(|(a, b)| [a, b]));
+        let end = self.native_roots.len();
+
+        for ix in (base..end).step_by(2) {
+            let (left, right) = (
+                self.native_roots[ix].clone(),
+                self.native_roots[ix + 1].clone(),
+            );
+            if let Err(signal) = step(self, left, right) {
+                self.unroot(mark);
+                return Err(signal);
+            }
+        }
+
+        self.unroot(mark);
+        Ok(())
+    }
+
+    /// Pairs every element of `snapshot` with the key `key_of` computes
+    /// for it, keeping both halves reachable while the remaining keys
+    /// are computed. The pairs never become `Value`s.
+    pub(crate) fn key_rooted(
+        &mut self,
+        recv: &Value,
+        snapshot: Vec<Value>,
+        mut key_of: impl FnMut(&mut Self, &Value) -> VmResult,
+    ) -> VmResult<Vec<(Value, Value)>> {
+        let mark = self.native_roots.len();
+        self.native_roots.push(recv.clone());
+
+        let base = self.native_roots.len();
+        self.native_roots.extend(snapshot);
+        let end = self.native_roots.len();
+
+        for ix in base..end {
+            let item = self.native_roots[ix].clone();
+            match key_of(self, &item) {
+                Ok(key) => self.native_roots.push(key),
+                Err(signal) => {
+                    self.unroot(mark);
+                    return Err(signal);
+                }
+            }
+        }
+
+        let keys = self.native_roots.split_off(end);
+        let items = self.native_roots.split_off(base);
+        self.unroot(mark);
+
+        Ok(keys.into_iter().zip(items).collect())
+    }
+
+    /// Threads `init` through `step` once per element of `snapshot`,
+    /// keeping `recv`, the snapshot, and the carried accumulator
+    /// reachable for the whole traversal (see [`Vm::collect_rooted`]).
+    pub(crate) fn fold_rooted(
+        &mut self,
+        recv: &Value,
+        snapshot: Vec<Value>,
+        init: Value,
+        mut step: impl FnMut(&mut Self, Value, Value) -> VmResult,
+    ) -> VmResult {
+        let mark = self.native_roots.len();
+        self.native_roots.push(init);
+        self.native_roots.push(recv.clone());
+
+        let base = self.native_roots.len();
+        self.native_roots.extend(snapshot);
+        let end = self.native_roots.len();
+
+        for ix in base..end {
+            let item = self.native_roots[ix].clone();
+            let carried = self.native_roots[mark].clone();
+            match step(self, carried, item) {
+                Ok(next) => self.native_roots[mark] = next,
+                Err(signal) => {
+                    self.unroot(mark);
+                    return Err(signal);
+                }
+            }
+        }
+
+        let folded = self.native_roots[mark].clone();
+        self.unroot(mark);
+
+        Ok(folded)
     }
 
     // --- stack helpers -------------------------------------------------
@@ -1198,7 +1479,21 @@ impl<'a> Vm<'a> {
                         args.len()
                     )));
                 }
-                self.call_frames(closure.func, Some(&closure), args)
+                // Rooting the closure for the call is what keeps its
+                // captures alive across it. Entering the frame copies
+                // them into stack slots, but the callee may assign to a
+                // capture — the store is frame-local, and the next
+                // invocation republishes the original from here — so
+                // between the store and that republication this is the
+                // only reference to the overwritten value. The callee
+                // was popped off the value stack before the call, so
+                // without this the collection a nested loop can now run
+                // (BRS-62) sweeps the capture and the next invocation
+                // republishes a recycled slot.
+                let rooted = [Value::Closure(closure.clone())];
+                self.with_rooted(&rooted, |this| {
+                    this.call_frames(closure.func, Some(&closure), args)
+                })
             }
             Value::BoundMethod(bound) => {
                 let function = self.function(bound.func);
@@ -1248,7 +1543,7 @@ impl<'a> Vm<'a> {
             self.write_captures(closure);
         }
 
-        self.execute(self.frames.len(), false)?;
+        self.execute(self.frames.len())?;
         Ok(self.pop())
     }
 
@@ -1259,6 +1554,24 @@ impl<'a> Vm<'a> {
         self.builtin_with_args(builtin, args)
     }
 
+    /// Runs a builtin over operands `dispatch_builtin` already popped
+    /// off the value stack, so they are unreachable from the root set
+    /// for the whole dispatch.
+    ///
+    /// What makes that safe is that no builtin reads a popped operand
+    /// after reentering compiled code, which is where a collection can
+    /// sweep it. Two families reenter. The callback-taking builtins
+    /// do, and `docs/spec/05-stdlib.md` requires every one of them to
+    /// traverse a snapshot taken before the first call, so none may
+    /// read its receiver again afterwards; the traversal helpers root
+    /// the receiver anyway, so a future one cannot get this wrong
+    /// silently. Rendering does too, through a user `toString`
+    /// override, and there the operand being rendered is pushed as the
+    /// override's receiver — the value stack roots it for the call.
+    ///
+    /// Rooting the operands here instead would cost a clone on every
+    /// builtin call (~6% on a builtin-hot loop) to protect reads that
+    /// do not happen.
     pub(crate) fn builtin_with_args(&mut self, builtin: BuiltinId, args: Vec<Value>) -> VmResult {
         let def = builtin_def(builtin).expect("compiled builtin ids are registered");
 

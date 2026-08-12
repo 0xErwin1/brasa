@@ -295,17 +295,40 @@ VM collects with mark & sweep. Design, as implemented:
   reference counting IS precise. The tracer walks through immutable
   structure to reach arena cells; sweeping an unreachable cell breaks
   its cycle and the `Rc` remainder unwinds.
-- **Roots**: precise and simple; the root set is the value stack, the
-  global slots, and nothing else — frames hold no `Value`s outside the
+- **Roots**: precise; the root set is the value stack, the global slots,
+  and the native root stack. Frames hold no `Value`s outside the value
   stack (caught signals and loop iterators are ordinary stack values).
-- **Trigger and pause behavior**: collection arms when the live arena
-  count reaches a threshold (default 1024) and runs at the next
-  top-level instruction boundary; the post-collection threshold is
-  `max(initial, 2 × live)`. A collection never interrupts an
-  instruction or a nested native call (builtin HOFs, `toString`
-  rendering) — those hold values in Rust locals the collector cannot
-  see, so garbage created inside one is reclaimed at the next top-level
-  boundary. Pauses are stop-the-world and proportional to live data.
+  The native root stack covers the one remaining gap: a native call that
+  reenters compiled code — a higher-order builtin running its callback,
+  `toString` rendering a nested override — first copies values out of
+  the heap into host locals the tracer cannot see, and the reentered
+  code may drop the container they came from. Those copies (the
+  traversal's snapshot, its accumulator, the fields being rendered) are
+  parked on the native root stack for the duration, and so is the
+  callback. Entering the callback's frame copies its captures into stack
+  slots, which is not enough on its own: a callee that assigns to a
+  captured slot makes that store frame-local, the next invocation
+  republishes the original from the closure, and in between the closure
+  is the only thing holding it.
+- **Trigger and pause behavior**: two conditions, both required, tested
+  at every instruction boundary, nested dispatch loops included. The
+  live arena count must reach a threshold (default 1024, and
+  `max(initial, 2 × live)` after each collection), and the allocation
+  since the last collection must reach a marking allowance of
+  `max(initial, (roots + surviving cells) / 4)`. Nested loops are not
+  exempt from the boundary: a long-running callback never reaches a
+  top-level one, so exempting them would make a builtin traversal hold
+  the whole run's garbage. The allowance is what keeps that affordable —
+  marking costs one visit per reachable value, and a traversal parks the
+  whole receiver as roots, so the live threshold alone would re-trace it
+  every 1024 allocations, quadratic in the receiver's length. The
+  allowance is measured against live data only, never against the
+  garbage it permitted. Once the native root stack is empty again the
+  allowance is lowered to the arena's own measure, if that is lower —
+  it is never raised, and a traversal nested inside another keeps the
+  outer one's allowance in force until both have released. A collection still never
+  interrupts an instruction. Pauses are stop-the-world and proportional
+  to live data.
 - **String interning**: the module constant pool's strings are interned
   once at load into a content-keyed table, so every `const` push shares
   one allocation. Runtime-computed strings (`concat`, `toString`,

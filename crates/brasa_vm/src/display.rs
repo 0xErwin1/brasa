@@ -40,8 +40,24 @@ impl<'a> Vm<'a> {
     /// already being rendered further up the current path. The path is
     /// popped on the way out, so a value that merely appears twice as a
     /// sibling still renders in full.
+    ///
+    /// `value` is the cell's own value, rooted for the duration: a
+    /// nested `toString` override reenters compiled code, which can
+    /// collect (BRS-62), and `path` holds bare [`GcRef`]s. Rooting here
+    /// is what keeps every entry in `path` naming the cell it was
+    /// recorded for instead of a swept slot some later allocation
+    /// recycled. The arena-backed kinds are the only ones that reach
+    /// this function, and the only ones a sweep can touch, so nothing
+    /// is gained by rooting scalars on the way past.
+    ///
+    /// This one root is unpinned, unlike the other three in this file:
+    /// observing it would need the recycled slot to be occupied by a
+    /// cell that is itself rendered while the stale entry is still on
+    /// the path, and no stable program arranges that. It stays because
+    /// a stale reference in `path` is a wrong answer, not a slow one.
     fn render_cell(
         &mut self,
+        value: &Value,
         cell: GcRef,
         path: &mut Vec<GcRef>,
         render: impl FnOnce(&mut Self, &mut Vec<GcRef>) -> VmResult<String>,
@@ -51,7 +67,8 @@ impl<'a> Vm<'a> {
         }
 
         path.push(cell);
-        let rendered = render(self, path);
+        let rooted = [value.clone()];
+        let rendered = self.with_rooted(&rooted, |this| render(this, path));
         path.pop();
 
         rendered
@@ -99,14 +116,14 @@ impl<'a> Vm<'a> {
             }
             Value::Vector(cell) => {
                 let (cell, items) = (*cell, self.heap.vector(*cell).borrow().clone());
-                self.render_cell(cell, path, |this, path| {
+                self.render_cell(value, cell, path, |this, path| {
                     let parts = this.render_all(&items, depth, path)?;
                     Ok(format!("[{}]", parts.join(", ")))
                 })
             }
             Value::Set(cell) => {
                 let (cell, items) = (*cell, self.heap.set(*cell).borrow().items().to_vec());
-                self.render_cell(cell, path, |this, path| {
+                self.render_cell(value, cell, path, |this, path| {
                     let parts = this.render_all(&items, depth, path)?;
                     Ok(format!("Set([{}])", parts.join(", ")))
                 })
@@ -116,14 +133,20 @@ impl<'a> Vm<'a> {
                 if entries.is_empty() {
                     return Ok("{}".to_string());
                 }
-                self.render_cell(cell, path, |this, path| {
-                    let mut parts = Vec::with_capacity(entries.len());
-                    for (key, value) in &entries {
-                        let key = this.render(key, true, depth + 1, path)?;
-                        let value = this.render(value, true, depth + 1, path)?;
-                        parts.push(format!("{key}: {value}"));
-                    }
-                    Ok(format!("{{ {} }}", parts.join(", ")))
+                let rooted: Vec<Value> = entries
+                    .iter()
+                    .flat_map(|(key, value)| [key.clone(), value.clone()])
+                    .collect();
+                self.render_cell(value, cell, path, |this, path| {
+                    this.with_rooted(&rooted, |this| {
+                        let mut parts = Vec::with_capacity(entries.len());
+                        for (key, value) in &entries {
+                            let key = this.render(key, true, depth + 1, path)?;
+                            let value = this.render(value, true, depth + 1, path)?;
+                            parts.push(format!("{key}: {value}"));
+                        }
+                        Ok(format!("{{ {} }}", parts.join(", ")))
+                    })
                 })
             }
             Value::Option(inner) => match inner {
@@ -149,13 +172,15 @@ impl<'a> Vm<'a> {
                 if fields.is_empty() {
                     return Ok(format!("{} {{}}", shape.name));
                 }
-                self.render_cell(cell, path, |this, path| {
-                    let mut parts = Vec::with_capacity(fields.len());
-                    for (name, field) in shape.fields.iter().zip(fields.iter()) {
-                        let field = this.render(field, true, depth + 1, path)?;
-                        parts.push(format!("{name}: {field}"));
-                    }
-                    Ok(format!("{} {{ {} }}", shape.name, parts.join(", ")))
+                self.render_cell(value, cell, path, |this, path| {
+                    this.with_rooted(&fields, |this| {
+                        let mut parts = Vec::with_capacity(fields.len());
+                        for (name, field) in shape.fields.iter().zip(fields.iter()) {
+                            let field = this.render(field, true, depth + 1, path)?;
+                            parts.push(format!("{name}: {field}"));
+                        }
+                        Ok(format!("{} {{ {} }}", shape.name, parts.join(", ")))
+                    })
                 })
             }
             Value::Enum(e) => {
@@ -208,11 +233,16 @@ impl<'a> Vm<'a> {
         depth: usize,
         path: &mut Vec<GcRef>,
     ) -> VmResult<Vec<String>> {
-        let mut parts = Vec::with_capacity(values.len());
-        for value in values {
-            parts.push(self.render(value, true, depth + 1, path)?);
-        }
-        Ok(parts)
+        // `values` was copied out of a container that a `toString`
+        // override may empty while the later elements are still
+        // pending, so the copy is rooted in its own right (BRS-62).
+        self.with_rooted(values, |this| {
+            let mut parts = Vec::with_capacity(values.len());
+            for value in values {
+                parts.push(this.render(value, true, depth + 1, path)?);
+            }
+            Ok(parts)
+        })
     }
 }
 

@@ -21,12 +21,14 @@
 //! its contents, which breaks the cycle and lets `Rc` reclaim the
 //! immutable remainder.
 //!
-//! Collection runs at safepoints only: the top-level dispatch loop
-//! checks the allocation threshold between instructions, so a
-//! collection never interrupts an instruction or a nested native call
-//! that holds values in Rust locals. At a safepoint the precise root
-//! set is exactly the spec's contract: the value stack and the global
-//! slots (caught signals and loop iterators are ordinary stack values).
+//! Collection runs at safepoints only: the dispatch loop checks the
+//! allocation threshold between instructions, so a collection never
+//! interrupts an instruction. Nested loops are safepoints too — a
+//! builtin's callback never reaches a top-level boundary, so exempting
+//! them would let one traversal hold the whole run's garbage (BRS-62).
+//! At a safepoint the precise root set is the spec's contract: the
+//! value stack, the global slots, and the native root stack that
+//! reentrant native calls park their host-local values on.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -44,6 +46,21 @@ pub const DEFAULT_GC_THRESHOLD: usize = 1024;
 
 /// Post-collection threshold multiplier over the surviving live count.
 const GROWTH_FACTOR: usize = 2;
+
+/// Divisor applied to the last collection's live measure to get the
+/// allocation the next collection must earn first. Larger collects more
+/// often (less floating garbage, more marking); this is the point where
+/// a large-snapshot traversal still matches the pre-BRS-62 wall clock.
+///
+/// The measure is the root count plus the cells that survived, both of
+/// which are live: floating garbage is deliberately excluded. Charging
+/// against the whole traced set instead would make the floor grow with
+/// the garbage the floor itself permitted — a feedback loop that
+/// converges, but at twice the floating garbage. Bounding it by live
+/// data keeps the allowance proportional to what the program actually
+/// holds. The floor is recomputed only at a collection, so a
+/// traversal's allowance outlives it by exactly one collection.
+const MARK_AMORTIZATION: usize = 4;
 
 /// An opaque index into the VM heap's arena. Copyable and trivially
 /// droppable: reclamation is the collector's job, never `Drop`'s.
@@ -76,6 +93,13 @@ pub(crate) struct Heap {
     /// Floor for the post-collection threshold (the configured initial
     /// threshold), so a mostly-dead heap re-arms promptly.
     initial_threshold: usize,
+    /// Allocations since the last collection, against which the next
+    /// collection's marking cost is amortized (see [`Heap::mark_floor`]).
+    since_collection: usize,
+    /// A fraction of what was live at the last collection, floored at
+    /// the initial threshold: the allocation the next collection must
+    /// earn before it is worth paying that marking cost again.
+    mark_floor: usize,
     stats: HeapStats,
 }
 
@@ -86,6 +110,8 @@ impl Heap {
             free: Vec::new(),
             threshold,
             initial_threshold: threshold,
+            since_collection: 0,
+            mark_floor: threshold,
             stats: HeapStats::default(),
         }
     }
@@ -95,6 +121,7 @@ impl Heap {
     fn alloc(&mut self, cell: HeapCell) -> GcRef {
         self.stats.allocations += 1;
         self.stats.live += 1;
+        self.since_collection += 1;
 
         match self.free.pop() {
             Some(ix) => {
@@ -160,20 +187,71 @@ impl Heap {
 
     // --- collection ----------------------------------------------------
 
+    /// Two conditions, and both are load-bearing.
+    ///
+    /// The live count arms a collection, as it always has. The
+    /// allocation count then keeps it worth doing: marking costs one
+    /// visit per reachable value, and the root set now includes
+    /// whatever a native traversal parked (BRS-62), which is the
+    /// caller's entire collection. `each` over a large vector of ints
+    /// allocating one dying object per element keeps `live` near zero,
+    /// so the live threshold alone would re-trace the whole snapshot
+    /// every `initial_threshold` allocations — quadratic in the
+    /// receiver's length. Charging each collection against the
+    /// allocation since the last one bounds the total marking work to a
+    /// constant factor of the allocation that caused it (see
+    /// [`MARK_AMORTIZATION`]).
     pub(crate) fn should_collect(&self) -> bool {
-        self.stats.live >= self.threshold
+        self.stats.live >= self.threshold && self.since_collection >= self.mark_floor
     }
 
     pub(crate) fn stats(&self) -> HeapStats {
         self.stats
     }
 
+    /// Lowers the marking allowance to what the arena alone justifies,
+    /// for when the roots it was measured against are gone
+    /// (`Vm::unroot`). Without it the floor would stay in force until
+    /// the next collection, which a low-allocation phase may not reach
+    /// for an unbounded time.
+    ///
+    /// It only ever lowers. The arena's own measure is taken now, not
+    /// at the last collection, so a traversal whose callback left many
+    /// survivors behind would otherwise raise the floor here and delay
+    /// the next collection — the opposite of the point.
+    pub(crate) fn relax_mark_floor(&mut self) {
+        let arena_only = (self.stats.live / MARK_AMORTIZATION).max(self.initial_threshold);
+        self.mark_floor = self.mark_floor.min(arena_only);
+    }
+
+    /// Arena slots ever allocated, which is exactly the high-water mark
+    /// of simultaneously live objects: [`Heap::alloc`] grows `cells`
+    /// only when the free list is empty, and an empty free list means
+    /// every slot is live. It is the number that says whether
+    /// collection kept up with allocation, which `live` at the end of a
+    /// run cannot.
+    pub(crate) fn arena_slots(&self) -> usize {
+        self.cells.len()
+    }
+
     /// Mark from `roots`, then sweep every unmarked arena cell. Must
     /// only run at a safepoint: no outstanding `RefCell` borrows, and
     /// every live value reachable from the given roots.
+    ///
+    /// The borrow half binds native code too, now that nested dispatch
+    /// loops collect (BRS-62): a `Ref` or `RefMut` held across a call
+    /// that reenters compiled code would be mutated by the sweeper. The
+    /// borrow checker already enforces it — the cell accessors return a
+    /// `&RefCell<..>` borrowed from `&self`, and every reentrant call
+    /// needs `&mut self`, so a live `Ref` and a reentry cannot coexist.
+    /// What that argument does NOT cover is an accessor handing out a
+    /// guard whose lifetime is not tied to the heap borrow (a `Ref`
+    /// cloned out of an `Rc<RefCell<..>>`); none exists today, and
+    /// adding one would put this precondition back in human hands.
     pub(crate) fn collect<'r>(&mut self, roots: impl Iterator<Item = &'r Value>) {
         let mut marked = vec![false; self.cells.len()];
         let mut pending: Vec<Value> = roots.cloned().collect();
+        let root_count = pending.len();
 
         // Shared immutable nodes (tuples, closures, ...) are traversed
         // once by address: without this, a diamond-shaped DAG of shared
@@ -194,6 +272,9 @@ impl Heap {
 
         self.stats.collections += 1;
         self.threshold = (self.stats.live * GROWTH_FACTOR).max(self.initial_threshold);
+        self.since_collection = 0;
+        self.mark_floor =
+            ((root_count + self.stats.live) / MARK_AMORTIZATION).max(self.initial_threshold);
     }
 
     /// Enqueues everything `value` references. Arena cells terminate

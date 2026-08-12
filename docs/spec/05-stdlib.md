@@ -464,6 +464,12 @@ Signatures closed in M4 (BRS-35):
 
 Signatures closed in M4 (BRS-35):
 
+Every builtin that takes a callback — `map`, `filter`, `each`,
+`reduce`, `find`, `any?`, `all?`, `sortBy`, and `Map.each` — traverses a
+snapshot of the receiver taken before the first call. The callback may
+mutate the receiver; that changes neither which elements are visited nor
+their order, and the receiver is never read again after the snapshot.
+
 - **`Vector<T>`** — `reduce(init: U, f: (U, T) -> U): U` folds left
   over a snapshot; the accumulator type comes from `init`.
   `find(f: (T) -> bool): Option<T>` yields the first satisfying

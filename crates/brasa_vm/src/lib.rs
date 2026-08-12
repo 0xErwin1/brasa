@@ -61,6 +61,12 @@ pub struct RunStats {
     pub gc_collections: u64,
     /// Arena objects still live when the program ended.
     pub live_heap_objects: usize,
+    /// Most arena objects ever live at once. Exact, not an upper bound:
+    /// allocation only grows the arena when the free list is empty, and
+    /// an empty free list means every existing slot is live, so each
+    /// growth records a moment when the live count equalled the arena's
+    /// size.
+    pub peak_heap_objects: usize,
     /// Distinct interned strings (the module's string constants).
     pub interned_strings: usize,
     /// Intern lookups served by an existing allocation.
