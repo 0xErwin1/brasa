@@ -134,7 +134,12 @@ impl<'a> Printer<'a> {
                 let (lo, hi, inclusive) = (*lo, *hi, *inclusive);
                 let op = if inclusive { "..=" } else { ".." };
                 let left = self.child(lo, P_RANGE + 1, col, level);
-                let right = self.child(hi, P_RANGE + 1, col + left.chars().count() + op.len(), level);
+                let right = self.child(
+                    hi,
+                    P_RANGE + 1,
+                    col + left.chars().count() + op.len(),
+                    level,
+                );
                 format!("{left}{op}{right}")
             }
 
@@ -280,13 +285,29 @@ impl<'a> Printer<'a> {
     /// A binary expression is never broken across lines: outside
     /// brackets a newline ends the statement, so a break would change
     /// what the source parses as. An over-long one stays over-long.
-    fn binary(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, col: usize, level: usize) -> String {
+    fn binary(
+        &mut self,
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+        col: usize,
+        level: usize,
+    ) -> String {
         let ast = self.ast;
         let (lbp, rbp) = binary_bp(op);
-        let symbol = self.binary_text(op, ast.span_of_expr(lhs).end.0, ast.span_of_expr(rhs).start.0);
+        let symbol = self.binary_text(
+            op,
+            ast.span_of_expr(lhs).end.0,
+            ast.span_of_expr(rhs).start.0,
+        );
 
         let left = self.child(lhs, lbp, col, level);
-        let right = self.child(rhs, rbp, col + left.chars().count() + symbol.len() + 2, level);
+        let right = self.child(
+            rhs,
+            rbp,
+            col + left.chars().count() + symbol.len() + 2,
+            level,
+        );
         format!("{left} {symbol} {right}")
     }
 
@@ -322,7 +343,9 @@ impl<'a> Printer<'a> {
                 format!("{head} {}", rendered.join(", "))
             }
             CallShape::TrailingDo { parens } => {
-                let (block, rest) = args.split_last().expect("a trailing do implies an argument");
+                let (block, rest) = args
+                    .split_last()
+                    .expect("a trailing do implies an argument");
                 let head = if parens || !rest.is_empty() {
                     self.arg_list(&head, rest, col, level)
                 } else {
@@ -576,9 +599,22 @@ impl<'a> Printer<'a> {
                 let text = self.expr(guard, inner, inner);
                 format!(" if {text}")
             });
-            let head = format!("{}{}{}", self.pattern(arm.pattern), guard.unwrap_or_default(), " =>");
+            let head = format!(
+                "{}{}{}",
+                self.pattern(arm.pattern),
+                guard.unwrap_or_default(),
+                " =>"
+            );
 
-            self.arm(&mut body, &head, &arm.body, inner, start, next_arm_start, span);
+            self.arm(
+                &mut body,
+                &head,
+                &arm.body,
+                inner,
+                start,
+                next_arm_start,
+                span,
+            );
         }
 
         self.emit_comments_before(&mut body, inner, self.body_region_end(span));
@@ -629,7 +665,15 @@ impl<'a> Printer<'a> {
             });
             let head = format!("{}{} =>", types.join(" | "), guard.unwrap_or_default());
 
-            self.arm(&mut body, &head, &arm.body, inner, start, next_arm_start, span);
+            self.arm(
+                &mut body,
+                &head,
+                &arm.body,
+                inner,
+                start,
+                next_arm_start,
+                span,
+            );
         }
 
         self.emit_comments_before(&mut body, inner, self.body_region_end(span));
@@ -792,9 +836,7 @@ impl<'a> Printer<'a> {
     /// what tells `.each() do` apart from `.each do`.
     fn has_parens_before(&self, id: ExprId) -> bool {
         let start = self.ast.span_of_expr(id).start.0 as usize;
-        self.src[..start]
-            .trim_end()
-            .ends_with(['(', ')'])
+        self.src[..start].trim_end().ends_with(['(', ')'])
     }
 
     /// Collects the `.name(...)` steps hanging off a common receiver,

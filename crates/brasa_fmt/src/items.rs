@@ -88,18 +88,22 @@ impl<'a> Printer<'a> {
     /// into this body.
     pub(crate) fn func_def(&mut self, func: &FuncDef, level: usize, bound: u32) -> String {
         let mut lines = Lines::new();
-        lines.push(&format!("{}{}", indent_of(level), self.func_signature(func)));
+        lines.push(&format!(
+            "{}{}",
+            indent_of(level),
+            self.func_signature(func)
+        ));
 
-        // Only a body with statements can be clipped: with none, there is
-        // nothing to search forward from, and `bound` is already the
-        // tightest answer available.
-        let region_end = match func.body.last() {
-            Some(stmt) => {
-                let after_body = self.ast.span_of_stmt(*stmt).end.0;
-                self.next_token_pos(after_body).min(bound)
-            }
-            None => bound,
+        // Searched forward from the body's last statement, or — when
+        // there is none — from the end of the signature's line, which is
+        // where an empty body starts. Both land on the `end` keyword,
+        // since `next_token_pos` walks over comments rather than
+        // stopping at them.
+        let after_body = match func.body.last() {
+            Some(stmt) => self.ast.span_of_stmt(*stmt).end.0,
+            None => self.line_end(func.name_span.end.0),
         };
+        let region_end = self.next_token_pos(after_body).min(bound);
 
         let body = self.block(&func.body, level + INDENT, region_end);
         if !body.is_empty() {
@@ -117,10 +121,7 @@ impl<'a> Printer<'a> {
         let ret = self.ret(func.ret);
         let throws = self.throws(func.throws.as_ref());
 
-        format!(
-            "{pub_}def {}{generics}({params}){ret}{throws}",
-            func.name
-        )
+        format!("{pub_}def {}{generics}({params}){ret}{throws}", func.name)
     }
 
     fn struct_def(&mut self, def: &StructDef, level: usize, region_end: u32) -> String {
@@ -202,8 +203,7 @@ impl<'a> Printer<'a> {
             let fields = if variant.fields.is_empty() {
                 String::new()
             } else {
-                let rendered: Vec<String> =
-                    variant.fields.iter().map(|f| self.field(f)).collect();
+                let rendered: Vec<String> = variant.fields.iter().map(|f| self.field(f)).collect();
                 format!("({})", rendered.join(", "))
             };
             body.push(&format!("{}{}{fields}", indent_of(inner), variant.name));
@@ -246,7 +246,11 @@ impl<'a> Printer<'a> {
             if self.blank_before(start) {
                 body.blank();
             }
-            body.push(&format!("{}{}", indent_of(inner), self.iface_member(method)));
+            body.push(&format!(
+                "{}{}",
+                indent_of(inner),
+                self.iface_member(method)
+            ));
         }
 
         self.emit_comments_before(&mut body, inner, region_end);
@@ -353,8 +357,7 @@ impl<'a> Printer<'a> {
                 format!("{name}({})", args.join(", "))
             }
             Pattern::Tuple(elements) => {
-                let elements: Vec<String> =
-                    elements.iter().map(|el| self.pattern(*el)).collect();
+                let elements: Vec<String> = elements.iter().map(|el| self.pattern(*el)).collect();
                 format!("({})", elements.join(", "))
             }
         }

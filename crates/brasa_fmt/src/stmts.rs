@@ -59,6 +59,22 @@ impl<'a> Printer<'a> {
         }
     }
 
+    /// The offset just past the end of the line `pos` sits on.
+    ///
+    /// A function signature always ends its line — the grammar requires
+    /// a newline between it and the block — so this reaches past a
+    /// signature from anywhere inside it, which is the only anchor an
+    /// empty body has. A signature the author split across lines (legal
+    /// inside the parameter parentheses) lands short instead, which
+    /// leaves the comments after it to the enclosing scope rather than
+    /// swallowing them.
+    pub(crate) fn line_end(&self, pos: u32) -> u32 {
+        match self.src[pos as usize..].find('\n') {
+            Some(offset) => pos + offset as u32 + 1,
+            None => self.src.len() as u32,
+        }
+    }
+
     /// Where a block ends: after its last statement, or after `opener`
     /// when it has none.
     pub(crate) fn block_region_end(&self, stmts: &Block, opener: u32) -> u32 {
@@ -139,13 +155,7 @@ impl<'a> Printer<'a> {
 
     /// Prints an indented body under a header line, skipping the line
     /// entirely when the body has nothing in it.
-    pub(crate) fn push_body(
-        &mut self,
-        lines: &mut Lines,
-        body: &Block,
-        level: usize,
-        opener: u32,
-    ) {
+    pub(crate) fn push_body(&mut self, lines: &mut Lines, body: &Block, level: usize, opener: u32) {
         let region_end = self.block_region_end(body, opener);
         let text = self.block(body, level + INDENT, region_end);
         if !text.is_empty() {
@@ -193,12 +203,9 @@ impl<'a> Printer<'a> {
         if let Some(else_body) = &node.else_ {
             lines.push(&format!("{pad}else"));
 
-            let last_branch_end = node
-                .branches
-                .last()
-                .map_or(region_end, |(cond, body)| {
-                    self.block_region_end(body, ast.span_of_expr(*cond).end.0)
-                });
+            let last_branch_end = node.branches.last().map_or(region_end, |(cond, body)| {
+                self.block_region_end(body, ast.span_of_expr(*cond).end.0)
+            });
             self.push_body(&mut lines, else_body, level, last_branch_end);
         }
 
@@ -230,9 +237,7 @@ impl<'a> Printer<'a> {
         for (index, (cond, body)) in node.branches.iter().enumerate() {
             let keyword = if index == 0 { "if" } else { " elsif" };
             let cond_text = self.expr(*cond, level, level);
-            let body_expr = self
-                .single_expr(body)
-                .expect("checked by is_inline_if");
+            let body_expr = self.single_expr(body).expect("checked by is_inline_if");
             let body_text = self.expr(body_expr, level, level);
             out.push_str(&format!("{keyword} {cond_text} then {body_text}"));
         }

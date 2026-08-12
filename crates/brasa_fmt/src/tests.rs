@@ -86,7 +86,10 @@ fn keeps_the_command_call_form() {
 fn keeps_the_inline_if_form() {
     let out = fmt("let sign = if n<0 then -1 elsif n>0 then 1 else 0 end\n");
 
-    assert_eq!(out, "let sign = if n < 0 then -1 elsif n > 0 then 1 else 0 end\n");
+    assert_eq!(
+        out,
+        "let sign = if n < 0 then -1 elsif n > 0 then 1 else 0 end\n"
+    );
 }
 
 #[test]
@@ -144,7 +147,6 @@ fn hugs_a_lone_argument_instead_of_indenting_it() {
     );
 }
 
-
 #[test]
 fn restores_the_parentheses_the_ast_dropped() {
     let out = fmt("let a = (1 + 2) * 3\nlet b = 1 + 2 * 3\nlet c = -(a + b)\n");
@@ -175,6 +177,26 @@ fn a_comment_stays_above_the_member_it_describes() {
     assert_eq!(fmt(source), source);
 }
 
+/// The same clipping, for the method that has no last statement to
+/// search forward from.
+#[test]
+fn an_empty_method_body_does_not_swallow_the_next_comment() {
+    let source =
+        "struct P\n  def f(self)\n  end\n\n  # about g\n  def g(self): int\n    2\n  end\nend\n";
+
+    assert_eq!(fmt(source), source);
+}
+
+/// A raw string is verbatim content, including whitespace at the end of
+/// one of its lines, and the formatter must hand it back untouched
+/// rather than treating it as its own stray whitespace.
+#[test]
+fn keeps_trailing_whitespace_inside_a_raw_string() {
+    let source = "let s = \"\"\"\nkeeps trailing   \nspace\n\"\"\"\n";
+
+    assert_eq!(fmt(source), source);
+}
+
 #[test]
 fn keeps_a_one_element_tuple_comma() {
     let out = fmt("let one = (7,)\nlet pair = (1, \"a\")\n");
@@ -184,7 +206,8 @@ fn keeps_a_one_element_tuple_comma() {
 
 #[test]
 fn prints_struct_members_in_source_order() {
-    let out = fmt("struct P\n  x: float\n\n  def f(self): float\n    self.x\n  end\n\n  y: float\nend\n");
+    let out =
+        fmt("struct P\n  x: float\n\n  def f(self): float\n    self.x\n  end\n\n  y: float\nend\n");
 
     assert_eq!(
         out,

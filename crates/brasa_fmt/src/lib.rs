@@ -128,7 +128,6 @@ pub fn format(source: &str, file: FileId) -> Result<String, FormatError> {
     }
 
     verify_comments_survived(source, &formatted, file)?;
-    verify_no_trailing_whitespace(&formatted)?;
 
     Ok(formatted)
 }
@@ -141,6 +140,11 @@ pub fn format(source: &str, file: FileId) -> Result<String, FormatError> {
 /// as a sorted multiset rather than in order, because hoisting a comment
 /// that has no line of its own is allowed to move it; losing one or
 /// inventing one is not.
+///
+/// What this deliberately does not catch is a comment that survives with
+/// its text intact but lands against the wrong construct. Nothing cheap
+/// can: the "right" construct for a comment is a judgement about intent,
+/// not a property of the text. That class is held by tests instead.
 fn verify_comments_survived(
     source: &str,
     formatted: &str,
@@ -168,18 +172,6 @@ fn comment_texts(source: &str, file: FileId) -> Vec<&str> {
 
     texts.sort_unstable();
     texts
-}
-
-/// Trailing whitespace is invisible in the editor and loud in a diff, so
-/// a formatter that emits any has a bug in one of its line builders.
-fn verify_no_trailing_whitespace(formatted: &str) -> Result<(), FormatError> {
-    match formatted.lines().position(|line| line != line.trim_end()) {
-        None => Ok(()),
-        Some(index) => Err(FormatError::Unstable(format!(
-            "formatted output has trailing whitespace on line {}",
-            index + 1
-        ))),
-    }
 }
 
 /// Whether `source` is already formatted, without producing the output.

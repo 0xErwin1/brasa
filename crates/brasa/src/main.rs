@@ -1,11 +1,6 @@
 //! Brasa CLI: run a `.bras` script, or drop into tooling subcommands.
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
-//! `fmt --check` adds 1, which is not a sysexit code and is not meant to
-//! be one: "these files would be reformatted" is an answer, not a
-//! failure to run.
-
-mod fmt;
 
 use std::io::{BufWriter, IsTerminal, Write};
 use std::path::PathBuf;
@@ -17,18 +12,10 @@ use brasa_diagnostics::{Diagnostic, Severity};
 use brasa_source::SourceMap;
 
 #[derive(Parser)]
-#[command(
-    name = "brasa",
-    version,
-    about = "The Brasa programming language",
-    args_conflicts_with_subcommands = true
-)]
+#[command(name = "brasa", version, about = "The Brasa programming language")]
 struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
-
     /// Script to execute.
-    script: Option<PathBuf>,
+    script: PathBuf,
 
     /// Print the parsed AST to stdout instead of executing the script.
     #[arg(long)]
@@ -58,46 +45,31 @@ struct Cli {
     args: Vec<String>,
 }
 
-#[derive(clap::Subcommand)]
-enum Command {
-    /// Format `.bras` files in place.
-    Fmt(fmt::FmtArgs),
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    if let Some(Command::Fmt(args)) = &cli.command {
-        return fmt::run(args);
-    }
-
-    let Some(script) = cli.script.clone() else {
-        eprintln!("brasa: a script to execute is required (see `brasa --help`)");
-        return ExitCode::from(64);
-    };
-
-    match std::fs::metadata(&script) {
+    match std::fs::metadata(&cli.script) {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_) => {
-            eprintln!("brasa: {} is not a regular file", script.display());
+            eprintln!("brasa: {} is not a regular file", cli.script.display());
             return ExitCode::from(65);
         }
         Err(err) => {
-            eprintln!("brasa: cannot read {}: {err}", script.display());
+            eprintln!("brasa: cannot read {}: {err}", cli.script.display());
             return ExitCode::from(65);
         }
     }
 
-    let source = match std::fs::read_to_string(&script) {
+    let source = match std::fs::read_to_string(&cli.script) {
         Ok(source) => source,
         Err(err) => {
-            eprintln!("brasa: cannot read {}: {err}", script.display());
+            eprintln!("brasa: cannot read {}: {err}", cli.script.display());
             return ExitCode::from(65);
         }
     };
 
     let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file(script.clone(), source.clone());
+    let file = sources.add_file(cli.script.clone(), source.clone());
 
     let result = brasa_parser::parse(&source, file);
     let has_errors = result

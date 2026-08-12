@@ -132,7 +132,7 @@ impl<'a> Parser<'a> {
             }
             self.bump();
             let target = self.parse_postfix();
-            let end = self.prev_span();
+            let end = self.span_before_cursor(self.pos);
             lhs = self
                 .ast
                 .alloc_expr(Expr::Pipe { lhs, target }, Span::merge(&start, &end));
@@ -191,7 +191,7 @@ impl<'a> Parser<'a> {
             // parse as `a..(b..c)` instead of being rejected below).
             let rhs_min_bp = if is_range { rbp + 1 } else { rbp };
             let rhs = self.parse_bp(rhs_min_bp);
-            let end = self.prev_span();
+            let end = self.span_before_cursor(self.pos);
 
             lhs = if is_range {
                 let inclusive = kind == TokenKind::DotDotEq;
@@ -234,7 +234,7 @@ impl<'a> Parser<'a> {
 
         self.bump();
         let operand = self.parse_bp(UNARY_BP);
-        let end = self.prev_span();
+        let end = self.span_before_cursor(self.pos);
 
         self.ast
             .alloc_expr(Expr::Unary { op, operand }, Span::merge(&start, &end))
@@ -256,7 +256,7 @@ impl<'a> Parser<'a> {
             match self.kind() {
                 TokenKind::LParen => {
                     let args = self.parse_call_args_with_optional_do();
-                    let end = self.prev_span();
+                    let end = self.span_before_cursor(self.pos);
                     expr = self
                         .ast
                         .alloc_expr(Expr::Call { callee: expr, args }, Span::merge(&start, &end));
@@ -265,7 +265,7 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let index = self.parse_expr();
                     self.expect(TokenKind::RBracket, "']' to close the index expression");
-                    let end = self.prev_span();
+                    let end = self.span_before_cursor(self.pos);
                     expr = self
                         .ast
                         .alloc_expr(Expr::Index { recv: expr, index }, Span::merge(&start, &end));
@@ -277,25 +277,25 @@ impl<'a> Parser<'a> {
                     if self.at(TokenKind::LParen) {
                         let callee = self.ast.alloc_expr(
                             Expr::Field { recv: expr, name },
-                            Span::merge(&start, &self.prev_span()),
+                            Span::merge(&start, &self.span_before_cursor(self.pos)),
                         );
                         let args = self.parse_call_args_with_optional_do();
-                        let end = self.prev_span();
+                        let end = self.span_before_cursor(self.pos);
                         expr = self
                             .ast
                             .alloc_expr(Expr::Call { callee, args }, Span::merge(&start, &end));
                     } else if self.at(TokenKind::Do) {
                         let callee = self.ast.alloc_expr(
                             Expr::Field { recv: expr, name },
-                            Span::merge(&start, &self.prev_span()),
+                            Span::merge(&start, &self.span_before_cursor(self.pos)),
                         );
                         let args = self.parse_do_only_call_args();
-                        let end = self.prev_span();
+                        let end = self.span_before_cursor(self.pos);
                         expr = self
                             .ast
                             .alloc_expr(Expr::Call { callee, args }, Span::merge(&start, &end));
                     } else {
-                        let end = self.prev_span();
+                        let end = self.span_before_cursor(self.pos);
                         expr = self.ast.alloc_expr(
                             Expr::Field { recv: expr, name },
                             Span::merge(&start, &end),
@@ -314,7 +314,7 @@ impl<'a> Parser<'a> {
                         None
                     };
 
-                    let end = self.prev_span();
+                    let end = self.span_before_cursor(self.pos);
                     expr = self.ast.alloc_expr(
                         Expr::SafeNav {
                             recv: expr,
@@ -329,7 +329,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Do if is_bare_ident_callee(&self.ast, expr) => {
                     let args = self.parse_do_only_call_args();
-                    let end = self.prev_span();
+                    let end = self.span_before_cursor(self.pos);
                     expr = self
                         .ast
                         .alloc_expr(Expr::Call { callee: expr, args }, Span::merge(&start, &end));
@@ -379,7 +379,7 @@ impl<'a> Parser<'a> {
     fn parse_trailing_do_lambda(&mut self) -> ExprId {
         let start = self.span();
         let (params, body) = self.parse_do_lambda_body();
-        let end = self.prev_span();
+        let end = self.span_before_cursor(self.pos);
 
         self.ast.alloc_expr(
             Expr::Lambda {
@@ -528,7 +528,7 @@ impl<'a> Parser<'a> {
             TokenKind::StringStart | TokenKind::RawStringStart => self.parse_interpolated_string(),
             TokenKind::Do => {
                 let (params, body) = self.parse_do_lambda_body();
-                let end = self.prev_span();
+                let end = self.span_before_cursor(self.pos);
                 self.ast.alloc_expr(
                     Expr::Lambda {
                         params,
@@ -552,7 +552,7 @@ impl<'a> Parser<'a> {
             TokenKind::Pipe | TokenKind::OrOr => self.parse_lambda_expr(),
             TokenKind::If => {
                 let node = self.parse_if();
-                let end = self.prev_span();
+                let end = self.span_before_cursor(self.pos);
                 self.ast
                     .alloc_expr(Expr::If(node), Span::merge(&start, &end))
             }
@@ -572,7 +572,7 @@ impl<'a> Parser<'a> {
 
         if self.at(TokenKind::LParen) {
             let args = self.parse_call_args();
-            let end = self.prev_span();
+            let end = self.span_before_cursor(self.pos);
             self.ast
                 .alloc_expr(Expr::EnumCtor { name, args }, Span::merge(&start, &end))
         } else if self.at(TokenKind::LBrace) {
@@ -604,7 +604,7 @@ impl<'a> Parser<'a> {
             }
 
             self.expect(TokenKind::RBrace, "'}' to close the struct literal");
-            let end = self.prev_span();
+            let end = self.span_before_cursor(self.pos);
             self.ast.alloc_expr(
                 Expr::StructLit {
                     type_name: name,
@@ -712,7 +712,7 @@ impl<'a> Parser<'a> {
         let start = self.span();
         let params = self.parse_lambda_params_if_present();
         let body = self.parse_expr();
-        let end = self.prev_span();
+        let end = self.span_before_cursor(self.pos);
 
         self.ast.alloc_expr(
             Expr::Lambda {
@@ -927,7 +927,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end = self.prev_span();
+        let end = self.span_before_cursor(self.pos);
         self.ast
             .alloc_expr(Expr::StringLit { parts }, Span::merge(&start, &end))
     }
@@ -970,7 +970,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end = self.prev_span();
+        let end = self.span_before_cursor(self.pos);
         (text, Span::merge(&start, &end))
     }
 

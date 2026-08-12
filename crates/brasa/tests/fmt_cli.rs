@@ -50,7 +50,10 @@ fn check_reports_without_writing_and_exits_one() {
     let output = brasa(&["fmt", "--check", script.to_str().expect("utf-8 path")]);
 
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(std::fs::read_to_string(&script).expect("readable"), original);
+    assert_eq!(
+        std::fs::read_to_string(&script).expect("readable"),
+        original
+    );
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("messy.bras"),
         "the unformatted file must be named on stdout"
@@ -99,7 +102,10 @@ fn stdout_leaves_the_file_alone() {
 
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "let x = 1\n");
-    assert_eq!(std::fs::read_to_string(&script).expect("readable"), original);
+    assert_eq!(
+        std::fs::read_to_string(&script).expect("readable"),
+        original
+    );
 }
 
 #[test]
@@ -112,7 +118,10 @@ fn a_file_that_does_not_parse_is_refused_and_left_alone() {
     let output = brasa(&["fmt", script.to_str().expect("utf-8 path")]);
 
     assert_eq!(output.status.code(), Some(65));
-    assert_eq!(std::fs::read_to_string(&script).expect("readable"), original);
+    assert_eq!(
+        std::fs::read_to_string(&script).expect("readable"),
+        original
+    );
     assert!(
         !String::from_utf8_lossy(&output.stderr).is_empty(),
         "the parse diagnostics must be rendered"
