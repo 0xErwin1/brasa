@@ -592,6 +592,63 @@ puts(ordered(1, 2))
     );
 }
 
+/// `toFixed` exists so a report column can promise its own shape. The
+/// property under test is that the decimal count comes from the CALL
+/// and not from the value: every row below is the same width, which the
+/// shortest-round-trip printer cannot deliver on its own.
+///
+/// The tie row is the reason this does not defer to Rust's `{:.N}`
+/// formatting, which rounds ties to even: `2.5` must render `3` here,
+/// because `math.round(2.5)` is `3.0` and one stdlib does not get two
+/// rounding rules.
+#[test]
+fn to_fixed_pins_the_decimal_count_and_the_tie_rule() {
+    assert_success(
+        r##"
+let costs: Vector<float> = [1000.0, 333.335, 0.5, 12.1, 0.000001]
+for c in costs
+  puts("|#{c.toFixed(2).padStart(10, " ")}|")
+end
+
+puts((2.5).toFixed(0))
+puts((3.5).toFixed(0))
+puts((-2.5).toFixed(0))
+puts((0.125).toFixed(2))
+
+puts((0.1 + 0.2).toFixed(2))
+puts((-0.006).toFixed(2))
+puts((1.0 / 3.0).toFixed(4))
+
+puts((5).toFixed(2))
+puts((5).toFixed(0))
+puts((-5).toFixed(1))
+"##,
+        "|   1000.00|\n\
+         |    333.33|\n\
+         |      0.50|\n\
+         |     12.10|\n\
+         |      0.00|\n\
+         3\n4\n-3\n0.13\n\
+         0.30\n-0.01\n0.3333\n\
+         5.00\n5\n-5.0\n",
+    );
+}
+
+/// A decimal count a float cannot back is a programmer error, so it
+/// panics rather than throwing — the rule `time.sleep` and `rand.int`
+/// already follow — and both backends must say the same thing.
+#[test]
+fn to_fixed_rejects_a_digit_count_out_of_range() {
+    let (outcome, _) = assert_parity("puts((1.5).toFixed(-1))\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert_eq!(
+        message,
+        "panic: panics.AssertionFailed: `toFixed` takes 0 to 17 digits, got -1"
+    );
+}
+
 /// `Comparable` reached transitively: a parameter constrained by a USER
 /// interface that declares `cmp` satisfies `Comparable` too, and this is
 /// the one shape other than a struct that can reach the ordering
@@ -3431,6 +3488,12 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
         ("find", "puts \"abc\".find(\"b\") ?? -1\n".to_string()),
         ("toInt", "puts \"1\".toInt()\n".to_string()),
         ("toFloat", "puts \"1.5\".toFloat()\n".to_string()),
+        // Both receivers, since `toFixed` is one registry entry serving
+        // an int and a float arm in each backend.
+        (
+            "toFixed",
+            "puts((1.5).toFixed(2))\nputs((3).toFixed(1))\n".to_string(),
+        ),
         ("match?", "puts \"ab\".match?(\"a\")\n".to_string()),
         ("captures", "puts \"ab\".captures(\"(a)\")\n".to_string()),
         (

@@ -65,6 +65,7 @@ pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
 fn int_method(name: &str) -> Option<MethodSig> {
     match name {
         "toFloat" => Some(sig(vec![], Type::Float)),
+        "toFixed" => Some(sig(vec![Type::Int], Type::String)),
         "toString" => Some(sig(vec![], Type::String)),
         _ => None,
     }
@@ -73,6 +74,7 @@ fn int_method(name: &str) -> Option<MethodSig> {
 fn float_method(name: &str) -> Option<MethodSig> {
     match name {
         "toInt" => Some(sig(vec![], Type::Int)),
+        "toFixed" => Some(sig(vec![Type::Int], Type::String)),
         "toString" => Some(sig(vec![], Type::String)),
         _ => None,
     }

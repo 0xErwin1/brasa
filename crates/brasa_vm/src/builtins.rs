@@ -13,7 +13,7 @@ use brasa_interp::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
 use brasa_interp::table::{OrderedMap, OrderedSet};
-use brasa_interp::{fs_glue, io_glue, json_glue, time_glue};
+use brasa_interp::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Vm, VmResult};
@@ -532,14 +532,41 @@ impl Vm<'_> {
     fn int_builtin(&mut self, v: i64, name: &str, args: &[Value]) -> VmResult {
         match (name, args) {
             ("toFloat", []) => Ok(Value::Float(v as f64)),
+            ("toFixed", [Value::Int(digits)]) => {
+                let digits = *digits;
+                self.check_fixed_digits(digits)?;
+                Ok(Value::str(num_glue::int_to_fixed(v, digits)))
+            }
             ("toString", []) => Ok(Value::str(v.to_string())),
             _ => Err(builtin_error(name)),
         }
     }
 
+    /// `toFixed` asks for a decimal count a `f64` can back; anything
+    /// else is a programmer error, so it panics rather than throwing —
+    /// the same rule `time.sleep` and `rand.int` follow for arguments
+    /// outside their domain.
+    fn check_fixed_digits(&self, digits: i64) -> Result<(), Signal> {
+        if num_glue::digits_in_range(digits) {
+            return Ok(());
+        }
+        Err(self.panic(
+            ASSERTION_FAILED,
+            format!(
+                "`toFixed` takes 0 to {} digits, got {digits}",
+                num_glue::MAX_DIGITS
+            ),
+        ))
+    }
+
     fn float_builtin(&mut self, v: f64, name: &str, args: &[Value]) -> VmResult {
         match (name, args) {
             ("toInt", []) => Ok(Value::Int(v as i64)),
+            ("toFixed", [Value::Int(digits)]) => {
+                let digits = *digits;
+                self.check_fixed_digits(digits)?;
+                Ok(Value::str(num_glue::float_to_fixed(v, digits)))
+            }
             ("toString", []) => {
                 let text = self.display(&Value::Float(v))?;
                 Ok(Value::str(text))

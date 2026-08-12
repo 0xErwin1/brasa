@@ -54,9 +54,9 @@ def pad(n: int, width: int): string
 end
 
 def percent(part: int, total: int): string
-  let share = math.round(part.toFloat() / total.toFloat() * 1000.0) / 10.0
+  let share = part.toFloat() / total.toFloat() * 100.0
 
-  "#{share}%"
+  "#{share.toFixed(1)}%"
 end
 
 def report(title: string, rows: Vector<Tally>, limit: int)

@@ -20,6 +20,7 @@ pub mod fs_glue;
 mod interp;
 pub mod io_glue;
 pub mod json_glue;
+pub mod num_glue;
 pub mod proc_env;
 pub mod rand_glue;
 pub mod table;

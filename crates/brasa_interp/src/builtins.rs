@@ -58,7 +58,7 @@ use crate::proc_env::{
 };
 use crate::table::{OrderedMap, OrderedSet};
 use crate::value::{OutputValue, Value, value_cmp, value_eq};
-use crate::{fs_glue, io_glue, json_glue, time_glue};
+use crate::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 impl Interp<'_> {
     pub(crate) fn call_builtin(&mut self, recv: Value, name: &str, args: Vec<Value>) -> EvalResult {
@@ -122,6 +122,23 @@ impl Interp<'_> {
         Signal::Fatal(format!("brasa: unknown builtin method `{name}`"))
     }
 
+    /// `toFixed` asks for a decimal count a `f64` can back; anything
+    /// else is a programmer error, so it panics rather than throwing —
+    /// the same rule `time.sleep` and `rand.int` follow for arguments
+    /// outside their domain.
+    fn check_fixed_digits(&self, digits: i64) -> Result<(), Signal> {
+        if num_glue::digits_in_range(digits) {
+            return Ok(());
+        }
+        Err(self.panic(
+            PanicKind::AssertionFailed,
+            format!(
+                "`toFixed` takes 0 to {} digits, got {digits}",
+                num_glue::MAX_DIGITS
+            ),
+        ))
+    }
+
     /// Raises a stdlib-native error: an ordinary error signal carrying
     /// a [`Value::NativeError`], caught by naming its qualified name or
     /// by `_` like any thrown value.
@@ -135,6 +152,11 @@ impl Interp<'_> {
     fn int_builtin(&mut self, v: i64, name: &str, args: &[Value]) -> EvalResult {
         match (name, args) {
             ("toFloat", []) => Ok(Value::Float(v as f64)),
+            ("toFixed", [Value::Int(digits)]) => {
+                let digits = *digits;
+                self.check_fixed_digits(digits)?;
+                Ok(Value::str(num_glue::int_to_fixed(v, digits)))
+            }
             ("toString", []) => Ok(Value::str(v.to_string())),
             _ => Err(self.builtin_error(name)),
         }
@@ -143,6 +165,11 @@ impl Interp<'_> {
     fn float_builtin(&mut self, v: f64, name: &str, args: &[Value]) -> EvalResult {
         match (name, args) {
             ("toInt", []) => Ok(Value::Int(v as i64)),
+            ("toFixed", [Value::Int(digits)]) => {
+                let digits = *digits;
+                self.check_fixed_digits(digits)?;
+                Ok(Value::str(num_glue::float_to_fixed(v, digits)))
+            }
             ("toString", []) => {
                 let text = self.display(&Value::Float(v))?;
                 Ok(Value::str(text))

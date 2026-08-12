@@ -58,6 +58,52 @@ Signatures closed in M4 (BRS-31):
   literal `$` (the `regex` crate's `replace_all` semantics).
 - `scan(re)` returns every non-overlapping full match, in order.
 
+## `int` and `float` (type methods, no import needed)
+
+- `int.toFloat()`, `float.toInt()` (truncating), the universal
+  `toString`.
+- `toFixed(digits): string` on both — the number rendered with EXACTLY
+  `digits` decimals, never in exponent form.
+
+`toFixed` exists because the ordinary rendering cannot promise a shape.
+`toString` and interpolation print the shortest representation that
+round-trips, so the decimal count follows the value: `1000.0`,
+`333.335`, `0.5`, `12.1`. That is right for showing a number and
+useless for a column,
+which needs every row the same width. `toFixed` puts the count in the
+call, and alignment then composes with the string `padStart`:
+
+```ruby
+puts "#{share.toFixed(1)}%"
+puts amount.toFixed(2).padStart(10, " ")
+```
+
+Rules:
+
+- The rendering is of the value the `float` actually holds, not of the
+  literal that produced it. `(2.675).toFixed(2)` is `"2.67"`, because
+  `2.675` is really `2.67499999999999982…` and a shade under the
+  halfway point. Any implementation that instead multiplies by
+  `10^digits` and rounds the product answers `"2.68"` here, having
+  introduced its own error; a decimal you did not type is not a decimal
+  the value has.
+- An **exact** tie rounds **away from zero**, so `(2.5).toFixed(0)` is
+  `"3"` and `(0.125).toFixed(2)` is `"0.13"`. This is `math.round`'s
+  rule, deliberately: one stdlib does not get two rounding rules. Exact
+  ties are rarer than they look — a `float` is a binary fraction, so
+  only values like `0.5`, `0.25`, and `0.125` land exactly halfway.
+- `digits` outside `0..=17` is a programmer error and panics with
+  `panics.AssertionFailed`; past 17 there is no information a `float`
+  can back.
+- On an `int` the fractional part is always zeros, computed exactly —
+  `(5).toFixed(2)` is `"5.00"` for every `int`, including the extremes,
+  with no float conversion in between.
+- A magnitude too small to show renders as zero without a sign:
+  `(-0.000001).toFixed(2)` is `"0.00"`, since `-0.00` in a column reads
+  as a distinct value rather than as zero.
+- `NaN`, `inf`, and `-inf` render as themselves: there is no decimal
+  expansion to give them.
+
 ## `std::fs`
 
 - `read(path): string`, `write`, `append`.
