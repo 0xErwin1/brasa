@@ -217,21 +217,30 @@ fn main() -> ExitCode {
 
     // The outcome is reported before any flush handling: a script
     // failure must never be masked by an output-stream condition.
-    match outcome {
+    // A failure is reported and answered here; everything else reduces
+    // to the status to return once the stream turns out to be healthy.
+    // Listing the variants rather than falling through a wildcard is
+    // deliberate: a future outcome must not be able to take the
+    // success path by default.
+    let chosen = match outcome {
         brasa_interp::Outcome::Error { message } | brasa_interp::Outcome::Panic { message } => {
             eprintln!("{message}");
+            return ExitCode::from(70);
+        }
+        brasa_interp::Outcome::Exit { code } => code as u8,
+        brasa_interp::Outcome::Success | brasa_interp::Outcome::BrokenPipe => 0,
+    };
+
+    match flushed {
+        // A closed read end (`brasa ... | head`) is a silent success,
+        // like standard Unix tools; any other flush failure is real,
+        // and it outranks a chosen status because output that never
+        // arrived is a failure the script does not know about.
+        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => {
+            eprintln!("brasa: failed to flush output: {err}");
             ExitCode::from(70)
         }
-        brasa_interp::Outcome::Success | brasa_interp::Outcome::BrokenPipe => match flushed {
-            // A closed read end (`brasa ... | head`) is a silent
-            // success, like standard Unix tools; any other flush
-            // failure on a successful run is real.
-            Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => {
-                eprintln!("brasa: failed to flush output: {err}");
-                ExitCode::from(70)
-            }
-            _ => ExitCode::from(0),
-        },
+        _ => ExitCode::from(chosen),
     }
 }
 

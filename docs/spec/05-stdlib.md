@@ -256,8 +256,26 @@ the `fs` error namespace):
   threaded scripting semantics; a virtual cwd overlay was rejected as
   complexity without a consumer.
 
-Still deferred: `env.exit(code)` needs a clean-exit signal threaded
-through both backends and the CLI.
+- `env.exit(code)` ends the run with `code` as the process status and
+  prints nothing: a chosen exit is not a failure to report. It is the
+  way a CLI-shaped script says "failed" without saying "crashed" —
+  before it existed, the only way to leave with a nonzero status was to
+  throw, which printed a runtime banner and always chose 70.
+
+  Three rules make it usable:
+
+  - **It is not catchable.** A `_` arm is written for domain failures;
+    letting it swallow a deliberate exit would make the exit a
+    suggestion. Mechanically this falls out of the design rather than
+    being enforced: handler unwinding tests for errors and panics, so
+    a distinct exit signal passes every `catch` by construction.
+  - **Output written before it still arrives.** The run unwinds and
+    the CLI flushes as usual, rather than the builtin calling the
+    host's exit and dropping whatever is buffered.
+  - **`code` outside `0..=255` panics** with `panics.AssertionFailed`.
+    A process status is one byte; truncating `exit(256)` to `0` would
+    turn a mistake into a silent success, which is the accident this
+    member exists to remove.
 
 ## `std::json`
 

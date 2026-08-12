@@ -592,6 +592,64 @@ puts(ordered(1, 2))
     );
 }
 
+/// `env.exit` is how a CLI-shaped script says "failed" without saying
+/// "crashed". Three properties, all of which a naive implementation
+/// gets wrong:
+///
+/// - it is NOT catchable, so a `_` arm written for domain failures
+///   cannot swallow a deliberate exit;
+/// - output written before it still arrives, which is why it unwinds
+///   as a signal rather than calling the host's `exit` and dropping
+///   whatever is buffered;
+/// - both backends agree on the status.
+#[test]
+fn env_exit_is_uncatchable_and_keeps_the_output_written_before_it() {
+    let source = r##"
+import std::env
+
+def leave(): int
+  env.exit(3)
+  0
+end
+
+for i in 0..200
+  puts("line #{i}")
+end
+
+let guarded = leave() catch (e)
+  _ => 99
+end
+puts("unreachable #{guarded}")
+"##;
+
+    let (outcome, stdout) = assert_parity(source);
+    assert_eq!(outcome, Outcome::Exit { code: 3 });
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 200, "buffered output before the exit was lost");
+    assert_eq!(lines[0], "line 0");
+    assert_eq!(lines[199], "line 199");
+    assert!(
+        !stdout.contains("unreachable"),
+        "a `_` arm intercepted a deliberate exit"
+    );
+}
+
+/// A status outside the range a process can carry is a programmer
+/// error, so it panics rather than being silently truncated: `exit(256)`
+/// quietly becoming `0` is the accident this member exists to remove.
+#[test]
+fn env_exit_rejects_a_status_outside_the_process_range() {
+    let (outcome, _) = assert_parity("import std::env\nenv.exit(300)\n");
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected a panic, got {outcome:?}");
+    };
+    assert_eq!(
+        message,
+        "panic: panics.AssertionFailed: `env.exit` takes a status of 0 to 255, got 300"
+    );
+}
+
 /// A lambda parameter can destructure, which is what makes a vector of
 /// pairs usable without unpacking it by hand first. The shape the
 /// defect was filed for — rank a counter map — is the first line.
@@ -3660,6 +3718,9 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
             "env.cd",
             format!("{env}env.cd(env.cwd())\nputs \"cd ok\"\n"),
         ),
+        // The one snippet that deliberately does not end in success:
+        // choosing a status IS its behavior.
+        ("env.exit", format!("{env}puts \"bye\"\nenv.exit(0)\n")),
         // std::fs: read-only members over the fixture.
         ("fs.read", format!("{fs}puts fs.read(\"{dir}/ro/a.txt\")\n")),
         (
@@ -3851,9 +3912,16 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
             &[],
             CROSS_CHECK_STDIN,
         );
+        // Only `env.exit` is allowed to end anywhere but success —
+        // choosing a status IS its behavior. Every other snippet must
+        // still finish cleanly, or it did not exercise its builtin.
+        let expected_outcome = if *name == "env.exit" {
+            Outcome::Exit { code: 0 }
+        } else {
+            Outcome::Success
+        };
         assert_eq!(
-            walker.outcome,
-            Outcome::Success,
+            walker.outcome, expected_outcome,
             "`{name}` failed on the walker: {walker:?}"
         );
 

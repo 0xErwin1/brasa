@@ -140,6 +140,29 @@ fn uncaught_throw_exits_70_with_the_error_message() {
     }
 }
 
+/// The defect this closes: a CLI-shaped script had no way to signal
+/// failure without the runtime printing an error banner and choosing
+/// 70 for it. The status has to reach the shell, stdout written before
+/// the exit has to arrive, and stderr must carry only what the script
+/// itself wrote.
+#[test]
+fn env_exit_sets_the_status_without_a_runtime_banner() {
+    for backend in BACKENDS {
+        let output = run_with_backend(&program_path("exit_status.brs"), backend);
+
+        assert_eq!(output.status.code(), Some(4), "[{backend}]");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "checked 3 things\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "usage: exit_status <path>\n",
+            "[{backend}] the runtime added something of its own"
+        );
+    }
+}
+
 #[test]
 fn uncaught_panic_exits_70_with_type_and_call_chain() {
     for backend in BACKENDS {

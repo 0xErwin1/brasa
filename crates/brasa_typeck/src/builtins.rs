@@ -307,6 +307,7 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         )),
         ("env", "args") => Some(msig(vec![], vec![], Type::vector(Type::String))),
         ("env", "cwd") => Some(msig(vec![], vec![], Type::String)),
+        ("env", "exit") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
         ("env", "cd") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![],

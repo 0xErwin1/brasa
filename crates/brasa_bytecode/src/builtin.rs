@@ -208,6 +208,7 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("rand.choice"),
     free("rand.shuffle"),
     method("toFixed"),
+    free("env.exit"),
 ];
 
 /// Looks up a builtin by its stable name.

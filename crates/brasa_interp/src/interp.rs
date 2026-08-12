@@ -110,6 +110,10 @@ pub(crate) enum Signal {
     Panic(PanicValue),
     Fatal(String),
     BrokenPipe,
+    /// `env.exit(code)`. Not an error and deliberately not catchable:
+    /// handler unwinding tests for `Error`/`Panic`, so a new variant
+    /// passes every `catch` by construction.
+    Exit(i32),
 }
 
 pub(crate) type EvalResult<T = Value> = Result<T, Signal>;

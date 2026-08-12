@@ -159,6 +159,19 @@ impl Vm<'_> {
     /// merged with the `env.set` overlay.
     fn env_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
+            // A chosen exit is not an error: it unwinds past every
+            // handler and the CLI prints nothing
+            // (`docs/spec/05-stdlib.md`).
+            ("exit", [Value::Int(code)]) => {
+                let code = *code;
+                if !(0..=255).contains(&code) {
+                    return Err(self.panic(
+                        ASSERTION_FAILED,
+                        format!("`env.exit` takes a status of 0 to 255, got {code}"),
+                    ));
+                }
+                Err(Signal::Exit(code as i32))
+            }
             ("get", [Value::Str(key)]) => {
                 let value = self
                     .env_overlay

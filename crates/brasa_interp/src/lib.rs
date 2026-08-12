@@ -66,6 +66,11 @@ pub enum Outcome {
     /// `brasa script.brs | head`). Standard Unix tools treat this as a
     /// silent, successful exit, so the CLI reports nothing and exits 0.
     BrokenPipe,
+    /// `env.exit(code)`: the script chose its own status. The CLI
+    /// prints nothing — a chosen exit is not a failure to report.
+    Exit {
+        code: i32,
+    },
 }
 
 /// Runs the program rooted at `roots`, writing its output to `out`.
@@ -173,6 +178,7 @@ fn finish(interp: &mut Interp<'_>, result: Result<(), Signal>) -> Outcome {
         }
         Err(Signal::Fatal(message)) => Outcome::Error { message },
         Err(Signal::BrokenPipe) => Outcome::BrokenPipe,
+        Err(Signal::Exit(code)) => Outcome::Exit { code },
         // `return`/`break`/`continue` escaping to the top level would be
         // a checker bug; surface it instead of hiding it.
         Err(Signal::Return(_) | Signal::Break | Signal::Continue) => Outcome::Error {
