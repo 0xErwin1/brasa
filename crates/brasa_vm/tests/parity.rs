@@ -196,6 +196,27 @@ fn assert_parity(source: &str) -> (Outcome, String) {
     assert_parity_with_depth(source, brasa_vm::DEFAULT_MAX_CALL_DEPTH)
 }
 
+/// A program that fails before producing any output, returning the
+/// outcome so the caller can pin the message.
+///
+/// The failure cases used to discard the stream entirely, which was
+/// safe only while a second backend was around to compare it against:
+/// dropping it pinned the outcome and left "printed nothing on the way
+/// down" resting on walker/VM agreement. Recorded from the walker
+/// before it was retired (BRS-108).
+fn assert_fails_silently(source: &str) -> Outcome {
+    let (outcome, stdout) = assert_parity(source);
+    assert_eq!(stdout, "", "expected no output before the failure");
+    outcome
+}
+
+/// [`assert_fails_silently`] with an explicit call-depth limit.
+fn assert_fails_silently_with_depth(source: &str, max_depth: usize) -> Outcome {
+    let (outcome, stdout) = assert_parity_with_depth(source, max_depth);
+    assert_eq!(stdout, "", "expected no output before the failure");
+    outcome
+}
+
 /// Parity plus an explicit success expectation with pinned stdout, so
 /// a shared walker/VM regression cannot slip through as "still equal".
 fn assert_success(source: &str, expected_stdout: &str) {
@@ -242,7 +263,7 @@ puts 10 / 3
 
 #[test]
 fn integer_overflow_panics_match() {
-    let (outcome, _) = assert_parity("puts 9223372036854775807 + 1\n");
+    let outcome = assert_fails_silently("puts 9223372036854775807 + 1\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -254,16 +275,16 @@ fn integer_overflow_panics_match() {
 
 #[test]
 fn division_and_remainder_by_zero_panics_match() {
-    let (outcome, _) = assert_parity("let z = 0\nputs 1 / z\n");
+    let outcome = assert_fails_silently("let z = 0\nputs 1 / z\n");
     assert!(matches!(outcome, Outcome::Panic { message } if message.contains("division by zero")));
 
-    let (outcome, _) = assert_parity("let z = 0\nputs 1 % z\n");
+    let outcome = assert_fails_silently("let z = 0\nputs 1 % z\n");
     assert!(matches!(outcome, Outcome::Panic { message } if message.contains("remainder by zero")));
 }
 
 #[test]
 fn negative_int_exponent_panics_match() {
-    let (outcome, _) = assert_parity("let e = -2\nputs 2 ** e\n");
+    let outcome = assert_fails_silently("let e = -2\nputs 2 ** e\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -275,7 +296,7 @@ fn negative_int_exponent_panics_match() {
 
 #[test]
 fn unary_negation_overflow_panics_match() {
-    let (outcome, _) = assert_parity("let m = -9223372036854775807 - 1\nlet n = -m\nputs n\n");
+    let outcome = assert_fails_silently("let m = -9223372036854775807 - 1\nlet n = -m\nputs n\n");
     assert!(matches!(outcome, Outcome::Panic { message } if message.contains("unary `-`")));
 }
 
@@ -370,7 +391,7 @@ puts n
         "false\n17\n",
     );
 
-    let (outcome, _) = assert_parity("puts \"abc\".scan(\"(\")\n");
+    let outcome = assert_fails_silently("puts \"abc\".scan(\"(\")\n");
     let Outcome::Error { message } = outcome else {
         panic!("expected an error, got {outcome:?}");
     };
@@ -397,7 +418,7 @@ puts alsobad
         "42\n1.5\n25\n-1.0\n",
     );
 
-    let (outcome, _) = assert_parity("puts \"abc\".toInt()\n");
+    let outcome = assert_fails_silently("puts \"abc\".toInt()\n");
     let Outcome::Error { message } = outcome else {
         panic!("expected an error, got {outcome:?}");
     };
@@ -640,7 +661,7 @@ puts("unreachable #{guarded}")
 /// quietly becoming `0` is the accident this member exists to remove.
 #[test]
 fn env_exit_rejects_a_status_outside_the_process_range() {
-    let (outcome, _) = assert_parity("import std::env\nenv.exit(300)\n");
+    let outcome = assert_fails_silently("import std::env\nenv.exit(300)\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -747,7 +768,7 @@ puts((-5).toFixed(1))
 /// already follow — and both backends must say the same thing.
 #[test]
 fn to_fixed_rejects_a_digit_count_out_of_range() {
-    let (outcome, _) = assert_parity("puts((1.5).toFixed(-1))\n");
+    let outcome = assert_fails_silently("puts((1.5).toFixed(-1))\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -1326,7 +1347,7 @@ puts d
 
 #[test]
 fn wildcard_never_catches_a_panic() {
-    let (outcome, _) = assert_parity(
+    let outcome = assert_fails_silently(
         r##"
 let items = [1]
 let idx = 5
@@ -1694,7 +1715,7 @@ puts outer([1, 2])
 
 #[test]
 fn uncaught_panic_stacktrace_includes_lambdas() {
-    let (outcome, _) = assert_parity(
+    let outcome = assert_fails_silently(
         r##"
 def apply(f: (int) -> int, v: int): int
   f(v)
@@ -2270,7 +2291,7 @@ end
 puts go(Down {}, 0)
 "##;
 
-    let (outcome, _) = assert_parity_with_depth(source, 64);
+    let outcome = assert_fails_silently_with_depth(source, 64);
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -2492,6 +2513,16 @@ puts v
     let outcome = run_vm_into(source, &mut out);
 
     assert_eq!(outcome, Outcome::BrokenPipe);
+}
+
+/// `print` writes exactly its argument in the bare command form: no
+/// separator between two of them, no trailing newline. Ported from the
+/// walker's own suite (BRS-108). The parenthesized form is covered
+/// separately, by the `print` entry in the builtin table — do not read
+/// this test as covering both.
+#[test]
+fn print_in_the_command_form_writes_without_a_separator() {
+    assert_success("puts \"hello\"\nprint 1\nprint 2\n", "hello\n12");
 }
 
 #[test]
@@ -3560,7 +3591,7 @@ puts empty.uniq()
 
 #[test]
 fn vector_sort_nan_panics_match() {
-    let (outcome, _) = assert_parity("let v = [1.0, 0.0 / 0.0]\nv.sort()\n");
+    let outcome = assert_fails_silently("let v = [1.0, 0.0 / 0.0]\nv.sort()\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -3660,7 +3691,7 @@ puts "done"
 
 #[test]
 fn time_negative_sleep_panics_match() {
-    let (outcome, _) = assert_parity("import std::time\ntime.sleep(-1)\n");
+    let outcome = assert_fails_silently("import std::time\ntime.sleep(-1)\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -3716,7 +3747,7 @@ puts rand.shuffle([9])
 
 #[test]
 fn rand_empty_picks_panic() {
-    let (outcome, _) = assert_parity("import std::rand\nrand.int(5..5)\n");
+    let outcome = assert_fails_silently("import std::rand\nrand.int(5..5)\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -3725,7 +3756,8 @@ fn rand_empty_picks_panic() {
         "unexpected message: {message}"
     );
 
-    let (outcome, _) = assert_parity("import std::rand\nlet v: Vector<int> = []\nrand.choice(v)\n");
+    let outcome =
+        assert_fails_silently("import std::rand\nlet v: Vector<int> = []\nrand.choice(v)\n");
     let Outcome::Panic { message } = outcome else {
         panic!("expected a panic, got {outcome:?}");
     };
@@ -3981,7 +4013,7 @@ fn module_reaches(module: &brasa_bytecode::Module, builtin: brasa_bytecode::Buil
 /// `dir` is a scratch directory holding a read-only fixture at `ro/`
 /// (`ro/a.txt` and `ro/sub/b.txt`); the mutating `std::fs` snippets own
 /// disjoint paths under it and reset themselves.
-fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
+fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
     let math = "import std::math\n";
     let proc = "import std::proc\n";
     let env = "import std::env\n";
@@ -4002,138 +4034,298 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
 
     vec![
         // Prelude printers.
-        ("puts", "puts 1\n".to_string()),
-        ("print", "print(\"x\")\nputs \"\"\n".to_string()),
+        ("puts", "puts 1\n".to_string(), "1\n"),
+        ("print", "print(\"x\")\nputs \"\"\n".to_string(), "x\n"),
         // The universal derived `toString`, as a bound value: the call
         // form compiles to `Op::ToString`, not to this entry.
-        ("toString", "let f = [1].toString\nputs f()\n".to_string()),
+        (
+            "toString",
+            "let f = [1].toString\nputs f()\n".to_string(),
+            "[1]\n",
+        ),
         // string.
-        ("len", "puts \"ab\".len()\n".to_string()),
-        ("count", "puts \"aa\".count(\"a\")\n".to_string()),
-        ("trim", "puts \"  x  \".trim()\n".to_string()),
-        ("trimStart", "puts \"  x\".trimStart()\n".to_string()),
-        ("trimEnd", "puts \"x  \".trimEnd()\n".to_string()),
-        ("toUpper", "puts \"a\".toUpper()\n".to_string()),
-        ("toLower", "puts \"A\".toLower()\n".to_string()),
-        ("contains?", "puts \"ab\".contains?(\"a\")\n".to_string()),
+        ("len", "puts \"ab\".len()\n".to_string(), "2\n"),
+        ("count", "puts \"aa\".count(\"a\")\n".to_string(), "2\n"),
+        ("trim", "puts \"  x  \".trim()\n".to_string(), "x\n"),
+        ("trimStart", "puts \"  x\".trimStart()\n".to_string(), "x\n"),
+        ("trimEnd", "puts \"x  \".trimEnd()\n".to_string(), "x\n"),
+        ("toUpper", "puts \"a\".toUpper()\n".to_string(), "A\n"),
+        ("toLower", "puts \"A\".toLower()\n".to_string(), "a\n"),
+        (
+            "contains?",
+            "puts \"ab\".contains?(\"a\")\n".to_string(),
+            "true\n",
+        ),
         (
             "startsWith?",
             "puts \"ab\".startsWith?(\"a\")\n".to_string(),
+            "true\n",
         ),
-        ("endsWith?", "puts \"ab\".endsWith?(\"b\")\n".to_string()),
-        ("split", "puts \"a,b\".split(\",\")\n".to_string()),
-        ("lines", "puts \"a\\nb\".lines()\n".to_string()),
-        ("chars", "puts \"ab\".chars()\n".to_string()),
-        ("bytes", "puts \"ab\".bytes()\n".to_string()),
-        ("slice", "puts \"abc\".slice(0, 2)\n".to_string()),
-        ("repeat", "puts \"a\".repeat(2)\n".to_string()),
-        ("replace", "puts \"aa\".replace(\"a\", \"b\")\n".to_string()),
-        ("padStart", "puts \"7\".padStart(2, \"0\")\n".to_string()),
-        ("padEnd", "puts \"7\".padEnd(2, \"0\")\n".to_string()),
-        ("find", "puts \"abc\".find(\"b\") ?? -1\n".to_string()),
-        ("toInt", "puts \"1\".toInt()\n".to_string()),
-        ("toFloat", "puts \"1.5\".toFloat()\n".to_string()),
+        (
+            "endsWith?",
+            "puts \"ab\".endsWith?(\"b\")\n".to_string(),
+            "true\n",
+        ),
+        (
+            "split",
+            "puts \"a,b\".split(\",\")\n".to_string(),
+            "[\"a\", \"b\"]\n",
+        ),
+        (
+            "lines",
+            "puts \"a\\nb\".lines()\n".to_string(),
+            "[\"a\", \"b\"]\n",
+        ),
+        (
+            "chars",
+            "puts \"ab\".chars()\n".to_string(),
+            "[\'a\', \'b\']\n",
+        ),
+        ("bytes", "puts \"ab\".bytes()\n".to_string(), "[97, 98]\n"),
+        ("slice", "puts \"abc\".slice(0, 2)\n".to_string(), "ab\n"),
+        ("repeat", "puts \"a\".repeat(2)\n".to_string(), "aa\n"),
+        (
+            "replace",
+            "puts \"aa\".replace(\"a\", \"b\")\n".to_string(),
+            "bb\n",
+        ),
+        (
+            "padStart",
+            "puts \"7\".padStart(2, \"0\")\n".to_string(),
+            "07\n",
+        ),
+        (
+            "padEnd",
+            "puts \"7\".padEnd(2, \"0\")\n".to_string(),
+            "70\n",
+        ),
+        (
+            "find",
+            "puts \"abc\".find(\"b\") ?? -1\n".to_string(),
+            "1\n",
+        ),
+        ("toInt", "puts \"1\".toInt()\n".to_string(), "1\n"),
+        ("toFloat", "puts \"1.5\".toFloat()\n".to_string(), "1.5\n"),
         // Both receivers, since `toFixed` is one registry entry serving
         // an int and a float arm in each backend.
         (
             "toFixed",
             "puts((1.5).toFixed(2))\nputs((3).toFixed(1))\n".to_string(),
+            "1.50\n3.0\n",
         ),
-        ("match?", "puts \"ab\".match?(\"a\")\n".to_string()),
-        ("captures", "puts \"ab\".captures(\"(a)\")\n".to_string()),
+        (
+            "match?",
+            "puts \"ab\".match?(\"a\")\n".to_string(),
+            "true\n",
+        ),
+        (
+            "captures",
+            "puts \"ab\".captures(\"(a)\")\n".to_string(),
+            "Some([\"a\", \"a\"])\n",
+        ),
         (
             "replaceRe",
             "puts \"a1\".replaceRe(\"[0-9]\", \"#\")\n".to_string(),
+            "a#\n",
         ),
-        ("scan", "puts \"a1\".scan(\"[0-9]\")\n".to_string()),
+        (
+            "scan",
+            "puts \"a1\".scan(\"[0-9]\")\n".to_string(),
+            "[\"1\"]\n",
+        ),
         // Vector.
-        ("push", "let v = [1]\nv.push(2)\nputs v\n".to_string()),
-        ("pop", "let v = [1]\nputs v.pop() ?? -1\n".to_string()),
-        ("first", "let v = [1]\nputs v.first() ?? -1\n".to_string()),
-        ("last", "let v = [1]\nputs v.last() ?? -1\n".to_string()),
-        ("reverse", "let v = [1, 2]\nputs v.reverse()\n".to_string()),
+        (
+            "push",
+            "let v = [1]\nv.push(2)\nputs v\n".to_string(),
+            "[1, 2]\n",
+        ),
+        (
+            "pop",
+            "let v = [1]\nputs v.pop() ?? -1\n".to_string(),
+            "1\n",
+        ),
+        (
+            "first",
+            "let v = [1]\nputs v.first() ?? -1\n".to_string(),
+            "1\n",
+        ),
+        (
+            "last",
+            "let v = [1]\nputs v.last() ?? -1\n".to_string(),
+            "1\n",
+        ),
+        (
+            "reverse",
+            "let v = [1, 2]\nputs v.reverse()\n".to_string(),
+            "[2, 1]\n",
+        ),
         (
             "join",
             "let v = [\"a\", \"b\"]\nputs v.join(\",\")\n".to_string(),
+            "a,b\n",
         ),
-        ("map", "let v = [1]\nputs v.map(|n| n + 1)\n".to_string()),
+        (
+            "map",
+            "let v = [1]\nputs v.map(|n| n + 1)\n".to_string(),
+            "[2]\n",
+        ),
         (
             "filter",
             "let v = [1]\nputs v.filter(|n| n > 0)\n".to_string(),
+            "[1]\n",
         ),
-        ("each", "let v = [1]\nv.each(|n| puts(n))\n".to_string()),
+        (
+            "each",
+            "let v = [1]\nv.each(|n| puts(n))\n".to_string(),
+            "1\n",
+        ),
         (
             "sortBy",
             "let v = [2, 1]\nputs v.sortBy(|n| n)\n".to_string(),
+            "[1, 2]\n",
         ),
         (
             "reduce",
             "let v = [1, 2]\nputs v.reduce(0, |acc, x| acc + x)\n".to_string(),
+            "3\n",
         ),
-        ("any?", "let v = [1]\nputs v.any?(|n| n > 0)\n".to_string()),
-        ("all?", "let v = [1]\nputs v.all?(|n| n > 0)\n".to_string()),
-        ("sort", "let v = [2, 1]\nputs v.sort()\n".to_string()),
-        ("zip", "let v = [1]\nputs v.zip([\"a\"])\n".to_string()),
+        (
+            "any?",
+            "let v = [1]\nputs v.any?(|n| n > 0)\n".to_string(),
+            "true\n",
+        ),
+        (
+            "all?",
+            "let v = [1]\nputs v.all?(|n| n > 0)\n".to_string(),
+            "true\n",
+        ),
+        (
+            "sort",
+            "let v = [2, 1]\nputs v.sort()\n".to_string(),
+            "[1, 2]\n",
+        ),
+        (
+            "zip",
+            "let v = [1]\nputs v.zip([\"a\"])\n".to_string(),
+            "[(1, \"a\")]\n",
+        ),
         (
             "flatten",
             "let v = [[1], [2]]\nputs v.flatten()\n".to_string(),
+            "[1, 2]\n",
         ),
-        ("uniq", "let v = [1, 1]\nputs v.uniq()\n".to_string()),
+        (
+            "uniq",
+            "let v = [1, 1]\nputs v.uniq()\n".to_string(),
+            "[1]\n",
+        ),
         // Map.
-        ("keys", format!("{map}puts m.keys()\n")),
-        ("values", format!("{map}puts m.values()\n")),
-        ("insert", format!("{map}m.insert(\"b\", 2)\nputs m.len()\n")),
-        ("remove", format!("{map}puts m.remove(\"a\") ?? -1\n")),
-        ("get", format!("{map}puts m.get(\"a\") ?? -1\n")),
-        ("has?", format!("{map}puts m.has?(\"a\")\n")),
-        ("entries", format!("{map}puts m.entries()\n")),
-        ("merge", format!("{map}puts m.merge({{ \"b\": 2 }})\n")),
+        ("keys", format!("{map}puts m.keys()\n"), "[\"a\"]\n"),
+        ("values", format!("{map}puts m.values()\n"), "[1]\n"),
+        (
+            "insert",
+            format!("{map}m.insert(\"b\", 2)\nputs m.len()\n"),
+            "2\n",
+        ),
+        (
+            "remove",
+            format!("{map}puts m.remove(\"a\") ?? -1\n"),
+            "1\n",
+        ),
+        ("get", format!("{map}puts m.get(\"a\") ?? -1\n"), "1\n"),
+        ("has?", format!("{map}puts m.has?(\"a\")\n"), "true\n"),
+        (
+            "entries",
+            format!("{map}puts m.entries()\n"),
+            "[(\"a\", 1)]\n",
+        ),
+        (
+            "merge",
+            format!("{map}puts m.merge({{ \"b\": 2 }})\n"),
+            "{ \"a\": 1, \"b\": 2 }\n",
+        ),
         // Set.
         (
             "add",
             "let s = Set([1])\ns.add(2)\nputs s.len()\n".to_string(),
+            "2\n",
         ),
-        ("union", "puts Set([1]).union(Set([2]))\n".to_string()),
+        (
+            "union",
+            "puts Set([1]).union(Set([2]))\n".to_string(),
+            "Set([1, 2])\n",
+        ),
         (
             "intersect",
             "puts Set([1]).intersect(Set([1]))\n".to_string(),
+            "Set([1])\n",
         ),
-        ("diff", "puts Set([1]).diff(Set([2]))\n".to_string()),
+        (
+            "diff",
+            "puts Set([1]).diff(Set([2]))\n".to_string(),
+            "Set([1])\n",
+        ),
         // std::math.
-        ("math.sqrt", format!("{math}puts math.sqrt(4.0)\n")),
-        ("math.floor", format!("{math}puts math.floor(1.7)\n")),
-        ("math.ceil", format!("{math}puts math.ceil(1.2)\n")),
-        ("math.round", format!("{math}puts math.round(1.5)\n")),
-        ("math.pow", format!("{math}puts math.pow(2.0, 3.0)\n")),
-        ("math.abs", format!("{math}puts math.abs(-1)\n")),
-        ("math.min", format!("{math}puts math.min(1, 2)\n")),
-        ("math.max", format!("{math}puts math.max(1, 2)\n")),
-        ("math.pi", format!("{math}puts math.pi\n")),
-        ("math.e", format!("{math}puts math.e\n")),
+        ("math.sqrt", format!("{math}puts math.sqrt(4.0)\n"), "2.0\n"),
+        (
+            "math.floor",
+            format!("{math}puts math.floor(1.7)\n"),
+            "1.0\n",
+        ),
+        ("math.ceil", format!("{math}puts math.ceil(1.2)\n"), "2.0\n"),
+        (
+            "math.round",
+            format!("{math}puts math.round(1.5)\n"),
+            "2.0\n",
+        ),
+        (
+            "math.pow",
+            format!("{math}puts math.pow(2.0, 3.0)\n"),
+            "8.0\n",
+        ),
+        ("math.abs", format!("{math}puts math.abs(-1)\n"), "1\n"),
+        ("math.min", format!("{math}puts math.min(1, 2)\n"), "1\n"),
+        ("math.max", format!("{math}puts math.max(1, 2)\n"), "2\n"),
+        (
+            "math.pi",
+            format!("{math}puts math.pi\n"),
+            "3.141592653589793\n",
+        ),
+        (
+            "math.e",
+            format!("{math}puts math.e\n"),
+            "2.718281828459045\n",
+        ),
         // std::proc, plus the `Output` field reads.
         (
             "proc.run",
             format!("{proc}puts proc.run([\"/bin/sh\", \"-c\", \"printf hi\"]).stdout\n"),
+            "hi\n",
         ),
         (
             "proc.tryRun",
             format!("{proc}puts proc.tryRun(\"true\").code\n"),
+            "0\n",
         ),
         (
             "proc.shell",
             format!("{proc}puts proc.shell(\"printf hi\").stdout\n"),
+            "hi\n",
         ),
         (
             "stdout",
             format!("{proc}let o = proc.shell(\"printf hi\")\nputs o.stdout\n"),
+            "hi\n",
         ),
         (
             "stderr",
             format!("{proc}let o = proc.shell(\"printf e 1>&2\")\nputs o.stderr\n"),
+            "e\n",
         ),
         (
             "code",
             format!("{proc}let o = proc.shell(\"true\")\nputs o.code\n"),
+            "0\n",
         ),
         // std::env. `env.cd` targets the current directory so the
         // process cwd never moves: this binary runs its tests in
@@ -4141,45 +4333,88 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
         (
             "env.get",
             format!("{env}puts env.get(\"BRASA_CROSS_CHECK_MISSING\")\n"),
+            "None\n",
         ),
         (
             "env.set",
             format!(
                 "{env}env.set(\"BRASA_CROSS_CHECK\", \"v\")\nputs env.get(\"BRASA_CROSS_CHECK\")\n"
             ),
+            "Some(\"v\")\n",
         ),
-        ("env.vars", format!("{env}puts env.vars().len() > 0\n")),
-        ("env.args", format!("{env}puts env.args()\n")),
-        ("env.cwd", format!("{env}puts env.cwd().len() > 0\n")),
+        (
+            "env.vars",
+            format!("{env}puts env.vars().len() > 0\n"),
+            "true\n",
+        ),
+        ("env.args", format!("{env}puts env.args()\n"), "[]\n"),
+        (
+            "env.cwd",
+            format!("{env}puts env.cwd().len() > 0\n"),
+            "true\n",
+        ),
         (
             "env.cd",
             format!("{env}env.cd(env.cwd())\nputs \"cd ok\"\n"),
+            "cd ok\n",
         ),
         // The one snippet that deliberately does not end in success:
         // choosing a status IS its behavior.
-        ("env.exit", format!("{env}puts \"bye\"\nenv.exit(0)\n")),
+        (
+            "env.exit",
+            format!("{env}puts \"bye\"\nenv.exit(0)\n"),
+            "bye\n",
+        ),
         // std::fs: read-only members over the fixture.
-        ("fs.read", format!("{fs}puts fs.read(\"{dir}/ro/a.txt\")\n")),
+        (
+            "fs.read",
+            format!("{fs}puts fs.read(\"{dir}/ro/a.txt\")\n"),
+            "a\n",
+        ),
         (
             "fs.exists?",
             format!("{fs}puts fs.exists?(\"{dir}/ro/a.txt\")\n"),
+            "true\n",
         ),
         (
             "fs.isFile?",
             format!("{fs}puts fs.isFile?(\"{dir}/ro/a.txt\")\n"),
+            "true\n",
         ),
-        ("fs.isDir?", format!("{fs}puts fs.isDir?(\"{dir}/ro\")\n")),
-        ("fs.ls", format!("{fs}puts fs.ls(\"{dir}/ro\")\n")),
-        ("fs.glob", format!("{fs}puts fs.glob(\"{dir}/ro/*.txt\")\n")),
-        ("fs.walk", format!("{fs}puts fs.walk(\"{dir}/ro\")\n")),
-        ("fs.tryWalk", format!("{fs}puts fs.tryWalk(\"{dir}/ro\")\n")),
+        (
+            "fs.isDir?",
+            format!("{fs}puts fs.isDir?(\"{dir}/ro\")\n"),
+            "true\n",
+        ),
+        (
+            "fs.ls",
+            format!("{fs}puts fs.ls(\"{dir}/ro\")\n"),
+            "[\"a.txt\", \"sub\"]\n",
+        ),
+        (
+            "fs.glob",
+            format!("{fs}puts fs.glob(\"{dir}/ro/*.txt\")\n"),
+            "[\"<TMP>/ro/a.txt\"]\n",
+        ),
+        (
+            "fs.walk",
+            format!("{fs}puts fs.walk(\"{dir}/ro\")\n"),
+            "[\"<TMP>/ro/a.txt\", \"<TMP>/ro/sub/b.txt\"]\n",
+        ),
+        (
+            "fs.tryWalk",
+            format!("{fs}puts fs.tryWalk(\"{dir}/ro\")\n"),
+            "Walk { paths: [\"<TMP>/ro/a.txt\", \"<TMP>/ro/sub/b.txt\"], unreadable: [] }\n",
+        ),
         (
             "paths",
             format!("{fs}puts fs.tryWalk(\"{dir}/ro\").paths\n"),
+            "[\"<TMP>/ro/a.txt\", \"<TMP>/ro/sub/b.txt\"]\n",
         ),
         (
             "unreadable",
             format!("{fs}puts fs.tryWalk(\"{dir}/ro\").unreadable\n"),
+            "[]\n",
         ),
         // std::fs: mutating members, each on paths it owns alone and
         // re-runnable from any starting state.
@@ -4188,6 +4423,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
             format!(
                 "{fs}fs.write(\"{dir}/write.txt\", \"x\")\nputs fs.read(\"{dir}/write.txt\")\n"
             ),
+            "x\n",
         ),
         (
             "fs.append",
@@ -4196,6 +4432,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                  fs.append(\"{dir}/append.txt\", \"y\")\n\
                  puts fs.read(\"{dir}/append.txt\")\n"
             ),
+            "xy\n",
         ),
         (
             "fs.mkdir",
@@ -4204,6 +4441,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                  if fs.exists?(p)\n  fs.rmAll(p)\nend\n\
                  fs.mkdir(p)\nputs fs.isDir?(p)\n"
             ),
+            "true\n",
         ),
         (
             "fs.mkdirAll",
@@ -4212,6 +4450,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                  if fs.exists?(p)\n  fs.rmAll(p)\nend\n\
                  fs.mkdirAll(p + \"/a/b\")\nputs fs.isDir?(p + \"/a/b\")\n"
             ),
+            "true\n",
         ),
         (
             "fs.rm",
@@ -4219,6 +4458,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                 "{fs}let p = \"{dir}/rm.txt\"\n\
                  fs.write(p, \"x\")\nfs.rm(p)\nputs fs.exists?(p)\n"
             ),
+            "false\n",
         ),
         (
             "fs.rmAll",
@@ -4226,6 +4466,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                 "{fs}let p = \"{dir}/rmall\"\n\
                  fs.mkdirAll(p + \"/a\")\nfs.rmAll(p)\nputs fs.exists?(p)\n"
             ),
+            "false\n",
         ),
         (
             "fs.cp",
@@ -4234,6 +4475,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                  fs.cp(\"{dir}/cp-src.txt\", \"{dir}/cp-dst.txt\")\n\
                  puts fs.read(\"{dir}/cp-dst.txt\")\n"
             ),
+            "x\n",
         ),
         (
             "fs.mv",
@@ -4242,37 +4484,67 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                  fs.mv(\"{dir}/mv-src.txt\", \"{dir}/mv-dst.txt\")\n\
                  puts fs.read(\"{dir}/mv-dst.txt\")\n"
             ),
+            "x\n",
         ),
         // std::fs: the pure path helpers.
-        ("fs.join", format!("{fs}puts fs.join(\"a\", \"b\")\n")),
-        ("fs.base", format!("{fs}puts fs.base(\"a/b.txt\")\n")),
-        ("fs.dir", format!("{fs}puts fs.dir(\"a/b.txt\")\n")),
-        ("fs.ext", format!("{fs}puts fs.ext(\"a/b.txt\")\n")),
-        ("fs.abs", format!("{fs}puts fs.abs(\"/a/./b\")\n")),
+        (
+            "fs.join",
+            format!("{fs}puts fs.join(\"a\", \"b\")\n"),
+            "a/b\n",
+        ),
+        (
+            "fs.base",
+            format!("{fs}puts fs.base(\"a/b.txt\")\n"),
+            "b.txt\n",
+        ),
+        ("fs.dir", format!("{fs}puts fs.dir(\"a/b.txt\")\n"), "a\n"),
+        ("fs.ext", format!("{fs}puts fs.ext(\"a/b.txt\")\n"), "txt\n"),
+        ("fs.abs", format!("{fs}puts fs.abs(\"/a/./b\")\n"), "/a/b\n"),
         (
             "fs.resolve",
             format!("{fs}puts fs.resolve(\"{dir}/ro\").len() > 0\n"),
+            "true\n",
         ),
         (
             "fs.isSymlink?",
             format!("{fs}puts fs.isSymlink?(\"{dir}/ro\")\n"),
+            "false\n",
         ),
         // std::json.
-        ("json.parse", format!("{json}puts json.parse(\"1\")\n")),
+        (
+            "json.parse",
+            format!("{json}puts json.parse(\"1\")\n"),
+            "1\n",
+        ),
         (
             "json.stringify",
             format!("{json}puts json.stringify(json.parse(\"1\"))\n"),
+            "1\n",
         ),
         (
             "asString",
             format!("{doc}puts d[\"s\"].asString() ?? \"?\"\n"),
+            "x\n",
         ),
-        ("asInt", format!("{doc}puts d[\"n\"].asInt() ?? -1\n")),
-        ("asFloat", format!("{doc}puts d[\"f\"].asFloat() ?? -1.0\n")),
-        ("asBool", format!("{doc}puts d[\"b\"].asBool() ?? false\n")),
+        (
+            "asInt",
+            format!("{doc}puts d[\"n\"].asInt() ?? -1\n"),
+            "1\n",
+        ),
+        (
+            "asFloat",
+            format!("{doc}puts d[\"f\"].asFloat() ?? -1.0\n"),
+            "1.5\n",
+        ),
+        (
+            "asBool",
+            format!("{doc}puts d[\"b\"].asBool() ?? false\n"),
+            "true\n",
+        ),
         (
             "asArray",
             format!("{doc}let items: Vector<Json> = d[\"v\"].asArray() ?? []\nputs items.len()\n"),
+            "1\n",
         ),
         (
             "asObject",
@@ -4280,37 +4552,70 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
                 "{doc}let members: Map<string, Json> = d[\"o\"].asObject() ?? {{}}\n\
                  puts members.len()\n"
             ),
+            "1\n",
         ),
-        ("null?", format!("{doc}puts d[\"z\"].null?()\n")),
+        ("null?", format!("{doc}puts d[\"z\"].null?()\n"), "true\n"),
         // std::io.
-        ("io.puts", format!("{io}io.puts(\"x\")\n")),
-        ("io.print", format!("{io}io.print(\"x\")\nputs \"\"\n")),
-        ("io.eprint", format!("{io}io.eprint(\"x\")\n")),
+        ("io.puts", format!("{io}io.puts(\"x\")\n"), "x\n"),
+        (
+            "io.print",
+            format!("{io}io.print(\"x\")\nputs \"\"\n"),
+            "x\n",
+        ),
+        // Its output is stderr, so the pinned stdout below is empty
+        // and says nothing about the builtin. What it writes is pinned
+        // by `io_printers_split_across_stdout_and_stderr`, which
+        // asserts both streams.
+        ("io.eprint", format!("{io}io.eprint(\"x\")\n"), ""),
         (
             "io.readLine",
             format!("{io}puts io.readLine() ?? \"<eof>\"\n"),
+            "line\n",
         ),
-        ("io.readAll", format!("{io}puts io.readAll()\n")),
+        ("io.readAll", format!("{io}puts io.readAll()\n"), "line\n\n"),
         // std::time. Only pinned properties: the clock members move.
-        ("time.now", format!("{time}puts time.now() > 0.0\n")),
+        (
+            "time.now",
+            format!("{time}puts time.now() > 0.0\n"),
+            "true\n",
+        ),
         (
             "time.nowMillis",
             format!("{time}puts time.nowMillis() > 0\n"),
+            "true\n",
         ),
         (
             "time.sleep",
             format!("{time}time.sleep(0)\nputs \"slept\"\n"),
+            "slept\n",
         ),
-        ("time.iso", format!("{time}puts time.iso(0)\n")),
+        (
+            "time.iso",
+            format!("{time}puts time.iso(0)\n"),
+            "1970-01-01T00:00:00.000Z\n",
+        ),
         // std::rand. Seeded or single-outcome, so every leg agrees.
         (
             "rand.seed",
             format!("{rand}rand.seed(1)\nputs \"seeded\"\n"),
+            "seeded\n",
         ),
-        ("rand.int", format!("{rand}puts rand.int(3..=3)\n")),
-        ("rand.float", format!("{rand}puts rand.float() < 1.0\n")),
-        ("rand.choice", format!("{rand}puts rand.choice([7])\n")),
-        ("rand.shuffle", format!("{rand}puts rand.shuffle([9])\n")),
+        ("rand.int", format!("{rand}puts rand.int(3..=3)\n"), "3\n"),
+        (
+            "rand.float",
+            format!("{rand}puts rand.float() < 1.0\n"),
+            "true\n",
+        ),
+        (
+            "rand.choice",
+            format!("{rand}puts rand.choice([7])\n"),
+            "7\n",
+        ),
+        (
+            "rand.shuffle",
+            format!("{rand}puts rand.shuffle([9])\n"),
+            "[9]\n",
+        ),
     ]
 }
 
@@ -4323,9 +4628,10 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
     std::fs::write(tmp.join("ro/a.txt"), "a").expect("fixture written");
     std::fs::write(tmp.join("ro/sub/b.txt"), "b").expect("fixture written");
 
-    let snippets = builtin_snippets(&tmp.display().to_string());
+    let dir = tmp.display().to_string();
+    let snippets = builtin_snippets(&dir);
 
-    let covered: BTreeSet<&str> = snippets.iter().map(|(name, _)| *name).collect();
+    let covered: BTreeSet<&str> = snippets.iter().map(|(name, _, _)| *name).collect();
     assert_eq!(
         covered.len(),
         snippets.len(),
@@ -4349,7 +4655,7 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
         );
     }
 
-    for (name, source) in &snippets {
+    for (name, source, expected_stdout) in &snippets {
         let id = brasa_bytecode::builtin_id(name)
             .unwrap_or_else(|| panic!("`{name}` is not in the registry"));
 
@@ -4377,6 +4683,30 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
         assert_eq!(
             walker.outcome, expected_outcome,
             "`{name}` failed on the walker: {walker:?}"
+        );
+        // The written expectation, not just backend agreement: a
+        // snippet whose only oracle is "the other backend printed the
+        // same thing" stops being an oracle the day there is one
+        // backend. `<TMP>` stands for the fixture root, which moves
+        // per run. Recorded from the walker (BRS-108).
+        //
+        // Asserted on the walker because it is the oracle; the `Run`
+        // equality below carries `stdout`, so the VM is held to the
+        // same string. That indirection dies with the walker, and the
+        // assertion moves onto the VM with it.
+        //
+        // Two groups of entries pin an ORDER, and both orders are
+        // specified rather than incidental — which is what makes them
+        // safe to freeze into a corpus that outlives the oracle.
+        // `ls` and `walk` sort bytewise instead of handing back
+        // readdir order (`brasa_runtime::fs_glue`), and `Map`/`Set`
+        // are insertion-ordered by `docs/spec/07-bytecode.md`, backed
+        // by `OrderedMap`/`OrderedSet` whose hash index only answers
+        // lookups and never decides iteration.
+        assert_eq!(
+            walker.stdout,
+            expected_stdout.replace("<TMP>", &dir),
+            "`{name}` printed something other than its pinned output"
         );
 
         let vm = run_vm(
