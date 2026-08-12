@@ -11,6 +11,9 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+#[path = "support/example_walk.rs"]
+mod example_walk;
+
 /// The two execution backends behind `--backend`; every golden runs on
 /// both against the same pinned output.
 const BACKENDS: &[&str] = &["walker", "vm"];
@@ -447,4 +450,576 @@ biggest is a circle
 distance: 5.0
 ";
     assert_example("shapes.brs", expected);
+}
+
+/// Pinned whole, `wc` line included — the trailing path too, since this
+/// test is the one that chose it — with no accommodation for an
+/// environment that lacks `wc`.
+///
+/// An earlier revision tolerated a missing `wc` the way
+/// `example_real_gitreport` tolerates a missing `git`. That was wrong
+/// twice over. It bought nothing: `crates/brasa_vm/tests/parity.rs`
+/// already spawns `/bin/sh` and `cat` unconditionally
+/// (`proc_run_captures_stdout_stderr_and_code`,
+/// `proc_stdin_round_trips_through_cat`), so a checkout without
+/// coreutils fails the suite well before reaching this test. And it
+/// could not report itself: a skip announced from a passing test goes
+/// into libtest's capture buffer and is discarded unless the run asked
+/// for `--nocapture`, so the operator would have seen green and learned
+/// nothing. `git` is genuinely optional for a language test suite;
+/// `wc` is not.
+#[test]
+fn example_stars() {
+    let expected_repos = "\
+brasa: 1284
+brasa-vscode: 61
+unknown: 412
+toolbelt: 337
+4 popular repos
+";
+
+    for backend in BACKENDS {
+        let fixture = example_path("data/repos.json");
+        let expected = format!("{expected_repos}12 lines read from {}\n", fixture.display());
+        let output = run_with_backend_args(
+            &example_path("stars.brs"),
+            backend,
+            std::slice::from_ref(&fixture),
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "[{backend}] expected empty stderr, got: {stderr}"
+        );
+        assert_eq!(stdout, expected, "[{backend}] stdout mismatch");
+    }
+}
+
+/// The container lookup is total too, and nothing else reaches it: the
+/// happy fixture always has a `repos` array, and every pinned failure
+/// aborts inside `fs.read` or `json.parse` before the loop header is
+/// evaluated.
+///
+/// So what this covers, and `example_stars` does not, is the CONTAINER,
+/// whose `None` has two sources: an absent `repos` key, and a `repos`
+/// that is present but not an array. Both are driven, each against its
+/// own small fixture rather than a document borrowed from another test
+/// — a borrowed one being renamed would fail this as `stars.brs`
+/// exiting 70, which reads as a stars regression.
+///
+/// The field-level fallbacks are already pinned by `example_stars`,
+/// whose fixture has an entry with no `name`, one with no `archived`,
+/// and one whose `stars` is a string.
+#[test]
+fn example_stars_reads_a_document_without_repos() {
+    for backend in BACKENDS {
+        let fixture = example_path("data/no-repos.json");
+        let output = run_with_backend_args(
+            &example_path("stars.brs"),
+            backend,
+            std::slice::from_ref(&fixture),
+        );
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "[{backend}] expected empty stderr, got: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
+            "[{backend}] stdout mismatch"
+        );
+    }
+
+    // The other half of the container's totality: `repos` present, but
+    // not an array. `asArray()` yields `None` for a wrong-kinded node
+    // exactly as it does for an absent key, which is what the example's
+    // own comment claims and what this fixture is for.
+    for backend in BACKENDS {
+        let fixture = example_path("data/repos-scalar.json");
+        let output = run_with_backend_args(
+            &example_path("stars.brs"),
+            backend,
+            std::slice::from_ref(&fixture),
+        );
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "[{backend}] stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "[{backend}] expected empty stderr, got: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
+            "[{backend}] stdout mismatch"
+        );
+    }
+}
+
+/// The example refuses without an argument rather than defaulting to
+/// some path in the working directory, and it lets a bad path or a
+/// non-JSON file propagate rather than reporting an empty dataset.
+/// Those are the paths a reader hits first, so they are pinned
+/// alongside the happy one.
+#[test]
+fn example_stars_reports_bad_input() {
+    for backend in BACKENDS {
+        let no_args = run_with_backend(&example_path("stars.brs"), backend);
+        assert_eq!(
+            no_args.status.code(),
+            Some(2),
+            "[{backend}] expected a refusal"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&no_args.stderr),
+            "usage: stars.brs <repos.json>\n",
+            "[{backend}] unexpected refusal"
+        );
+        assert!(no_args.stdout.is_empty(), "[{backend}] expected no stdout");
+
+        let missing = run_with_backend_args(
+            &example_path("stars.brs"),
+            backend,
+            std::slice::from_ref(&example_path("data/does-not-exist.json")),
+        );
+        assert_eq!(
+            missing.status.code(),
+            Some(70),
+            "[{backend}] expected a failure"
+        );
+        assert!(
+            missing.stdout.is_empty(),
+            "[{backend}] expected nothing before the abort"
+        );
+        let stderr = String::from_utf8_lossy(&missing.stderr);
+        assert!(
+            stderr.starts_with("error: fs.NotFound: "),
+            "[{backend}] got: {stderr}"
+        );
+
+        // A file that certainly exists and certainly is not JSON, so no
+        // fixture has to exist only in order to be broken. Deliberately
+        // not another `.brs`: `every_example_is_pinned` counts any
+        // quoted example name in this file, so naming one as an INPUT
+        // here would stand in for pinning it.
+        let not_json = run_with_backend_args(
+            &example_path("stars.brs"),
+            backend,
+            std::slice::from_ref(&example_path("README.md")),
+        );
+        assert_eq!(
+            not_json.status.code(),
+            Some(70),
+            "[{backend}] expected a failure"
+        );
+        assert!(
+            not_json.stdout.is_empty(),
+            "[{backend}] expected nothing before the abort"
+        );
+        let stderr = String::from_utf8_lossy(&not_json.stderr);
+        assert!(
+            stderr.starts_with("error: json.ParseError: "),
+            "[{backend}] got: {stderr}"
+        );
+    }
+}
+
+/// A module: it declares functions and runs nothing, so the pin is that
+/// it loads clean and stays silent.
+#[test]
+fn example_modules_utils() {
+    assert_example("modules/utils.brs", "");
+}
+
+/// Pinned as the failure it is. File-import module loading does not
+/// exist yet, so this example cannot run — and an example that cannot
+/// run is worth pinning precisely so it cannot sit in `examples/`
+/// looking like it works. When imports land, this test fails and says
+/// what to replace it with.
+#[test]
+fn example_modules_main_is_not_runnable_yet() {
+    for backend in BACKENDS {
+        let output = run_with_backend(&example_path("modules/main.brs"), backend);
+
+        assert_eq!(
+            output.status.code(),
+            Some(70),
+            "[{backend}] file imports appear to work now: pin this example's real output instead"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "brasa: module `utils` is not available yet (importing from another file is not implemented)\n",
+            "[{backend}] unexpected failure"
+        );
+    }
+}
+
+/// Every `.brs` under `examples/` must be exercised by a test in this
+/// file.
+///
+/// The set of exercised examples is read out of this file's own CODE
+/// rather than restated in a list. A list is satisfied by adding a name
+/// to it, which is exactly what someone staring at a red test does;
+/// here the name has to appear in code, so the cheapest way to satisfy
+/// the guard is to write the test. It is not airtight — dead code
+/// naming the file would pass — but the cheap routes are closed.
+///
+/// This is the finding, not the fixture: `stars.brs` stopped compiling
+/// when the stdlib it previewed landed for real, three separate work
+/// units reported it independently, and CI never noticed because
+/// nothing ran it. An unpinned example rots silently and is read as
+/// working code while it does.
+#[test]
+fn every_example_is_pinned() {
+    let found = example_walk::collect_examples(&example_path(""));
+    let code = uncommented_source();
+    // The walk finding nothing would make every filter below vacuous,
+    // which is the blind spot this guard exists to close, restored.
+    assert!(
+        !found.is_empty(),
+        "the walk found no examples at all; the guard would pass vacuously"
+    );
+
+    let unpinned: Vec<&String> = found
+        .iter()
+        .filter(|name| !code.contains(&format!("\"{name}\"")))
+        .collect();
+
+    assert!(
+        unpinned.is_empty(),
+        "these examples are not exercised by any test in this file: {unpinned:?}\n\
+         Either add a test for each, or — if one is a scratch file that \
+         wandered into examples/ — move it out. This walks the working \
+         directory, so untracked files count."
+    );
+}
+
+/// This file's own source with both comment forms removed, so naming an
+/// example in a comment cannot stand in for exercising it.
+///
+/// Both forms means both: a block, and a line comment wherever it
+/// starts — a trailing `// pin "orphan.brs" later` is the cheapest
+/// route of all, and dropping only whole comment lines would leave it
+/// open.
+fn uncommented_source() -> String {
+    let source = include_str!("programs.rs");
+
+    // `strip_comments` does not lex raw strings, and an odd number of
+    // quote bytes inside one would leave it stuck mid-literal for the
+    // rest of the file — every comment after that point emitted as
+    // code, and the guard quietly satisfiable by a name written in one.
+    // Refusing is the loud version of that, and the cheap one: this
+    // file has never needed a raw string.
+    //
+    strip_comments(source)
+}
+
+/// Rust source with its comments removed and its string literals kept.
+///
+/// One pass, because the two forms nest inside each other and inside
+/// literals, and a pass per form gets each of those wrong: strip blocks
+/// first and a `/*` written inside a line comment opens a real one;
+/// strip lines first and a `//` written inside a block truncates the
+/// line that would have closed it. Tracking literals matters for the
+/// same reason — a delimiter inside `"..."` is text, and the literals
+/// are exactly what the caller searches.
+///
+/// Block comments nest in Rust, so the scan counts depth. Delimiters
+/// are assembled from halves: spelled out they would appear in this
+/// file, which this function is used to scan.
+fn strip_comments(source: &str) -> String {
+    // Byte-level throughout: every delimiter is ASCII, and slicing a
+    // `&str` by a byte index lands inside a multi-byte character the
+    // moment a comment holds one.
+    let (open_seq, close_seq) = (concat!("/", "*").as_bytes(), concat!("*", "/").as_bytes());
+    let bytes = source.as_bytes();
+
+    let mut code: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut ix = 0usize;
+
+    while ix < bytes.len() {
+        let rest = &bytes[ix..];
+
+        if depth > 0 {
+            if rest.starts_with(open_seq) {
+                depth += 1;
+                ix += 2;
+            } else if rest.starts_with(close_seq) {
+                depth -= 1;
+                ix += 2;
+            } else {
+                ix += 1;
+            }
+            continue;
+        }
+
+        if in_string {
+            code.push(bytes[ix]);
+            match bytes[ix] {
+                b'\\' if ix + 1 < bytes.len() => {
+                    code.push(bytes[ix + 1]);
+                    ix += 2;
+                }
+                b'"' => {
+                    in_string = false;
+                    ix += 1;
+                }
+                _ => ix += 1,
+            }
+            continue;
+        }
+
+        if rest.starts_with(open_seq) {
+            depth = 1;
+            ix += 2;
+        } else if rest.starts_with(b"//") {
+            ix += rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
+        } else if starts_a_raw_string(rest, ix.checked_sub(1).map(|at| &bytes[at])) {
+            // Only reachable at a code position, so this is a real raw
+            // string and not a quote inside one. `strip_comments` does
+            // not lex them, and an odd number of quote bytes inside one
+            // would leave it stuck mid-literal for the rest of the
+            // file: every comment after that emitted as code, and the
+            // guard quietly satisfiable by a name written in one.
+            panic!(
+                "this file gained a raw string literal, which `strip_comments` does not \
+                 lex; teach it that prefix before adding one"
+            );
+        } else if let Some(len) = char_literal_len(rest) {
+            // A char literal can hold a quote (`b'\"'` appears twice in
+            // this very function), and treating that quote as a string
+            // opener inverts the parity for everything after it.
+            code.extend_from_slice(&rest[..len]);
+            ix += len;
+        } else {
+            if bytes[ix] == b'"' {
+                in_string = true;
+            }
+            code.push(bytes[ix]);
+            ix += 1;
+        }
+    }
+
+    String::from_utf8(code).expect("removing whole comments leaves valid UTF-8")
+}
+
+/// Whether `rest` opens a raw string, given the byte emitted before it.
+///
+/// All six spellings — bare, byte (`br`) and C (`cr`), each with and
+/// without hashes. The `b` and `c` are identifier characters, so a rule
+/// that only refuses a non-identifier byte before the `r` would admit
+/// exactly the prefixes it is there to catch. `prev` is what separates a prefix from the tail of an
+/// identifier, and it comes from the caller rather than from a scan
+/// because only the caller knows it is looking at code — asked inside a
+/// string, this would fire on the literal `"r"`.
+fn starts_a_raw_string(rest: &[u8], prev: Option<&u8>) -> bool {
+    // Every raw prefix Rust has: an optional `b` or `c`, then `r`.
+    let r = match (rest.first(), rest.get(1)) {
+        (Some(b'b' | b'c'), Some(b'r')) => 1,
+        (Some(b'r'), _) => 0,
+        _ => return false,
+    };
+
+    // The hashes must lead somewhere: `r#type` is a raw IDENTIFIER,
+    // which holds no quote and which `strip_comments` reads correctly.
+    let hashes = rest[r + 1..].iter().take_while(|&&b| b == b'#').count();
+    let opens = rest.get(r + 1 + hashes) == Some(&b'"');
+    let token_start = prev.is_none_or(|b| !(b.is_ascii_alphanumeric() || *b == b'_'));
+
+    opens && token_start
+}
+
+/// `starts_a_raw_string` is what keeps `strip_comments` from being
+/// handed a literal it cannot lex, and it has been wrong twice: a rule
+/// that only refused a non-identifier byte before the `r` admitted the
+/// `br` forms, and the `c` forms were missing entirely. All six
+/// spellings are pinned, and so are the raw identifiers that must not
+/// be mistaken for one.
+#[test]
+fn starts_a_raw_string_sees_every_spelling() {
+    // Assembled, not written: spelled out, these would be raw strings
+    // in the file the guard scans.
+    let (q, hash) = ('"', '#');
+    let raws = [
+        format!("r{q}a{q};"),
+        format!("r{hash}{q}a{q}{hash};"),
+        format!("br{q}a{q};"),
+        format!("br{hash}{q}a{q}{hash};"),
+        format!("cr{q}a{q};"),
+        format!("cr{hash}{q}a{q}{hash};"),
+    ];
+
+    for rest in &raws {
+        assert!(
+            starts_a_raw_string(rest.as_bytes(), Some(&b' ')),
+            "{rest:?} should open a raw string"
+        );
+    }
+    assert!(
+        starts_a_raw_string(raws[0].as_bytes(), None),
+        "a prefix at the very start of a file should count"
+    );
+
+    // The near misses: a prefix that continues an identifier (`stderr`
+    // then a quote, `subr` then a hash), and one that opens nothing.
+    for (rest, prev) in [
+        (format!("r{q};"), b'r'),
+        (format!("r{hash};"), b'b'),
+        (format!("r{q};"), b'_'),
+        ("rasa = 1;".to_string(), b' '),
+        ("b = 2;".to_string(), b' '),
+        // Raw identifiers, which hold no quote and read correctly.
+        ("r#type = 1;".to_string(), b' '),
+        ("r#match(x);".to_string(), b' '),
+        ("br#fn;".to_string(), b' '),
+        ("cr#fn;".to_string(), b' '),
+    ] {
+        assert!(
+            !starts_a_raw_string(rest.as_bytes(), Some(&prev)),
+            "{rest:?} after {:?} should not",
+            prev as char
+        );
+    }
+}
+
+/// The panic branch has to be reachable from the stripper, not just
+/// from `starts_a_raw_string`: deleting the `else if` that calls it
+/// would otherwise leave every case in this file green.
+#[test]
+#[should_panic(expected = "gained a raw string")]
+fn strip_comments_refuses_a_raw_string() {
+    let q = '"';
+    strip_comments(&format!("let s = r{q}a{q};"));
+}
+
+/// The byte length of the char literal at the front of `rest`, if there
+/// is one.
+///
+/// A leading quote is ambiguous in Rust: `'a'` is a char and `'a` is a
+/// lifetime. What separates them is a closing quote in the one position
+/// a char literal can put it, so that is what this looks for; anything
+/// else is left to be emitted a byte at a time.
+fn char_literal_len(rest: &[u8]) -> Option<usize> {
+    let start = match rest {
+        [b'b', b'\'', ..] => 1,
+        [b'\'', ..] => 0,
+        _ => return None,
+    };
+
+    match rest.get(start + 1)? {
+        // `'\n'`, `'\''`, `'\\'` — one escaped byte, then the close.
+        // A longer escape (`'\u{1f600}'`) is not matched, and falls
+        // through to the byte-at-a-time path as any other quote would.
+        b'\\' if rest.get(start + 3) == Some(&b'\'') => Some(start + 4),
+        _ if rest.get(start + 2) == Some(&b'\'') => Some(start + 3),
+        _ => None,
+    }
+}
+
+/// The stripper is what stands between `every_example_is_pinned` and a
+/// name written down instead of exercised, so its own behavior is
+/// pinned rather than assumed.
+#[test]
+fn strip_comments_drops_comments_and_keeps_literals() {
+    let block = concat!("/", "*");
+    let close = concat!("*", "/");
+
+    for (name, source, kept) in [
+        ("plain code", "let x = \"sentinel.not-an-example\";", true),
+        (
+            "whole-line comment",
+            "// \"sentinel.not-an-example\"",
+            false,
+        ),
+        ("doc comment", "/// \"sentinel.not-an-example\"", false),
+        (
+            "trailing comment",
+            "let y = 1; // \"sentinel.not-an-example\"",
+            false,
+        ),
+        (
+            "block comment",
+            &format!("{block} \"sentinel.not-an-example\" {close}"),
+            false,
+        ),
+        (
+            "nested block comment",
+            &format!("{block} {block} n {close} \"sentinel.not-an-example\" {close}"),
+            false,
+        ),
+        (
+            "block opener inside a line comment",
+            &format!("// {block}\nlet x = \"sentinel.not-an-example\";"),
+            true,
+        ),
+        (
+            "line opener inside a block comment",
+            &format!("{block} // {close} let x = \"sentinel.not-an-example\";"),
+            true,
+        ),
+        (
+            "delimiters inside a string literal",
+            &format!("let s = \"{block} {close} //\";\nlet x = \"sentinel.not-an-example\";"),
+            true,
+        ),
+        (
+            "byte-char literal holding a quote",
+            "let q = b'\\'';\nlet r = b'\"';\n// \"sentinel.not-an-example\"",
+            false,
+        ),
+        (
+            "char literal holding a quote",
+            "let c = '\"';\n// \"sentinel.not-an-example\"",
+            false,
+        ),
+        (
+            "lifetime is not a char literal",
+            "fn f<'a>(s: &'a str) {}\n// \"sentinel.not-an-example\"",
+            false,
+        ),
+        (
+            // One escaped quote, not two: an even number closes and
+            // reopens and leaves the parity where it started, so the
+            // branch could be deleted without the case noticing.
+            "escaped quote inside a string literal",
+            &format!(
+                "let s = {q}a\\{q}b{q};\n// {q}sentinel.not-an-example{q}",
+                q = '"'
+            ),
+            false,
+        ),
+        (
+            "unterminated block swallows the rest",
+            &format!("{block} let x = \"sentinel.not-an-example\";"),
+            false,
+        ),
+    ] {
+        let stripped = strip_comments(source);
+        assert_eq!(
+            stripped.contains("\"sentinel.not-an-example\""),
+            kept,
+            "{name}: stripped to {stripped:?}"
+        );
+    }
 }

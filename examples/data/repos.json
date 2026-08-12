@@ -1,0 +1,12 @@
+{
+  "repos": [
+    { "name": "brasa", "stars": 1284, "archived": false },
+    { "name": "brasa-vscode", "stars": 61, "archived": false },
+    { "name": "sketchpad", "stars": 903, "archived": true },
+    { "name": "notes", "stars": 50, "archived": false },
+    { "name": "sandbox", "stars": "many", "archived": false },
+    { "stars": 412, "archived": false },
+    7,
+    { "name": "toolbelt", "stars": 337 }
+  ]
+}

@@ -2,76 +2,112 @@
 source: crates/brasa_parser/tests/examples.rs
 expression: dump
 ---
+Import::Std(std::env)
 Import::Std(std::fs)
+Import::Std(std::io)
 Import::Std(std::json)
 Import::Std(std::proc)
 FuncDef main()
-  Let raw
-    Catch(exhaustive=false, binding=e)
+  Let args
+    Call
+      Field(args)
+        Ident(env)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(args)
+        Int(0)
+    then
       Call
-        Field(read)
-          Ident(fs)
+        Field(eprint)
+          Ident(io)
         StringLit
-          Text(raw=false) "repos.json"
-      arm fs.NotFound
-          StringLit
-            Text(raw=false) "[]"
+          Text(raw=false) "usage: stars.brs <repos.json>\n"
+      Call
+        Field(exit)
+          Ident(env)
+        Int(2)
+  Let file
+    Index
+      Ident(args)
+      Int(0)
+  Let raw
+    Call
+      Field(read)
+        Ident(fs)
+      Ident(file)
   Let data
     Call
       Field(parse)
         Ident(json)
       Ident(raw)
-  Let mut count
+  Let mut popular
     Int(0)
   For
     Binding(repo)
     Coalesce
-      Index
-        Ident(data)
-        StringLit
-          Text(raw=false) "repos"
       Call
-        Field(parse)
-          Ident(json)
-        StringLit
-          Text(raw=false) "[]"
+        Field(asArray)
+          Index
+            Ident(data)
+            StringLit
+              Text(raw=false) "repos"
+      VectorLit
     Let stars
       Coalesce
-        Index
-          Ident(repo)
-          StringLit
-            Text(raw=false) "stars"
+        Call
+          Field(asInt)
+            Index
+              Ident(repo)
+              StringLit
+                Text(raw=false) "stars"
         Int(0)
+    Let archived
+      Coalesce
+        Call
+          Field(asBool)
+            Index
+              Ident(repo)
+              StringLit
+                Text(raw=false) "archived"
+        Bool(false)
     If
       cond
-        Binary(>)
-          Ident(stars)
-          Int(50)
+        Binary(&&)
+          Binary(>)
+            Ident(stars)
+            Int(50)
+          Unary(!)
+            Ident(archived)
       then
         Call
           Ident(puts)
           StringLit
             Interp
               Coalesce
-                Index
-                  Ident(repo)
-                  StringLit
-                    Text(raw=false) "name"
+                Call
+                  Field(asString)
+                    Index
+                      Ident(repo)
+                      StringLit
+                        Text(raw=false) "name"
                 StringLit
                   Text(raw=false) "unknown"
             Text(raw=false) ": "
             Interp
               Ident(stars)
         Assign +=
-          Ident(count)
+          Ident(popular)
           Int(1)
   Call
     Ident(puts)
     StringLit
       Interp
-        Ident(count)
+        Ident(popular)
       Text(raw=false) " popular repos"
-  Let branch
+  Let counted
     Call
       Field(trim)
         Field(stdout)
@@ -80,14 +116,15 @@ FuncDef main()
               Ident(proc)
             VectorLit
               StringLit
-                Text(raw=false) "git"
+                Text(raw=false) "wc"
               StringLit
-                Text(raw=false) "branch"
-              StringLit
-                Text(raw=false) "--show-current"
+                Text(raw=false) "-l"
+            Ident(raw)
   Call
     Ident(puts)
     StringLit
-      Text(raw=false) "current branch: "
       Interp
-        Ident(branch)
+        Ident(counted)
+      Text(raw=false) " lines read from "
+      Interp
+        Ident(file)

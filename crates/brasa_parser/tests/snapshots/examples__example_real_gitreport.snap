@@ -1,0 +1,427 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::env)
+Import::Std(std::fs)
+Import::Std(std::io)
+Import::Std(std::proc)
+StructDef Tally
+  field key
+  field hits
+Let subjectPattern
+  StringLit
+    Text(raw=true) "^([a-z]+)(\\([^)]*\\))?(!)?: "
+FuncDef refuse(reason)
+  Call
+    Field(eprint)
+      Ident(io)
+    StringLit
+      Interp
+        Ident(reason)
+      Text(raw=false) "\n"
+  EnumCtor(None)
+FuncDef repoRoot()
+  Catch(exhaustive=false, binding=e)
+    EnumCtor(Some)
+      Call
+        Field(trim)
+          Field(stdout)
+            Call
+              Field(run)
+                Ident(proc)
+              VectorLit
+                StringLit
+                  Text(raw=false) "git"
+                StringLit
+                  Text(raw=false) "rev-parse"
+                StringLit
+                  Text(raw=false) "--show-toplevel"
+    arm proc.SpawnError
+        Call
+          Ident(refuse)
+          StringLit
+            Text(raw=false) "git is not installed"
+    arm proc.NonZeroExit
+        Call
+          Ident(refuse)
+          StringLit
+            Text(raw=false) "not inside a git repository"
+FuncDef lastTag()
+  Let out
+    Call
+      Field(tryRun)
+        Ident(proc)
+      VectorLit
+        StringLit
+          Text(raw=false) "git"
+        StringLit
+          Text(raw=false) "describe"
+        StringLit
+          Text(raw=false) "--tags"
+        StringLit
+          Text(raw=false) "--abbrev=0"
+  If
+    cond
+      Binary(==)
+        Field(code)
+          Ident(out)
+        Int(0)
+    then
+      EnumCtor(Some)
+        Call
+          Field(trim)
+            Field(stdout)
+              Ident(out)
+    else
+      EnumCtor(None)
+FuncDef tagExists?(tag)
+  Binary(==)
+    Field(code)
+      Call
+        Field(tryRun)
+          Ident(proc)
+        VectorLit
+          StringLit
+            Text(raw=false) "git"
+          StringLit
+            Text(raw=false) "rev-parse"
+          StringLit
+            Text(raw=false) "--verify"
+          StringLit
+            Text(raw=false) "--quiet"
+          StringLit
+            Text(raw=false) "refs/tags/"
+            Interp
+              Ident(tag)
+    Int(0)
+FuncDef subjects(tag)
+  Let args
+    VectorLit
+      StringLit
+        Text(raw=false) "git"
+      StringLit
+        Text(raw=false) "log"
+      StringLit
+        Text(raw=false) "--pretty=%s"
+  Let range
+    Coalesce
+      Ident(tag)
+      StringLit
+  If
+    cond
+      Binary(!=)
+        Ident(range)
+        StringLit
+    then
+      Call
+        Field(push)
+          Ident(args)
+        StringLit
+          Interp
+            Ident(range)
+          Text(raw=false) "..HEAD"
+  Call
+    Field(lines)
+      Field(stdout)
+        Call
+          Field(run)
+            Ident(proc)
+          Ident(args)
+FuncDef bump(counts, key)
+  Call
+    Field(insert)
+      Ident(counts)
+    Ident(key)
+    Binary(+)
+      Coalesce
+        Index
+          Ident(counts)
+          Ident(key)
+        Int(0)
+      Int(1)
+FuncDef ranked(counts)
+  Let rows
+    VectorLit
+  For
+    Tuple
+      Binding(key)
+      Binding(hits)
+    Call
+      Field(entries)
+        Ident(counts)
+    Call
+      Field(push)
+        Ident(rows)
+      StructLit(Tally)
+        field key
+          Ident(key)
+        field hits
+          Ident(hits)
+  Call
+    Field(sortBy)
+      Call
+        Field(sortBy)
+          Ident(rows)
+        Lambda(r)
+          Field(key)
+            Ident(r)
+    Lambda(r)
+      Unary(-)
+        Field(hits)
+          Ident(r)
+FuncDef pad(n, width)
+  Call
+    Field(padStart)
+      StringLit
+        Interp
+          Ident(n)
+    Ident(width)
+    StringLit
+      Text(raw=false) " "
+FuncDef dirtyPaths()
+  Call
+    Field(len)
+      Call
+        Field(filter)
+          Call
+            Field(lines)
+              Field(stdout)
+                Call
+                  Field(run)
+                    Ident(proc)
+                  VectorLit
+                    StringLit
+                      Text(raw=false) "git"
+                    StringLit
+                      Text(raw=false) "status"
+                    StringLit
+                      Text(raw=false) "--porcelain"
+        Lambda(l)
+          Binary(!=)
+            Call
+              Field(trim)
+                Ident(l)
+            StringLit
+FuncDef main()
+  Let target
+    Coalesce
+      Call
+        Field(first)
+          Call
+            Field(args)
+              Ident(env)
+      StringLit
+        Text(raw=false) "v0.1.0"
+  Let root
+    Coalesce
+      Call
+        Ident(repoRoot)
+      StringLit
+  If
+    cond
+      Binary(==)
+        Ident(root)
+        StringLit
+    then
+      Return
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "release report for "
+      Interp
+        Call
+          Field(base)
+            Ident(fs)
+          Ident(root)
+  Let tag
+    Call
+      Ident(lastTag)
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "range: "
+      Interp
+        Coalesce
+          Ident(tag)
+          StringLit
+            Text(raw=false) "whole history (no tag yet)"
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "target tag "
+      Interp
+        Ident(target)
+      Text(raw=false) ": "
+      Interp
+        If
+          cond
+            Call
+              Ident(tagExists?)
+              Ident(target)
+          then
+            StringLit
+              Text(raw=false) "already exists"
+          else
+            StringLit
+              Text(raw=false) "free"
+  Let types
+    MapLit
+  Let breaking
+    VectorLit
+  Let mut total
+    Int(0)
+  Let mut conventional
+    Int(0)
+  For
+    Binding(subject)
+    Call
+      Ident(subjects)
+      Ident(tag)
+    If
+      cond
+        Binary(==)
+          Call
+            Field(trim)
+              Ident(subject)
+          StringLit
+      then
+        Continue
+    Assign +=
+      Ident(total)
+      Int(1)
+    Let caps
+      Coalesce
+        Call
+          Field(captures)
+            Ident(subject)
+          Ident(subjectPattern)
+        VectorLit
+    If
+      cond
+        Binary(==)
+          Call
+            Field(len)
+              Ident(caps)
+          Int(0)
+      then
+        Continue
+    Assign +=
+      Ident(conventional)
+      Int(1)
+    Call
+      Ident(bump)
+      Ident(types)
+      Index
+        Ident(caps)
+        Int(1)
+    If
+      cond
+        Binary(==)
+          Index
+            Ident(caps)
+            Int(3)
+          StringLit
+            Text(raw=false) "!"
+      then
+        Call
+          Field(push)
+            Ident(breaking)
+          Ident(subject)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "commits: "
+      Interp
+        Ident(total)
+      Text(raw=false) " ("
+      Interp
+        Ident(conventional)
+      Text(raw=false) " conventional, "
+      Interp
+        Binary(-)
+          Ident(total)
+          Ident(conventional)
+      Text(raw=false) " free-form)"
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "by type:"
+  For
+    Binding(row)
+    Call
+      Ident(ranked)
+      Ident(types)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Call
+            Ident(pad)
+            Field(hits)
+              Ident(row)
+            Int(3)
+        Text(raw=false) "  "
+        Interp
+          Field(key)
+            Ident(row)
+  Call
+    Ident(puts)
+    StringLit
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(breaking)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "no breaking changes"
+    else
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "breaking changes:"
+      For
+        Binding(subject)
+        Ident(breaking)
+        Call
+          Ident(puts)
+          StringLit
+            Text(raw=false) "  "
+            Interp
+              Ident(subject)
+  Let dirty
+    Call
+      Ident(dirtyPaths)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "worktree: "
+      Interp
+        If
+          cond
+            Binary(==)
+              Ident(dirty)
+              Int(0)
+          then
+            StringLit
+              Text(raw=false) "clean"
+          else
+            StringLit
+              Interp
+                Ident(dirty)
+              Text(raw=false) " uncommitted path(s)"

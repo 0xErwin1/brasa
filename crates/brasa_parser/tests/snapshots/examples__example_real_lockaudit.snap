@@ -1,0 +1,663 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::env)
+Import::Std(std::fs)
+Import::Std(std::json)
+Import::Std(std::math)
+Import::Std(std::time)
+StructDef Input
+  field name
+  field rev
+  field date
+  field source
+StructDef Duplicate
+  field rev
+  field names
+Let pruned
+  EnumCtor(Set)
+    VectorLit
+      StringLit
+        Text(raw=false) ".git"
+      StringLit
+        Text(raw=false) ".direnv"
+      StringLit
+        Text(raw=false) "target"
+      StringLit
+        Text(raw=false) "result"
+      StringLit
+        Text(raw=false) "node_modules"
+Let maxDepth
+  Int(32)
+FuncDef entries(dir)
+  Let none
+    VectorLit
+  Catch(exhaustive=false, binding=e)
+    Call
+      Field(ls)
+        Ident(fs)
+      Ident(dir)
+    arm fs.Denied
+        Ident(none)
+    arm fs.IoError
+        Ident(none)
+FuncDef collectLocks(dir, found, depth)
+  If
+    cond
+      Binary(>)
+        Ident(depth)
+        Ident(maxDepth)
+    then
+      Return
+  Let lock
+    Call
+      Field(join)
+        Ident(fs)
+      Ident(dir)
+      StringLit
+        Text(raw=false) "flake.lock"
+  If
+    cond
+      Call
+        Field(isFile?)
+          Ident(fs)
+        Ident(lock)
+    then
+      Call
+        Field(push)
+          Ident(found)
+        Ident(lock)
+  For
+    Binding(name)
+    Call
+      Ident(entries)
+      Ident(dir)
+    Let child
+      Call
+        Field(join)
+          Ident(fs)
+        Ident(dir)
+        Ident(name)
+    If
+      cond
+        Binary(&&)
+          Unary(!)
+            Call
+              Field(has?)
+                Ident(pruned)
+              Ident(name)
+          Call
+            Field(isDir?)
+              Ident(fs)
+            Ident(child)
+      then
+        Call
+          Ident(collectLocks)
+          Ident(child)
+          Ident(found)
+          Binary(+)
+            Ident(depth)
+            Int(1)
+FuncDef originOf(locked, original)
+  Let kind
+    Coalesce
+      Call
+        Field(asString)
+          Index
+            Ident(locked)
+            StringLit
+              Text(raw=false) "type"
+      StringLit
+        Text(raw=false) "?"
+  If
+    cond
+      Binary(||)
+        Binary(==)
+          Ident(kind)
+          StringLit
+            Text(raw=false) "github"
+        Binary(==)
+          Ident(kind)
+          StringLit
+            Text(raw=false) "gitlab"
+    then
+      Let owner
+        Coalesce
+          Call
+            Field(asString)
+              Index
+                Ident(original)
+                StringLit
+                  Text(raw=false) "owner"
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Ident(locked)
+                  StringLit
+                    Text(raw=false) "owner"
+            StringLit
+              Text(raw=false) "?"
+      Let repo
+        Coalesce
+          Call
+            Field(asString)
+              Index
+                Ident(original)
+                StringLit
+                  Text(raw=false) "repo"
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Ident(locked)
+                  StringLit
+                    Text(raw=false) "repo"
+            StringLit
+              Text(raw=false) "?"
+      StringLit
+        Interp
+          Ident(kind)
+        Text(raw=false) ":"
+        Interp
+          Ident(owner)
+        Text(raw=false) "/"
+        Interp
+          Ident(repo)
+    else
+      StringLit
+        Interp
+          Ident(kind)
+        Text(raw=false) ":"
+        Interp
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Ident(locked)
+                  StringLit
+                    Text(raw=false) "url"
+            Coalesce
+              Call
+                Field(asString)
+                  Index
+                    Ident(original)
+                    StringLit
+                      Text(raw=false) "url"
+              StringLit
+                Text(raw=false) "?"
+FuncDef lockedDate(locked)
+  Let stamp
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Ident(locked)
+            StringLit
+              Text(raw=false) "lastModified"
+      Int(0)
+  If
+    cond
+      Binary(==)
+        Ident(stamp)
+        Int(0)
+    then
+      StringLit
+        Text(raw=false) "?"
+    else
+      Call
+        Field(slice)
+          Call
+            Field(iso)
+              Ident(time)
+            Binary(*)
+              Ident(stamp)
+              Int(1000)
+        Int(0)
+        Int(10)
+FuncDef followsIn(node)
+  Let noInputs
+    MapLit
+  Let mut count
+    Int(0)
+  For
+    Tuple
+      Wildcard
+      Binding(value)
+    Coalesce
+      Call
+        Field(asObject)
+          Index
+            Ident(node)
+            StringLit
+              Text(raw=false) "inputs"
+      Ident(noInputs)
+    Assign +=
+      Ident(count)
+      Match
+        Call
+          Field(asArray)
+            Ident(value)
+        Ctor(Some)
+          Wildcard
+          Int(1)
+        Ctor(None)
+          Int(0)
+  Ident(count)
+FuncDef directInputs(nodes)
+  Let noInputs
+    MapLit
+  Let inputs
+    Coalesce
+      Call
+        Field(asObject)
+          Index
+            Index
+              Ident(nodes)
+              StringLit
+                Text(raw=false) "root"
+            StringLit
+              Text(raw=false) "inputs"
+      Ident(noInputs)
+  Call
+    Field(len)
+      Ident(inputs)
+FuncDef widest(rows)
+  Call
+    Field(reduce)
+      Call
+        Field(map)
+          Ident(rows)
+        Lambda(r)
+          Call
+            Field(len)
+              Field(name)
+                Ident(r)
+    Int(0)
+    Lambda(widest, len)
+      Call
+        Field(max)
+          Ident(math)
+        Ident(widest)
+        Ident(len)
+FuncDef duplicates(revs)
+  Let dupes
+    VectorLit
+  For
+    Tuple
+      Binding(rev)
+      Binding(names)
+    Call
+      Field(entries)
+        Ident(revs)
+    If
+      cond
+        Binary(>)
+          Call
+            Field(len)
+              Ident(names)
+          Int(1)
+      then
+        Call
+          Field(push)
+            Ident(dupes)
+          StructLit(Duplicate)
+            field rev
+              Ident(rev)
+            field names
+              Ident(names)
+  Call
+    Field(sortBy)
+      Ident(dupes)
+    Lambda(d)
+      Field(rev)
+        Ident(d)
+FuncDef count(n, noun)
+  If
+    cond
+      Binary(==)
+        Ident(n)
+        Int(1)
+    then
+      StringLit
+        Interp
+          Ident(n)
+        Text(raw=false) " "
+        Interp
+          Ident(noun)
+    else
+      StringLit
+        Interp
+          Ident(n)
+        Text(raw=false) " "
+        Interp
+          Ident(noun)
+        Text(raw=false) "s"
+FuncDef audit(path, root)
+  Let data
+    Call
+      Field(parse)
+        Ident(json)
+      Call
+        Field(read)
+          Ident(fs)
+        Ident(path)
+  Let noNodes
+    MapLit
+  Let nodes
+    Coalesce
+      Call
+        Field(asObject)
+          Index
+            Ident(data)
+            StringLit
+              Text(raw=false) "nodes"
+      Ident(noNodes)
+  Let mut follows
+    Int(0)
+  For
+    Tuple
+      Wildcard
+      Binding(node)
+    Ident(nodes)
+    Assign +=
+      Ident(follows)
+      Call
+        Ident(followsIn)
+        Ident(node)
+  Let shown
+    If
+      cond
+        Call
+          Field(startsWith?)
+            Ident(path)
+          StringLit
+            Interp
+              Ident(root)
+            Text(raw=false) "/"
+      then
+        Call
+          Field(slice)
+            Ident(path)
+          Binary(+)
+            Call
+              Field(len)
+                Ident(root)
+            Int(1)
+          Call
+            Field(len)
+              Ident(path)
+      else
+        Ident(path)
+  Call
+    Ident(puts)
+    StringLit
+      Interp
+        Ident(shown)
+      Text(raw=false) "  (lock version "
+      Interp
+        Coalesce
+          Call
+            Field(asInt)
+              Index
+                Ident(data)
+                StringLit
+                  Text(raw=false) "version"
+          Int(0)
+      Text(raw=false) ", "
+      Interp
+        Call
+          Ident(count)
+          Call
+            Ident(directInputs)
+            Ident(nodes)
+          StringLit
+            Text(raw=false) "direct input"
+      Text(raw=false) ", "
+      Interp
+        Call
+          Ident(count)
+          Binary(-)
+            Call
+              Field(len)
+                Ident(nodes)
+            Int(1)
+          StringLit
+            Text(raw=false) "locked node"
+      Text(raw=false) ", "
+      Interp
+        Call
+          Ident(count)
+          Ident(follows)
+          StringLit
+            Text(raw=false) "follows edge"
+      Text(raw=false) ")"
+  Let revs
+    MapLit
+  Let rows
+    VectorLit
+  Let unpinned
+    VectorLit
+  For
+    Tuple
+      Binding(name)
+      Binding(node)
+    Ident(nodes)
+    If
+      cond
+        Binary(==)
+          Ident(name)
+          StringLit
+            Text(raw=false) "root"
+      then
+        Continue
+    Let locked
+      Index
+        Ident(node)
+        StringLit
+          Text(raw=false) "locked"
+    Let rev
+      Coalesce
+        Call
+          Field(asString)
+            Index
+              Ident(locked)
+              StringLit
+                Text(raw=false) "rev"
+        StringLit
+    If
+      cond
+        Binary(==)
+          Ident(rev)
+          StringLit
+      then
+        Call
+          Field(push)
+            Ident(unpinned)
+          Ident(name)
+        Continue
+    Call
+      Field(push)
+        Ident(rows)
+      StructLit(Input)
+        field name
+          Ident(name)
+        field rev
+          Call
+            Field(slice)
+              Ident(rev)
+            Int(0)
+            Int(7)
+        field date
+          Call
+            Ident(lockedDate)
+            Ident(locked)
+        field source
+          Call
+            Ident(originOf)
+            Ident(locked)
+            Index
+              Ident(node)
+              StringLit
+                Text(raw=false) "original"
+    Let seen
+      Coalesce
+        Index
+          Ident(revs)
+          Ident(rev)
+        VectorLit
+    Call
+      Field(push)
+        Ident(seen)
+      Ident(name)
+    Call
+      Field(insert)
+        Ident(revs)
+      Ident(rev)
+      Ident(seen)
+  Let width
+    Call
+      Ident(widest)
+      Ident(rows)
+  For
+    Binding(row)
+    Ident(rows)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Call
+            Field(padEnd)
+              Field(name)
+                Ident(row)
+            Ident(width)
+            StringLit
+              Text(raw=false) " "
+        Text(raw=false) "  "
+        Interp
+          Field(rev)
+            Ident(row)
+        Text(raw=false) "  "
+        Interp
+          Field(date)
+            Ident(row)
+        Text(raw=false) "  "
+        Interp
+          Field(source)
+            Ident(row)
+  If
+    cond
+      Binary(>)
+        Call
+          Field(len)
+            Ident(unpinned)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "  unpinned inputs: "
+          Interp
+            Call
+              Field(join)
+                Ident(unpinned)
+              StringLit
+                Text(raw=false) ", "
+  Let dupes
+    Call
+      Ident(duplicates)
+      Ident(revs)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(dupes)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "  no duplicated revisions"
+    else
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "  duplicated revisions:"
+      For
+        Binding(dupe)
+        Ident(dupes)
+        Call
+          Ident(puts)
+          StringLit
+            Text(raw=false) "    "
+            Interp
+              Call
+                Field(slice)
+                  Field(rev)
+                    Ident(dupe)
+                Int(0)
+                Int(7)
+            Text(raw=false) "  "
+            Interp
+              Call
+                Field(join)
+                  Field(names)
+                    Ident(dupe)
+                StringLit
+                  Text(raw=false) " "
+FuncDef main()
+  Let root
+    Coalesce
+      Call
+        Field(first)
+          Call
+            Field(args)
+              Ident(env)
+      Call
+        Field(cwd)
+          Ident(env)
+  Let locks
+    VectorLit
+  Call
+    Ident(collectLocks)
+    Ident(root)
+    Ident(locks)
+    Int(0)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(locks)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "no flake.lock under "
+          Interp
+            Ident(root)
+      Return
+  Let mut first
+    Bool(true)
+  For
+    Binding(lock)
+    Ident(locks)
+    If
+      cond
+        Unary(!)
+          Ident(first)
+      then
+        Call
+          Ident(puts)
+          StringLit
+    Assign =
+      Ident(first)
+      Bool(false)
+    Call
+      Ident(audit)
+      Ident(lock)
+      Ident(root)

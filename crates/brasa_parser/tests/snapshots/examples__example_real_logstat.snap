@@ -1,0 +1,358 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::env)
+Import::Std(std::fs)
+Import::Std(std::io)
+Import::Std(std::math)
+StructDef Tally
+  field key
+  field hits
+Let entryPattern
+  StringLit
+    Text(raw=true) "^(\\S+) \\S+ \\S+ \\[[^\\]]+\\] \"([A-Z]+) ([^ \"]+)[^\"]*\" (\\d{3}) (\\d+|-)"
+FuncDef source()
+  Let args
+    Call
+      Field(args)
+        Ident(env)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(args)
+        Int(0)
+    then
+      Call
+        Field(readAll)
+          Ident(io)
+    else
+      Call
+        Field(read)
+          Ident(fs)
+        Index
+          Ident(args)
+          Int(0)
+FuncDef bump(counts, key)
+  Call
+    Field(insert)
+      Ident(counts)
+    Ident(key)
+    Binary(+)
+      Coalesce
+        Index
+          Ident(counts)
+          Ident(key)
+        Int(0)
+      Int(1)
+FuncDef ranked(counts)
+  Let rows
+    VectorLit
+  For
+    Tuple
+      Binding(key)
+      Binding(hits)
+    Call
+      Field(entries)
+        Ident(counts)
+    Call
+      Field(push)
+        Ident(rows)
+      StructLit(Tally)
+        field key
+          Ident(key)
+        field hits
+          Ident(hits)
+  Call
+    Field(sortBy)
+      Call
+        Field(sortBy)
+          Ident(rows)
+        Lambda(r)
+          Field(key)
+            Ident(r)
+    Lambda(r)
+      Unary(-)
+        Field(hits)
+          Ident(r)
+FuncDef pad(n, width)
+  Call
+    Field(padStart)
+      StringLit
+        Interp
+          Ident(n)
+    Ident(width)
+    StringLit
+      Text(raw=false) " "
+FuncDef percent(part, total)
+  Let share
+    Binary(*)
+      Binary(/)
+        Call
+          Field(toFloat)
+            Ident(part)
+        Call
+          Field(toFloat)
+            Ident(total)
+      Float(100)
+  StringLit
+    Interp
+      Call
+        Field(toFixed)
+          Ident(share)
+        Int(1)
+    Text(raw=false) "%"
+FuncDef report(title, rows, limit)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    Ident(title)
+  For
+    Binding(i)
+    Range(inclusive=false)
+      Int(0)
+      Call
+        Field(min)
+          Ident(math)
+        Ident(limit)
+        Call
+          Field(len)
+            Ident(rows)
+    Let row
+      Index
+        Ident(rows)
+        Ident(i)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Call
+            Ident(pad)
+            Field(hits)
+              Ident(row)
+            Int(4)
+        Text(raw=false) "  "
+        Interp
+          Field(key)
+            Ident(row)
+FuncDef main()
+  Let classes
+    MapLit
+  Let paths
+    MapLit
+  Let clients
+    MapLit
+  Let failing
+    MapLit
+  Let mut total
+    Int(0)
+  Let mut skipped
+    Int(0)
+  Let mut bytes
+    Int(0)
+  For
+    Binding(line)
+    Call
+      Field(lines)
+        Call
+          Ident(source)
+    If
+      cond
+        Binary(==)
+          Call
+            Field(trim)
+              Ident(line)
+          StringLit
+      then
+        Continue
+    Let caps
+      Coalesce
+        Call
+          Field(captures)
+            Ident(line)
+          Ident(entryPattern)
+        VectorLit
+    If
+      cond
+        Binary(==)
+          Call
+            Field(len)
+              Ident(caps)
+          Int(0)
+      then
+        Assign +=
+          Ident(skipped)
+          Int(1)
+        Continue
+    Let client
+      Index
+        Ident(caps)
+        Int(1)
+    Let method
+      Index
+        Ident(caps)
+        Int(2)
+    Let path
+      Index
+        Call
+          Field(split)
+            Index
+              Ident(caps)
+              Int(3)
+          StringLit
+            Text(raw=false) "?"
+        Int(0)
+    Let status
+      Index
+        Ident(caps)
+        Int(4)
+    Assign +=
+      Ident(total)
+      Int(1)
+    Assign +=
+      Ident(bytes)
+      Catch(exhaustive=false, binding=e)
+        Call
+          Field(toInt)
+            Index
+              Ident(caps)
+              Int(5)
+        arm string.ParseError
+            Int(0)
+    Call
+      Ident(bump)
+      Ident(classes)
+      Binary(+)
+        Call
+          Field(slice)
+            Ident(status)
+          Int(0)
+          Int(1)
+        StringLit
+          Text(raw=false) "xx"
+    Call
+      Ident(bump)
+      Ident(paths)
+      Ident(path)
+    Call
+      Ident(bump)
+      Ident(clients)
+      Ident(client)
+    If
+      cond
+        Call
+          Field(startsWith?)
+            Ident(status)
+          StringLit
+            Text(raw=false) "5"
+      then
+        Call
+          Ident(bump)
+          Ident(failing)
+          StringLit
+            Interp
+              Ident(method)
+            Text(raw=false) " "
+            Interp
+              Ident(path)
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "parsed "
+      Interp
+        Ident(total)
+      Text(raw=false) " requests, skipped "
+      Interp
+        Ident(skipped)
+      Text(raw=false) " unparsable lines"
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "bytes served: "
+      Interp
+        Ident(bytes)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "status classes:"
+  For
+    Binding(class)
+    Call
+      Field(sort)
+        Call
+          Field(keys)
+            Ident(classes)
+    Let hits
+      Coalesce
+        Index
+          Ident(classes)
+          Ident(class)
+        Int(0)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Ident(class)
+        Text(raw=false) "  "
+        Interp
+          Call
+            Ident(pad)
+            Ident(hits)
+            Int(4)
+        Text(raw=false) "  "
+        Interp
+          Call
+            Ident(percent)
+            Ident(hits)
+            Ident(total)
+  Call
+    Ident(report)
+    StringLit
+      Text(raw=false) "top paths:"
+    Call
+      Ident(ranked)
+      Ident(paths)
+    Int(5)
+  Call
+    Ident(report)
+    StringLit
+      Text(raw=false) "top clients:"
+    Call
+      Ident(ranked)
+      Ident(clients)
+    Int(3)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(failing)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "no server errors"
+    else
+      Call
+        Ident(report)
+        StringLit
+          Text(raw=false) "server errors by endpoint:"
+        Call
+          Ident(ranked)
+          Ident(failing)
+        Call
+          Field(len)
+            Ident(failing)
