@@ -34,6 +34,15 @@ cargo test
 cargo insta review    # snapshot tests
 ```
 
+`.bras` sources are formatted by the language's own formatter, and the
+bundled examples are its corpus — `crates/brasa_fmt/tests/examples.rs`
+fails if any of them is left unformatted:
+
+```sh
+cargo run -- fmt examples          # rewrite in place
+cargo run -- fmt --check examples  # report, exit 1 if any would change
+```
+
 Linking uses mold via `.cargo/config.toml` (clang + `-fuse-ld=mold`).
 
 ## Workspace layout
@@ -49,8 +58,9 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_lexer` | logos lexer: text → tokens (newlines are tokens; string-interpolation sub-mode) |
 | `brasa_ast` | Index arenas, typed `Copy` IDs, span side tables |
 | `brasa_parser` | Recursive descent (items/stmts) + Pratt (exprs) |
-| `brasa` | CLI binary (clap) |
+| `brasa` | CLI binary (clap): runs a script, or `brasa fmt` |
 | `brasa_bytecode` | Bytecode containers (M3): opcodes, chunks, constant pool, module format, disassembler |
+| `brasa_fmt` | Formatter (M5): prints the AST, recovers leaf spelling and comments from the source |
 
 Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
 `brasa_errorset` (fixpoint inference), `brasa_runtime` (stdlib glue),

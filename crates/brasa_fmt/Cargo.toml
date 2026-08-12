@@ -1,0 +1,18 @@
+[package]
+name = "brasa_fmt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
+brasa_ast.workspace = true
+brasa_diagnostics.workspace = true
+brasa_lexer.workspace = true
+brasa_parser.workspace = true
+brasa_source.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

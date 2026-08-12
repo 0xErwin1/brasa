@@ -37,6 +37,7 @@ brasa_runtime = { path = "crates/brasa_runtime" }
 brasa_bytecode = { path = "crates/brasa_bytecode" }
 brasa_codegen = { path = "crates/brasa_codegen" }
 brasa_vm = { path = "crates/brasa_vm" }
+brasa_fmt = { path = "crates/brasa_fmt" }
 
 [workspace.package]
 authors = ["Ignacio Perez <ignacio@feuer.me>"]
