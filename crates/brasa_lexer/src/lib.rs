@@ -65,7 +65,7 @@ enum Main {
 
     #[regex(r"\r\n|\n")]
     Newline,
-    #[regex(r"#[^\n]*", logos::skip)]
+    #[regex(r"#[^\n]*")]
     Comment,
 
     #[token("\"\"\"")]
@@ -371,6 +371,25 @@ enum Mode {
 /// can keep consuming tokens after a bad character or an unterminated
 /// string/interpolation.
 pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
+    let (tokens, errors, _) = lex_all(source, file);
+    (tokens, errors)
+}
+
+/// The span of every `#` comment in `source`, in source order.
+///
+/// Comments are lexical trivia: they are not tokens, so [`lex`] drops
+/// them and no consumer downstream of the parser can see them. Tooling
+/// that has to reproduce the source — the formatter, which must not lose
+/// a comment it cannot find in the AST — recovers them here rather than
+/// by scanning for `#` itself, which would also match inside a string
+/// literal (`"# not a comment"`) and inside an interpolation.
+pub fn comment_spans(source: &str, file: FileId) -> Vec<Span> {
+    lex_all(source, file).2
+}
+
+/// The full scan behind [`lex`] and [`comment_spans`]: one pass that
+/// produces the token stream, the lexical errors, and the comment spans.
+fn lex_all(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>, Vec<Span>) {
     // A leading UTF-8 BOM (U+FEFF, 3 bytes) is silently skipped: some
     // editors and Windows tooling prepend it, and it carries no meaning in
     // Brasa source. The lexer itself only ever scans `content` (the text
@@ -385,6 +404,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
 
     let mut tokens = Vec::new();
     let mut errors = Vec::new();
+    let mut comments = Vec::new();
     let mut lexer = Main::lexer(content);
     let mut modes = vec![Mode::MainTop];
     let span_at = |start: u32, end: u32| {
@@ -431,6 +451,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
                         tokens.push(Token::new(kind, extended));
                     }
                     Ok(Main::TypeIdent) => tokens.push(Token::new(TokenKind::TypeIdent, span)),
+                    Ok(Main::Comment) => comments.push(span),
                     Ok(Main::Newline) => tokens.push(Token::new(TokenKind::Newline, span)),
                     Ok(Main::RawQuote) => {
                         tokens.push(Token::new(TokenKind::RawStringStart, span));
@@ -540,7 +561,7 @@ pub fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<LexError>) {
 
     let eof = content.len() as u32;
     tokens.push(Token::new(TokenKind::Eof, span_at(eof, eof)));
-    (tokens, errors)
+    (tokens, errors, comments)
 }
 
 #[cfg(test)]

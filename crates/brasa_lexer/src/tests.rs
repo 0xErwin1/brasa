@@ -188,3 +188,31 @@ for repo in repos
 end
 "##
 );
+
+// --- comments as trivia ---
+
+/// [`lex`] drops comments; [`crate::comment_spans`] is the side channel
+/// that keeps them, and it must agree with the lexer about what a
+/// comment is — a `#` inside a string literal is text, not the start of
+/// one, which is the whole reason this is not a scan for `#`.
+#[test]
+fn comment_spans_finds_comments_and_only_comments() {
+    let source = "# one\nlet x = \"# not a comment\"  # two\nlet y = 1\n";
+    let spans = crate::comment_spans(source, FileId::new(0));
+
+    let texts: Vec<&str> = spans
+        .iter()
+        .map(|span| &source[span.start.0 as usize..span.end.0 as usize])
+        .collect();
+
+    assert_eq!(texts, vec!["# one", "# two"]);
+}
+
+#[test]
+fn lexing_still_drops_comments() {
+    let (tokens, errors) = lex("# gone\nlet x = 1\n", FileId::new(0));
+
+    assert!(errors.is_empty(), "unexpected lex errors: {errors:#?}");
+    assert_eq!(tokens[0].kind, brasa_token::TokenKind::Newline);
+    assert_eq!(tokens[1].kind, brasa_token::TokenKind::Let);
+}
