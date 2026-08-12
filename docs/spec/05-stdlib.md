@@ -58,12 +58,6 @@ Signatures closed in M4 (BRS-31):
   literal `$` (the `regex` crate's `replace_all` semantics).
 - `scan(re)` returns every non-overlapping full match, in order.
 
-## `std::re`
-
-Compiled regexes for reuse: `re.compile(pattern)`, `Regex` type with the
-same methods received by string. Syntax: Rust's `regex` crate syntax
-(no backtracking, no catastrophic cases).
-
 ## `std::fs`
 
 - `read(path): string`, `write`, `append`.
@@ -397,5 +391,13 @@ Signatures closed in M4 (BRS-35):
 
 `http` (client), `csv`, `toml`/`yaml`, `crypto`/hashing, sockets,
 concurrency. Added on real demand after M5.
+
+Also `std::re`. Regex is a string feature here — `match?`, `captures`,
+`replaceRe`, and `scan` above — and patterns are already compiled once
+and cached per run, so a `Regex` value would buy no reuse that the
+string methods do not already get. It would cost a compiler-known type:
+a `BuiltinType`, a resolver entry, a member table, a value
+representation, `toString`, `==`, and an implementation in both
+backends. Revisit if something needs a pattern as a first-class value.
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

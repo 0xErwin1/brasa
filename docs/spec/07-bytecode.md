@@ -358,7 +358,7 @@ different failure semantics, per `docs/spec/03-types.md`.
 | Op | Stack | Semantics |
 |----|-------|-----------|
 | `eq` | `a b → bool` | Structural equality (`value_eq`): deep on composites, order-insensitive on Map/Set, IEEE on floats, identity fallback for closures, coinductive on reference cycles. `!=` compiles to `eq` + `not` |
-| `lt` `le` `gt` `ge` | `a b → bool` | Primitive ordering (int, float, string, char). Any float comparison involving NaN is `false`. `T: Comparable` never reaches these ops: the checker compiles it to a `cmp` call plus an int comparison against `0` |
+| `lt` `le` `gt` `ge` | `a b → bool` | Primitive ordering (int, float, string, char). Any float comparison involving NaN is `false`. A `T: Comparable` parameter compiles to these same ops — the static type is the parameter, not the instantiation — and the VM falls back to the receiver's `cmp`, compared against `0`, when both operands turn out to be structs |
 
 ### Jumps
 

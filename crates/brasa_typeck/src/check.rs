@@ -1720,15 +1720,29 @@ impl<'a> Checker<'a> {
     ) -> Result<(), Option<String>> {
         match kind {
             ConstraintKind::Builtin(BuiltinType::Printable) => Ok(()),
-            ConstraintKind::Builtin(BuiltinType::Comparable) => match candidate {
-                Type::Int | Type::Float | Type::String | Type::Char => Ok(()),
-                Type::Generic { owner, index }
-                    if self.generic_has_builtin(*owner, *index, BuiltinType::Comparable) =>
-                {
-                    Ok(())
+            ConstraintKind::Builtin(BuiltinType::Comparable) => {
+                match candidate {
+                    Type::Int | Type::Float | Type::String | Type::Char => return Ok(()),
+                    Type::Generic { owner, index }
+                        if self.generic_has_builtin(*owner, *index, BuiltinType::Comparable) =>
+                    {
+                        return Ok(());
+                    }
+                    _ => {}
                 }
-                _ => Err(None),
-            },
+
+                // Everything else takes the ordinary structural path
+                // against `Comparable`'s single member. Primitives get
+                // the native answer above because they have no `cmp` to
+                // find; that carve-out is what the closed list is for,
+                // not a rule that non-primitives are excluded.
+                let required = Type::func(vec![candidate.clone()], Type::Int);
+                if self.member_matches(candidate, "cmp", &required) {
+                    Ok(())
+                } else {
+                    Err(Some("cmp".to_string()))
+                }
+            }
             ConstraintKind::Builtin(BuiltinType::Hashable) => {
                 if self.hashable(candidate) {
                     Ok(())
@@ -1776,13 +1790,20 @@ impl<'a> Checker<'a> {
     fn member_satisfied(&mut self, candidate: &Type, member: &'a IfaceMember) -> bool {
         let required = self.iface_member_fn(member, candidate);
 
+        self.member_matches(candidate, &member.name, &required)
+    }
+
+    /// Whether `candidate` has a member `name` whose type unifies with
+    /// `required`. Lookup is suppressed so a miss reports nothing here:
+    /// the caller decides what an unsatisfied requirement means.
+    fn member_matches(&mut self, candidate: &Type, name: &str, required: &Type) -> bool {
         self.suppressed += 1;
-        let found = self.lookup_member(candidate, &member.name);
+        let found = self.lookup_member(candidate, name);
         self.suppressed -= 1;
 
         match found {
-            Member::Sig(sig) => unify(&required, &fn_of_sig(sig)).is_some(),
-            Member::Value(found_ty @ Type::Fn { .. }) => unify(&required, &found_ty).is_some(),
+            Member::Sig(sig) => unify(required, &fn_of_sig(sig)).is_some(),
+            Member::Value(found_ty @ Type::Fn { .. }) => unify(required, &found_ty).is_some(),
             // An interface member is a fixed signature, so a method
             // generic over its own parameters can only satisfy one by
             // unifying as written — the same comparison a non-generic
@@ -1790,7 +1811,7 @@ impl<'a> Checker<'a> {
             Member::GenericMethod {
                 sig: sig @ Type::Fn { .. },
                 ..
-            } => unify(&required, &sig).is_some(),
+            } => unify(required, &sig).is_some(),
             Member::Deferred => true,
             Member::Value(_) | Member::GenericMethod { .. } | Member::Missing => false,
         }

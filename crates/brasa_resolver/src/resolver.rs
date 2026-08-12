@@ -57,9 +57,11 @@ enum CtorPosition {
 }
 
 /// The std modules that exist in v1 (`docs/spec/05-stdlib.md`).
-pub(crate) const STD_MODULES: &[&str] = &[
-    "env", "fs", "io", "json", "math", "proc", "rand", "re", "time",
-];
+///
+/// Public because a name here is a promise that both backends can run
+/// it: the parity suite reads this list and exercises every entry, so a
+/// module cannot be accepted by the resolver with no runtime behind it.
+pub const STD_MODULES: &[&str] = &["env", "fs", "io", "json", "math", "proc", "rand", "time"];
 
 pub(crate) fn builtin_value(name: &str) -> Option<BuiltinValue> {
     match name {

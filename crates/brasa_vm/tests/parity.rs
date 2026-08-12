@@ -551,6 +551,103 @@ puts(h.with("a"))
     );
 }
 
+/// A `T: Comparable` parameter compiles to the ordinary ordering ops —
+/// the static type is the parameter, not the instantiation — and both
+/// backends fall back to the receiver's `cmp` when the operands turn
+/// out to be structs. One generic function, two instantiations, one
+/// answer.
+#[test]
+fn comparable_structs_order_through_their_cmp() {
+    assert_success(
+        r##"
+struct Money
+  cents: int
+
+  def cmp(self, other: Money): int
+    self.cents - other.cents
+  end
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def ordered<T: Comparable>(a: T, b: T): Vector<bool>
+  [a < b, a <= b, a > b, a >= b]
+end
+
+puts(maxOf(Money { cents: 1 }, Money { cents: 2 }))
+puts(maxOf(Money { cents: 5 }, Money { cents: 5 }))
+puts(ordered(Money { cents: 1 }, Money { cents: 2 }))
+puts(ordered(Money { cents: 2 }, Money { cents: 2 }))
+puts(maxOf(3, 9))
+puts(ordered(1, 2))
+"##,
+        "Money { cents: 2 }\n\
+         Money { cents: 5 }\n\
+         [true, true, false, false]\n\
+         [false, true, false, true]\n\
+         9\n\
+         [true, true, false, false]\n",
+    );
+}
+
+/// Every module the resolver accepts must have a runtime behind it in
+/// both backends.
+///
+/// `std::re` was in the accept list with no implementation anywhere:
+/// `import std::re` type-checked clean and then died at run time. A set
+/// comparison against the backends' dispatch arms would not have caught
+/// the reverse mistake either — a name present on both sides with a
+/// broken body — so every module is exercised by an actual call whose
+/// output is pinned, and the covered set is compared against
+/// `STD_MODULES` so a new module cannot be accepted without landing
+/// here first.
+#[test]
+fn every_std_module_runs_on_both_backends() {
+    // Deliberately deterministic calls: nothing that reads the clock,
+    // the environment, or the filesystem in a way a machine could
+    // disagree about.
+    const PROBES: &[(&str, &str, &str)] = &[
+        (
+            "env",
+            r#"puts(env.get("BRASA_PARITY_PROBE_UNSET") ?? "unset")"#,
+            "unset\n",
+        ),
+        (
+            "fs",
+            r#"puts(fs.exists?("/nonexistent-brasa-parity-probe"))"#,
+            "false\n",
+        ),
+        ("io", r#"puts(io.readLine() ?? "none")"#, "none\n"),
+        (
+            "json",
+            r#"puts(json.stringify(json.parse("[1,2]")))"#,
+            "[1,2]\n",
+        ),
+        ("math", "puts(math.abs(-2))", "2\n"),
+        ("proc", r#"puts(proc.run(["true"]).code)"#, "0\n"),
+        // A single-value range: random, but only one answer.
+        ("rand", "puts(rand.int(5..6))", "5\n"),
+        ("time", "puts(time.nowMillis() > 0)", "true\n"),
+    ];
+
+    let mut covered: Vec<&str> = PROBES.iter().map(|(module, _, _)| *module).collect();
+    covered.sort_unstable();
+    let mut declared = brasa_resolver::STD_MODULES.to_vec();
+    declared.sort_unstable();
+    assert_eq!(
+        covered, declared,
+        "every std module needs a probe here: the resolver accepting a name \
+         is a promise that both backends can run it"
+    );
+
+    for (module, call, expected) in PROBES {
+        let source = format!("import std::{module}\n{call}\n");
+        assert_success(&source, expected);
+    }
+}
+
 /// A method may reuse the struct's parameter name without capturing it.
 /// The receiver holds an `int` while the method instantiates to
 /// `string`, which is only observable at runtime if the two parameters

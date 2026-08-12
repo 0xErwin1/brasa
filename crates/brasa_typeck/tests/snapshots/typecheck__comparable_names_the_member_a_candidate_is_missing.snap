@@ -1,0 +1,31 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T027] Error: `Plain` does not satisfy `Comparable`
+    ╭─[ comparable_names_the_member_a_candidate_is_missing.brs:18:14 ]
+    │
+ 18 │ let absent = maxOf(Plain { n: 1 }, Plain { n: 2 })
+    │              ───────────────────┬──────────────────  
+    │                                 ╰──────────────────── constraint not satisfied
+    │ 
+    │ Note: `Plain` has no member `cmp` with a compatible signature
+────╯
+[T027] Error: `WrongReturn` does not satisfy `Comparable`
+    ╭─[ comparable_names_the_member_a_candidate_is_missing.brs:19:16 ]
+    │
+ 19 │ let mistyped = maxOf(WrongReturn { n: 1 }, WrongReturn { n: 2 })
+    │                ─────────────────────────┬────────────────────────  
+    │                                         ╰────────────────────────── constraint not satisfied
+    │ 
+    │ Note: `WrongReturn` has no member `cmp` with a compatible signature
+────╯
+[T027] Error: `Vector<int>` does not satisfy `Comparable`
+    ╭─[ comparable_names_the_member_a_candidate_is_missing.brs:20:18 ]
+    │
+ 20 │ let collection = maxOf([1], [2])
+    │                  ────────┬───────  
+    │                          ╰───────── constraint not satisfied
+    │ 
+    │ Note: `Vector<int>` has no member `cmp` with a compatible signature
+────╯

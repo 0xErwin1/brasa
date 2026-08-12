@@ -38,6 +38,8 @@ expression: rendered
  30 │ let clash = maxOf(Box { value: 1 }, Box { value: 2 })
     │             ─────────────────────┬────────────────────  
     │                                  ╰────────────────────── constraint not satisfied
+    │ 
+    │ Note: `Box` has no member `cmp` with a compatible signature
 ────╯
 [T026] Error: cannot infer type parameter `T` of `emptyOf`
     ╭─[ error_generics.brs:31:15 ]

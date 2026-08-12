@@ -352,6 +352,78 @@ let mixed = h.with("a")
 "##
 );
 
+// `Comparable` is structural like any other interface: a type with a
+// conforming `cmp` satisfies it. Primitives are answered natively
+// because they have no `cmp` to find, not because non-primitives are
+// excluded.
+typecheck_test!(
+    comparable_is_satisfied_by_a_conforming_cmp,
+    r#"
+struct Money
+  cents: int
+
+  def cmp(self, other: Money): int
+    self.cents - other.cents
+  end
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+let richest = maxOf(Money { cents: 1 }, Money { cents: 2 })
+let bigger = maxOf(1, 2)
+let later = maxOf("a", "b")
+"#
+);
+
+// The three ways to miss: no `cmp` at all, a `cmp` with the wrong
+// signature, and a type that has no members to look at. Each names the
+// member rather than reporting a bare "constraint not satisfied".
+typecheck_error_test!(
+    comparable_names_the_member_a_candidate_is_missing,
+    r#"
+struct Plain
+  n: int
+end
+
+struct WrongReturn
+  n: int
+
+  def cmp(self, other: WrongReturn): string
+    "x"
+  end
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+let absent = maxOf(Plain { n: 1 }, Plain { n: 2 })
+let mistyped = maxOf(WrongReturn { n: 1 }, WrongReturn { n: 2 })
+let collection = maxOf([1], [2])
+"#
+);
+
+// What opening the constraint deliberately does NOT open, each closed
+// by its own rule: the ordering operators on two struct values, and
+// `sort`, which stays limited to vectors of orderable primitives.
+typecheck_error_test!(
+    comparable_does_not_open_direct_ordering_or_sort,
+    r#"
+struct Money
+  cents: int
+
+  def cmp(self, other: Money): int
+    self.cents - other.cents
+  end
+end
+
+let direct = Money { cents: 1 } > Money { cents: 2 }
+let sorted = [Money { cents: 2 }, Money { cents: 1 }].sort()
+"#
+);
+
 // A method may reuse the struct's parameter name without capturing it:
 // the two are different owners, so `Holder<int>.echo<T>("a")` returns a
 // string while the receiver still holds an int.

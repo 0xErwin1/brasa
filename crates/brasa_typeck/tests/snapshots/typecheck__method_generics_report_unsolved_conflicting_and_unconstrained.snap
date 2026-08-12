@@ -22,4 +22,6 @@ expression: rendered
  25 │ let unordered = b.largest(Thing { n: 1 }, Thing { n: 2 })
     │                 ─────────────────────┬────────────────────  
     │                                      ╰────────────────────── constraint not satisfied
+    │ 
+    │ Note: `Thing` has no member `cmp` with a compatible signature
 ────╯

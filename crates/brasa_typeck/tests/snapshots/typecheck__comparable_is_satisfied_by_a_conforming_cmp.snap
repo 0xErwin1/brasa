@@ -1,0 +1,38 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 maxOf -> (T, T) -> T
+  i2 richest -> Money
+  i3 bigger -> int
+  i4 later -> string
+local types
+  l0 other -> Money
+  l1 a -> T
+  l2 b -> T
+expr types
+  e0 -> Money
+  e1 -> int
+  e2 -> Money
+  e3 -> int
+  e4 -> int
+  e5 -> T
+  e6 -> T
+  e7 -> bool
+  e8 -> T
+  e9 -> T
+  e10 -> (Money, Money) -> Money
+  e11 -> int
+  e12 -> Money
+  e13 -> int
+  e14 -> Money
+  e15 -> Money
+  e16 -> (int, int) -> int
+  e17 -> int
+  e18 -> int
+  e19 -> int
+  e20 -> (string, string) -> string
+  e21 -> string
+  e22 -> string
+  e23 -> string

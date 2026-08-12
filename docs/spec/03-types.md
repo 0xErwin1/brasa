@@ -93,12 +93,22 @@ end
   interfaces are used in v1: there are no interface-typed values (no
   dynamic dispatch, no `Vector<Printable>`). This keeps the VM simple and
   avoids vtables. If heterogeneity is needed, use an enum.
-- Stdlib interfaces: `Comparable` (`<`, `>`, `sort`), `Printable`
+- Stdlib interfaces: `Comparable` (`<`, `>`), `Printable`
   (`toString`, interpolation), `Hashable` (Map/Set keys).
 - **Primitives satisfy stdlib interfaces natively**: the checker knows
   (built-in, no directives) that `int`/`float`/`string`/`char` are
   `Comparable`, that every type is `Printable`, etc. Without this,
-  `max<T: Comparable>(1, 2)` would not type-check.
+  `max<T: Comparable>(1, 2)` would not type-check — a primitive has no
+  `cmp` method to find.
+- **`Comparable` is otherwise structural, like any interface**: a type
+  with `cmp(self, other: Self): int` satisfies it, so
+  `max<T: Comparable>(a, b)` works on a user struct. The ordering
+  operators inside such a function call that `cmp` and compare its
+  result against `0`. Two things this does NOT open, both closed by
+  their own rule rather than by `Comparable`: `a > b` directly on two
+  struct values is still an error (the operator table below lists only
+  primitives and a constrained parameter), and `Vector.sort()` is still
+  limited to vectors of orderable primitives (`docs/spec/05-stdlib.md`).
 - **`Hashable` is closed in v1**: only `int`, `string`, `char`, `bool` and
   tuples of those. Structs and collections are NOT Map/Set keys — they are
   mutable references with structural equality, and mutating a key after
@@ -180,9 +190,15 @@ define what it does on one. The rules, in both backends:
   back around, so a value reported as too deeply nested may in fact be
   cyclic. Only the marker `<cycle>` is a positive statement about a
   cycle; the nesting message is a statement about depth alone.
-- **Ordering never sees a cycle**: `Comparable` is closed to `int`,
-  `float`, `string`, and `char`, so `<`/`<=`/`>`/`>=` and sort keys never
-  descend into a container at all.
+- **Ordering never descends on its own.** The built-in comparisons are
+  defined on `int`, `float`, `string`, and `char`, so `<`/`<=`/`>`/`>=`
+  and sort keys never walk into a container. A user `cmp` reached
+  through `T: Comparable` can walk wherever its body walks, and one that
+  recurses through a cycle overflows the host stack — the same way a
+  user `toString` would. That is an ordinary bug in that function, not a
+  gap in the checker: unlike `==`, ordering has no coinductive answer to
+  fall back on, so there is nothing the language could decide on the
+  author's behalf.
 - A cyclic value is still not a Map or Set **key** (`Hashable` is
   closed); it is an ordinary Map value or Vector element.
 

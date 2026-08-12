@@ -8,6 +8,8 @@ expression: rendered
  6 │ def dist(p: Point<bool>): int
    │             ─────┬─────  
    │                  ╰─────── constraint not satisfied
+   │ 
+   │ Note: `bool` has no member `cmp` with a compatible signature
 ───╯
 [T027] Error: `bool` does not satisfy `Comparable`
     ╭─[ error_constraint_annotations.brs:10:13 ]
@@ -15,6 +17,8 @@ expression: rendered
  10 │ def make(): Point<bool>
     │             ─────┬─────  
     │                  ╰─────── constraint not satisfied
+    │ 
+    │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
     ╭─[ error_constraint_annotations.brs:11:3 ]
@@ -22,6 +26,8 @@ expression: rendered
  11 │   Point { x: true }
     │   ─────────┬────────  
     │            ╰────────── constraint not satisfied
+    │ 
+    │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
     ╭─[ error_constraint_annotations.brs:14:8 ]
@@ -29,6 +35,8 @@ expression: rendered
  14 │ let q: Point<bool> = Point { x: true }
     │        ─────┬─────  
     │             ╰─────── constraint not satisfied
+    │ 
+    │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
     ╭─[ error_constraint_annotations.brs:14:22 ]
@@ -36,4 +44,6 @@ expression: rendered
  14 │ let q: Point<bool> = Point { x: true }
     │                      ─────────┬────────  
     │                               ╰────────── constraint not satisfied
+    │ 
+    │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯

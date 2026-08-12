@@ -464,7 +464,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
         f.emit(Op::Pop, span);
     }
     f.emit_fatal(
-        &format!("brasa: module `{module}` is not available yet (module loading lands after M1)"),
+        &format!("brasa: module `{module}` is not available yet (importing from another file is not implemented)"),
         span,
     );
 }

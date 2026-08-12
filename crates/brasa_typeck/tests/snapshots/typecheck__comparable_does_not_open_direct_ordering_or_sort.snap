@@ -1,0 +1,18 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T004] Error: `Money` does not support ordering with `>`
+    ╭─[ comparable_does_not_open_direct_ordering_or_sort.brs:10:14 ]
+    │
+ 10 │ let direct = Money { cents: 1 } > Money { cents: 2 }
+    │              ────────────────────┬───────────────────  
+    │                                  ╰───────────────────── only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered
+────╯
+[T007] Error: no method `sort` on `Vector<Money>`
+    ╭─[ comparable_does_not_open_direct_ordering_or_sort.brs:11:14 ]
+    │
+ 11 │ let sorted = [Money { cents: 2 }, Money { cents: 1 }].sort()
+    │              ────────────────────────┬───────────────────────  
+    │                                      ╰───────────────────────── unknown method
+────╯

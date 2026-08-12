@@ -1412,7 +1412,7 @@ impl<'a> Interp<'a> {
         }
 
         Err(self.fatal(format!(
-            "brasa: module `{module}` is not available yet (module loading lands after M1)"
+            "brasa: module `{module}` is not available yet (importing from another file is not implemented)"
         )))
     }
 

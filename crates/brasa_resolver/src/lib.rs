@@ -34,6 +34,8 @@ pub mod dump;
 mod resolver;
 mod tables;
 
+pub use resolver::STD_MODULES;
+
 pub use tables::{
     BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND,
     JSON_PARSE_ERROR, LocalId, LocalInfo, NATIVE_ERRORS, PANIC_UNION, PROC_NON_ZERO_EXIT,
