@@ -1,11 +1,11 @@
 //! VM runtime values and their structural operations.
 //!
-//! Mirrors the walker's value semantics (`brasa_interp::value`) over
+//! Mirrors the value semantics of `docs/spec/03-types.md` over
 //! the bytecode module's shape indices: inline scalars, ranges, and
 //! `FuncId`s; heap kinds behind the handle aliases below. Structural
-//! equality and primitive ordering are line-for-line ports of the
-//! walker's `value_eq` / `value_cmp` — the parity oracle demands
-//! byte-identical observable behavior.
+//! equality and primitive ordering follow `docs/spec/03-types.md`
+//! (structural equality, and ordering only on the primitives that have
+//! it); the conformance corpus pins the observable behavior.
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -48,7 +48,7 @@ pub enum Value {
     Tuple(Handle<[Value]>),
     Vector(GcRef),
     /// Insertion-ordered map with a hashed position index, as in the
-    /// walker (`brasa_runtime::table`).
+    /// hashed tables (`brasa_runtime::table`).
     Map(GcRef),
     /// Insertion-ordered set, same representation rationale as `Map`.
     Set(GcRef),
@@ -225,8 +225,9 @@ impl Value {
     pub const NONE: Value = Value::Option(None);
 }
 
-/// The `Hashable` projection (`brasa_runtime::table`), the walker's arm
-/// for arm. Strings project by CONTENT, so a constant-pool string
+/// The `Hashable` projection, arm for arm with the key set
+/// `brasa_runtime::table` indexes. Strings project by CONTENT, so a
+/// constant-pool string
 /// interned at VM startup and a structurally equal runtime-built string
 /// hash the same — the handle is never part of the key.
 impl HashKeyed for Value {
@@ -247,7 +248,7 @@ impl HashKeyed for Value {
 }
 
 /// Depth at which structural equality starts recording the arena cells
-/// it is comparing, as in the walker: below it nothing is recorded at
+/// it is comparing: below it nothing is recorded at
 /// all, and a cycle re-enters its own pairs without bound, so it is
 /// always caught past this depth.
 const CYCLE_GUARD_DEPTH: usize = 16;

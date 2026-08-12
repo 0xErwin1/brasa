@@ -139,8 +139,8 @@ impl BuiltinType {
 /// The closed panic union of `docs/spec/04-errors.md`, by qualified
 /// name, in spec order. This is the canonical list: the resolver
 /// validates `panics.`-qualified `catch` arm names against it, and the
-/// interpreter's `PanicKind` (`brasa_interp`) mirrors it — a unit test
-/// there asserts the two stay identical.
+/// VM raises by the same names — a unit test in `brasa_vm::vm` asserts
+/// the two lists stay identical.
 pub const PANIC_UNION: &[&str] = &[
     "panics.IndexOutOfBounds",
     "panics.DivisionByZero",

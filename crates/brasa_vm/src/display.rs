@@ -1,5 +1,4 @@
-//! Derived `toString` rendering, ported from the walker
-//! (`brasa_interp::interp`): structs as `Point { x: 1.0, y: 2.0 }`,
+//! Derived `toString` rendering: structs as `Point { x: 1.0, y: 2.0 }`,
 //! enums as `Circle(1.0)` or bare `Dot`, floats always with a decimal
 //! point, and cyclic values rendered as [`CYCLE_MARKER`]. A user struct
 //! `toString` override (recorded on the shape) replaces the derived

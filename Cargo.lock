@@ -113,7 +113,6 @@ dependencies = [
  "brasa_diagnostics",
  "brasa_errorset",
  "brasa_hir",
- "brasa_interp",
  "brasa_parser",
  "brasa_resolver",
  "brasa_runtime",
@@ -189,19 +188,6 @@ dependencies = [
  "brasa_parser",
  "brasa_source",
  "insta",
-]
-
-[[package]]
-name = "brasa_interp"
-version = "0.1.0"
-dependencies = [
- "brasa_hir",
- "brasa_parser",
- "brasa_resolver",
- "brasa_runtime",
- "brasa_source",
- "brasa_typeck",
- "regex",
 ]
 
 [[package]]
@@ -283,7 +269,6 @@ dependencies = [
  "brasa_codegen",
  "brasa_errorset",
  "brasa_hir",
- "brasa_interp",
  "brasa_parser",
  "brasa_resolver",
  "brasa_runtime",

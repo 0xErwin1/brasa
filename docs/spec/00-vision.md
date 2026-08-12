@@ -47,8 +47,7 @@ Extension: `.brs`. Execution: `brasa script.brs` or shebang
 ```
 source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ Type check ─→ Error-sets ─→ Codegen ─→ VM
           logos    Pratt+RD   desugar          names       inference     fixpoint      bytecode
-          tokens   AST        ↓                scopes      exhaustiveness
-                              tree-walker (M1) runs over HIR
+          tokens   AST                         scopes      exhaustiveness
 ```
 
 | Decision | Detail |
@@ -56,7 +55,7 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
 | Parser | Recursive descent for declarations/statements; **Pratt** (binding powers) for expressions. The precedence table in `02-grammar.md` translates directly into `(left_bp, right_bp)` pairs; `**` right-associative = inverted pair; `catch` is one more loop postfix |
 | AST | **Index arenas**: `Vec<Expr>` per node kind + typed `Copy` IDs (`ExprId(u32)`, `FuncId`, ...). No `Box`, no viral lifetimes. rustc/rust-analyzer pattern |
 | Side tables | The AST/HIR is immutable; each phase produces parallel tables keyed by ID: `types: Map<ExprId, Type>`, `spans`, `error_sets: Map<FuncId, ErrorSet>` |
-| HIR | Desugared AST: `\|>` → calls, `?.`/`??` → match over Option, `for` → iteration protocol, interpolation → concat, `+=` → assignment. Checker, error-sets, tree-walker, and codegen work over the small core |
+| HIR | Desugared AST: `\|>` → calls, `?.`/`??` → match over Option, `for` → iteration protocol, interpolation → concat, `+=` → assignment. Checker, error-sets, and codegen work over the small core |
 | Analyzer | Three passes over HIR: name resolution → type check → error-set inference (fixpoint over the call graph; needs the types, hence it runs last) |
 | MIR? | **No.** HIR → direct bytecode (like Lua/CPython). An SSA/CFG MIR only pays off with a serious optimizer, which is a non-goal for v1. If it's ever needed, it slots in between HIR and codegen without touching earlier phases |
 | Codegen | Stack-based VM. `match` compiles to **decision trees** from day one (the naive if-chain version is painful to replace later) |
@@ -73,9 +72,11 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
 
 1. **M0** — lexer + parser + AST + pretty diagnostics (no execution).
 2. **M1** — full type checker (inference, generics, structural
-   interfaces, Option) over a provisional tree-walker.
+   interfaces, Option) over a provisional tree-walker, retired in
+   BRS-108 once the VM had a conformance corpus of its own.
 3. **M2** — error system (error-set inference + catch).
-4. **M3** — bytecode VM + GC; the tree-walker remains as a reference.
+4. **M3** — bytecode VM + GC; the tree-walker stayed on as the
+   reference oracle until BRS-108 replaced it with a conformance corpus.
 5. **M4** — scripting stdlib (strings, fs, process, JSON, regex, glob).
 6. **M5** — REPL, formatter, minimal LSP.
 

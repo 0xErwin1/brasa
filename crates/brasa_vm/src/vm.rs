@@ -5,7 +5,7 @@
 //! return-truncation point (`base` minus the callee slot for
 //! `call_value`). The loop is iterative — compiled calls push frames,
 //! never Rust frames — and the call-depth guard raises
-//! `panics.StackOverflow` exactly like the walker.
+//! `panics.StackOverflow`.
 //!
 //! Unwinding on `throw` or a faulting instruction: search the current
 //! frame's handler entries for the faulting `ip`; on a match truncate
@@ -44,7 +44,7 @@ pub(crate) const STACK_OVERFLOW: &str = "panics.StackOverflow";
 /// traversal grew beyond this is released when the stack empties.
 const NATIVE_ROOT_FLOOR: usize = 64;
 
-/// Non-local control flow, mirroring the walker's signal classes.
+/// Non-local control flow, from the walker's signal classes.
 /// `Return`/`Break`/`Continue` do not exist here: they compile away.
 #[derive(Debug)]
 pub(crate) enum Signal {
@@ -105,7 +105,7 @@ pub(crate) struct Vm<'a> {
     pub(crate) input: &'a mut (dyn std::io::BufRead + Send),
     max_depth: usize,
     /// Per-run cache of compiled regex patterns for the string regex
-    /// methods, keyed by the pattern text (mirrors the walker's cache).
+    /// methods, keyed by the pattern text.
     pub(crate) regex_cache: std::collections::HashMap<String, regex::Regex>,
     /// The script's trailing CLI arguments, served by `env.args()`
     /// (BRS-32, `docs/spec/05-stdlib.md`).
@@ -113,11 +113,11 @@ pub(crate) struct Vm<'a> {
     /// `env.set` overrides (BRS-32): merged over the process
     /// environment by `env.get`/`env.vars` and passed to every child
     /// spawned through `std::proc`. The host process's own environment
-    /// block is never mutated (mirrors the walker's overlay).
+    /// block is never mutated.
     pub(crate) env_overlay: std::collections::HashMap<String, String>,
     /// The per-run PRNG behind `std::rand` (BRS-35): entropy-seeded at
-    /// startup, reset deterministically by `rand.seed` (mirrors the
-    /// walker's generator through the shared glue).
+    /// startup, reset deterministically by `rand.seed`
+    /// (`brasa_runtime::rand_glue`).
     pub(crate) rng: brasa_runtime::rand_glue::Rng,
 }
 
@@ -199,7 +199,7 @@ impl<'a> Vm<'a> {
 
     /// The module's `main`: the first non-method function-table entry
     /// with that name (struct methods may share the name but are not
-    /// entry points, exactly like the walker's item scan).
+    /// entry points).
     fn find_main(&self) -> Option<FuncId> {
         let method_ids: HashSet<u32> = self
             .module
@@ -1617,5 +1617,42 @@ impl<'a> Vm<'a> {
                 unreachable!("internal values never reach nominal_tag")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The resolver validates `panics.`-qualified `catch` arm names
+    /// against its own list, and the VM raises by the constants above.
+    /// Two lists mean they can drift: a panic the resolver accepts with
+    /// no raiser behind it, or a raiser carrying a name no arm may
+    /// bind. The walker's suite held this guard until BRS-108 retired
+    /// it; it belongs wherever the raising happens.
+    ///
+    /// What it catches mechanically is the resolver growing a name
+    /// nothing raises. The other direction is only as good as this
+    /// list: a new constant added above and raised, without being added
+    /// here, still passes. Closing that would take one list both crates
+    /// read, which is a larger change than this guard.
+    #[test]
+    fn the_raised_panic_names_are_exactly_the_resolver_union() {
+        let mut raised = vec![
+            INDEX_OUT_OF_BOUNDS,
+            DIVISION_BY_ZERO,
+            INTEGER_OVERFLOW,
+            ASSERTION_FAILED,
+            STACK_OVERFLOW,
+        ];
+        raised.sort_unstable();
+
+        let mut declared: Vec<&str> = brasa_resolver::PANIC_UNION.to_vec();
+        declared.sort_unstable();
+
+        assert_eq!(
+            raised, declared,
+            "the panic union and the names the VM raises have drifted"
+        );
     }
 }

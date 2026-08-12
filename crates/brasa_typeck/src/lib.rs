@@ -3,7 +3,7 @@
 //!
 //! Consumes a lowered [`brasa_hir::Hir`], its root items, and the
 //! [`brasa_resolver::Resolutions`] tables, and produces per-node type
-//! tables the tree-walker consumes: every expression's type, every
+//! tables code generation consumes: every expression's type, every
 //! local binding's type, and the `?.` wrap decisions.
 //!
 //! The M1 (CORE) scope covers local inference, `let`/`let mut` with

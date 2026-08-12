@@ -1,8 +1,22 @@
-//! Walker/VM parity suite: every program runs through the full
-//! frontend once, then through BOTH backends — the reference
-//! tree-walker (`brasa_interp`) and the bytecode VM (`brasa_vm`) — and
-//! the outcome plus every captured stream must be identical. The walker
-//! is the oracle: a disagreement is a VM (or codegen) bug by definition.
+//! Conformance corpus: every program runs through the full frontend
+//! once, then on the VM, and its outcome plus every captured stream
+//! must match the expectation written beside it.
+//!
+//! It was a walker/VM parity suite until BRS-108. The reference
+//! tree-walker was the oracle, and a disagreement was a VM bug by
+//! definition; retiring it meant every expectation resting on
+//! agreement had to become one written here (BRS-108 Phase 2, recorded
+//! from the walker before it went). What is left is a better oracle
+//! for the same regressions: a recorded output is readable in a diff
+//! and costs nothing per feature, where a second implementation only
+//! catches divergence between two things written from the same
+//! misunderstanding, and demands the work twice.
+//!
+//! Each program still runs TWICE — once at the default allocation
+//! threshold and once at a pathologically low one, with both required
+//! to produce identical observable behavior. That leg outlived its
+//! original purpose: it is the only automated defense the collector
+//! has.
 //!
 //! The harness runs exactly the phases the CLI runs, in the CLI's order
 //! — the error-set pass included, since it can reject a program the
@@ -11,12 +25,9 @@
 
 use brasa_runtime::{Outcome, Streams};
 
-/// Everything both backends consume, produced by the CLI's phase
-/// sequence with every diagnostic asserted empty.
+/// What the VM consumes, produced by the CLI's phase sequence with
+/// every diagnostic asserted empty.
 struct Frontend {
-    lowered: brasa_hir::LowerResult,
-    resolved: brasa_resolver::ResolveResult,
-    checked: brasa_typeck::TypeckResult,
     module: brasa_bytecode::Module,
 }
 
@@ -81,16 +92,13 @@ fn compile_frontend(source: &str) -> Frontend {
     );
 
     Frontend {
-        lowered,
-        resolved,
-        checked,
         module: compiled.module,
     }
 }
 
 /// Compiles `source` through the whole frontend (it must be clean) and
-/// runs it on both backends with the given call-depth limit, asserting
-/// identical outcome and stdout; returns the shared result.
+/// runs it with the given call-depth limit, asserting identical
+/// outcome and stdout across both GC legs; returns the result.
 fn assert_parity_with_depth(source: &str, max_depth: usize) -> (Outcome, String) {
     assert_parity_configured(source, max_depth, &[])
 }
@@ -107,55 +115,26 @@ fn assert_parity_configured(source: &str, max_depth: usize, args: &[String]) -> 
     (run.outcome, run.stdout)
 }
 
-/// The full parity comparison: both backends see the same `stdin`, and
-/// their outcome, stdout, AND stderr must agree.
+/// One run of the program, plus the hot-GC leg it must agree with:
+/// outcome, stdout AND stderr, on the same `stdin`.
 fn assert_parity_io(source: &str, max_depth: usize, args: &[String], stdin: &[u8]) -> Run {
     let front = compile_frontend(source);
 
-    let walker = run_walker(&front, max_depth, args, stdin);
-
-    let vm = run_vm(
+    let run = run_vm(
         &front,
         max_depth,
         brasa_vm::DEFAULT_GC_THRESHOLD,
         args,
         stdin,
     );
-    assert_eq!(walker, vm, "walker/VM parity failed");
 
     // Hot-GC leg (BRS-30): the same module under a tiny allocation
     // threshold, so collections fire constantly mid-run. GC pressure
     // must never change observable behavior.
     let hot = run_vm(&front, max_depth, 8, args, stdin);
-    assert_eq!(walker, hot, "hot-GC parity failed");
+    assert_eq!(run, hot, "hot-GC parity failed");
 
-    walker
-}
-
-fn run_walker(front: &Frontend, max_depth: usize, args: &[String], stdin: &[u8]) -> Run {
-    let mut out = Vec::new();
-    let mut err = Vec::new();
-    let mut input = stdin;
-
-    let outcome = brasa_interp::run_with_streams(
-        &front.lowered.hir,
-        &front.lowered.roots,
-        &front.resolved.resolutions,
-        &front.checked.types,
-        Streams {
-            out: &mut out,
-            err: &mut err,
-            input: &mut input,
-        },
-        max_depth,
-        args,
-    );
-
-    Run {
-        outcome,
-        stdout: decode(out, "walker stdout"),
-        stderr: decode(err, "walker stderr"),
-    }
+    run
 }
 
 fn run_vm(
@@ -226,7 +205,7 @@ fn assert_success(source: &str, expected_stdout: &str) {
 }
 
 /// [`assert_success`] for a program that reads stdin and/or writes
-/// stderr: every stream is pinned, on both backends.
+/// stderr: every stream is pinned.
 fn assert_success_io(source: &str, stdin: &[u8], expected_stdout: &str, expected_stderr: &str) {
     let run = assert_parity_io(source, brasa_vm::DEFAULT_MAX_CALL_DEPTH, &[], stdin);
     assert_eq!(run.outcome, Outcome::Success);
@@ -481,7 +460,7 @@ puts nums
 /// A `Map` index assignment stores the element, not the `Option` the
 /// same expression reads back. The double-wrap this pins against was
 /// observable: writing `Some(1)` — the only form the checker used to
-/// accept — made the read answer `Some(Some(1))` on both backends.
+/// accept — made the read answer `Some(Some(1))`.
 #[test]
 fn map_index_assignment_stores_the_element() {
     assert_success(
@@ -622,7 +601,7 @@ puts(ordered(1, 2))
 /// - output written before it still arrives, which is why it unwinds
 ///   as a signal rather than calling the host's `exit` and dropping
 ///   whatever is buffered;
-/// - both backends agree on the status.
+/// - the status survives the unwind unchanged.
 #[test]
 fn env_exit_is_uncatchable_and_keeps_the_output_written_before_it() {
     let source = r##"
@@ -676,10 +655,10 @@ fn env_exit_rejects_a_status_outside_the_process_range() {
 /// defect was filed for — rank a counter map — is the first line.
 ///
 /// It desugars to a `match` over a synthetic parameter, so the runtime
-/// path is the one `match` already had; both backends must agree on
-/// every arity and on nesting.
+/// path is the one `match` already had, and it must hold for every
+/// arity and for nesting.
 #[test]
-fn lambda_parameters_destructure_on_both_backends() {
+fn lambda_parameters_destructure_at_every_arity() {
     assert_success(
         r##"
 let counts: Map<string, int> = { "a": 3, "b": 1, "c": 7 }
@@ -765,7 +744,7 @@ puts((-5).toFixed(1))
 
 /// A decimal count a float cannot back is a programmer error, so it
 /// panics rather than throwing — the rule `time.sleep` and `rand.int`
-/// already follow — and both backends must say the same thing.
+/// already follow.
 #[test]
 fn to_fixed_rejects_a_digit_count_out_of_range() {
     let outcome = assert_fails_silently("puts((1.5).toFixed(-1))\n");
@@ -815,8 +794,7 @@ puts(viaOrd(Money { cents: 7 }, Money { cents: 3 }))
     );
 }
 
-/// Every module the resolver accepts must have a runtime behind it in
-/// both backends.
+/// Every module the resolver accepts must have a runtime behind it.
 ///
 /// `std::re` was in the accept list with no implementation anywhere:
 /// `import std::re` type-checked clean and then died at run time. A set
@@ -827,7 +805,7 @@ puts(viaOrd(Money { cents: 7 }, Money { cents: 3 }))
 /// `STD_MODULES` so a new module cannot be accepted without landing
 /// here first.
 #[test]
-fn every_std_module_runs_on_both_backends() {
+fn every_std_module_has_a_runtime_behind_it() {
     // Deliberately deterministic calls: nothing that reads the clock,
     // the environment, or the filesystem in a way a machine could
     // disagree about.
@@ -872,7 +850,7 @@ fn every_std_module_runs_on_both_backends() {
     assert_eq!(
         covered, declared,
         "every std module needs a probe here: the resolver accepting a name \
-         is a promise that both backends can run it"
+         is a promise that it can be run"
     );
 
     for (module, call, expected) in PROBES {
@@ -1285,8 +1263,7 @@ puts attempt(9)
 }
 
 /// `catch!` is the exhaustive variant: every inferred error type has a
-/// named arm, so the checker accepts it with no `_` and both backends
-/// dispatch the same arms.
+/// named arm, so the checker accepts it with no `_`.
 #[test]
 fn catch_bang_handles_every_inferred_error() {
     assert_success(
@@ -2102,7 +2079,7 @@ puts show(Box { item: "s" })
 
 /// A builtin type satisfying a user interface: the constraint method is
 /// a builtin method name, so the dynamic lookup must fall through to
-/// the builtin table exactly like the walker.
+/// the builtin table.
 #[test]
 fn builtin_receivers_satisfy_user_interfaces() {
     assert_success(
@@ -2706,8 +2683,8 @@ fn fs_write_read_append_and_predicates() {
 
     std::fs::write(tmp.join("bin.dat"), [0xff_u8, 0xfe]).expect("fixture written");
 
-    // Parity runs the program three times (walker, VM, hot-GC VM);
-    // `write` truncates, so the script is naturally re-runnable.
+    // The harness runs the program twice, once per GC leg; `write`
+    // truncates, so the script is naturally re-runnable.
     assert_success(
         &format!(
             r##"
@@ -3346,8 +3323,7 @@ end)
 // --- std::io streams (BRS-34) ------------------------------------------
 //
 // `io.eprint` and the stdin readers are wired to the run's streams, so
-// both are compared here on every leg (walker, VM, hot-GC VM) exactly
-// like stdout. The CLI-level suite (`crates/brasa/tests/io_cli.rs`)
+// both are compared here on every GC leg exactly like stdout. The CLI-level suite (`crates/brasa/tests/io_cli.rs`)
 // keeps pinning the same behavior through the real process streams.
 
 #[test]
@@ -3770,9 +3746,9 @@ fn rand_empty_picks_panic() {
 // --- hashed Map/Set tables --------------------------------------------
 
 #[test]
-fn large_hashed_map_and_set_agree_across_backends() {
+fn large_hashed_map_and_set_keep_their_order() {
     // 20k keys: with the previous association-list scan this program
-    // was quadratic in both backends. It pins the observable contract
+    // was quadratic. It pins the observable contract
     // the hashed position index must not move — insertion order after
     // interior removals, upsert keeping the first occurrence's slot,
     // string keys compared by content rather than by handle (the VM
@@ -3967,18 +3943,18 @@ puts deep == chain(299)
 
 // --- stdlib layer cross-check -----------------------------------------
 //
-// Adding one builtin means editing four layers: the checker's signature
-// table (`brasa_typeck::builtins`), the walker's implementation
-// (`brasa_interp::builtins`), the `BUILTINS` registry
+// Adding one builtin means editing three layers: the checker's
+// signature table (`brasa_typeck::builtins`), the `BUILTINS` registry
 // (`brasa_bytecode::builtin`), and the VM's implementation
 // (`brasa_vm::builtins`). Nothing makes forgetting one a compile error,
-// and the failure surfaces only at runtime, differently per backend.
+// and the failure surfaces only at runtime. It was four layers until
+// BRS-108 retired the walker's own implementation.
 //
 // This test closes that hole by driving every registry entry through
-// all four layers at once: a missing checker signature fails the
-// frontend, a missing implementation in either backend fatals on that
-// backend alone and breaks parity, and a registry entry that no longer
-// exists takes its snippet's coverage assertion with it.
+// all three at once: a missing checker signature fails the frontend, a
+// missing VM implementation fatals at run time, and a registry entry
+// that no longer exists takes its snippet's coverage assertion with
+// it.
 
 /// The `BUILTINS` entries that are not stdlib surface: the code
 /// generator's internal raisers, which a checked program cannot reach
@@ -4007,8 +3983,8 @@ fn module_reaches(module: &brasa_bytecode::Module, builtin: brasa_bytecode::Buil
 }
 
 /// One snippet per stdlib `BUILTINS` entry, keyed by the entry's name.
-/// Each snippet must succeed on both backends and must be re-runnable:
-/// the harness executes it three times (walker, VM, hot-GC VM).
+/// Each snippet must succeed and must be re-runnable: the harness
+/// executes it once per GC leg.
 ///
 /// `dir` is a scratch directory holding a read-only fixture at `ro/`
 /// (`ro/a.txt` and `ro/sub/b.txt`); the mutating `std::fs` snippets own
@@ -4620,7 +4596,7 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
 }
 
 #[test]
-fn every_builtin_crosses_all_four_stdlib_layers() {
+fn every_builtin_crosses_all_three_stdlib_layers() {
     use std::collections::BTreeSet;
 
     let tmp = fs_temp_dir("crosscheck");
@@ -4666,9 +4642,10 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
             "the `{name}` snippet compiles without reaching builtin id {id:?}"
         );
 
-        let walker = run_walker(
+        let run = run_vm(
             &front,
             brasa_vm::DEFAULT_MAX_CALL_DEPTH,
+            brasa_vm::DEFAULT_GC_THRESHOLD,
             &[],
             CROSS_CHECK_STDIN,
         );
@@ -4681,19 +4658,15 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
             Outcome::Success
         };
         assert_eq!(
-            walker.outcome, expected_outcome,
-            "`{name}` failed on the walker: {walker:?}"
+            run.outcome, expected_outcome,
+            "`{name}` did not finish cleanly: {run:?}"
         );
         // The written expectation, not just backend agreement: a
         // snippet whose only oracle is "the other backend printed the
         // same thing" stops being an oracle the day there is one
         // backend. `<TMP>` stands for the fixture root, which moves
-        // per run. Recorded from the walker (BRS-108).
-        //
-        // Asserted on the walker because it is the oracle; the `Run`
-        // equality below carries `stdout`, so the VM is held to the
-        // same string. That indirection dies with the walker, and the
-        // assertion moves onto the VM with it.
+        // per run. Recorded from the walker before it was retired
+        // (BRS-108).
         //
         // Two groups of entries pin an ORDER, and both orders are
         // specified rather than incidental — which is what makes them
@@ -4704,19 +4677,22 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
         // by `OrderedMap`/`OrderedSet` whose hash index only answers
         // lookups and never decides iteration.
         assert_eq!(
-            walker.stdout,
+            run.stdout,
             expected_stdout.replace("<TMP>", &dir),
             "`{name}` printed something other than its pinned output"
         );
 
-        let vm = run_vm(
-            &front,
-            brasa_vm::DEFAULT_MAX_CALL_DEPTH,
-            brasa_vm::DEFAULT_GC_THRESHOLD,
-            &[],
-            CROSS_CHECK_STDIN,
+        // `io.eprint` is the only builtin here that writes to stderr,
+        // and what it writes is pinned by
+        // `io_printers_split_across_stdout_and_stderr`. For everything
+        // else the stream must stay empty: the walker comparison used
+        // to catch a builtin leaking onto it, and after BRS-108 this is
+        // what does.
+        let expected_stderr = if *name == "io.eprint" { "x" } else { "" };
+        assert_eq!(
+            run.stderr, expected_stderr,
+            "`{name}` wrote something unexpected to stderr"
         );
-        assert_eq!(walker, vm, "`{name}` disagrees between the backends");
 
         let hot = run_vm(
             &front,
@@ -4725,7 +4701,7 @@ fn every_builtin_crosses_all_four_stdlib_layers() {
             &[],
             CROSS_CHECK_STDIN,
         );
-        assert_eq!(walker, hot, "`{name}` disagrees under GC pressure");
+        assert_eq!(run, hot, "`{name}` disagrees under GC pressure");
     }
 
     let _ = std::fs::remove_dir_all(&tmp);

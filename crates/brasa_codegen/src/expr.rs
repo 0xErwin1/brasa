@@ -1,8 +1,7 @@
 //! Expression lowering: every `compile_expr` call pushes exactly one
-//! value. Dispatch mirrors the tree-walker (`brasa_interp::interp`)
-//! case by case; where the walker dispatches on runtime values, this
-//! module dispatches on the checker's static types (`expr_types`),
-//! which agree for every checked program.
+//! value. Dispatch follows `docs/spec/07-bytecode.md` case by case, on
+//! the checker's static types (`expr_types`) rather than on runtime
+//! values — the two agree for every checked program.
 
 use brasa_bytecode::{Constant, Op, SlotIx, builtin_def, builtin_id};
 use brasa_diagnostics::codes;
@@ -472,7 +471,7 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
 fn field(f: &mut FuncCx, recv: ExprId, name: &str, span: Span) {
     // A member read on a module handle: no module exposes plain values
     // in M1, so this reuses the module-call path with zero arguments,
-    // exactly like the walker.
+    // as the spec requires.
     if let Expr::Ident(_) = f.cx.hir.expr(recv)
         && let Some(Res::Module(item)) = f.cx.res.expr_res.get(&recv).copied()
     {

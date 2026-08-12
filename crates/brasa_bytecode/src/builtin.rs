@@ -15,7 +15,7 @@
 //!
 //! Two internal entries exist for code the generator can prove faulty
 //! at compile time but must fail at runtime, mirroring the
-//! tree-walker's behavior exactly:
+//! behavior fixed by `docs/spec/05-stdlib.md`:
 //!
 //! - `<fatal>`: raises an uncatchable fatal error with the message
 //!   string argument (e.g. a member call on a module that has not
@@ -54,13 +54,12 @@ const fn method(name: &'static str) -> BuiltinDef {
 
 /// The registry, in id order. Method names are shared across receiver
 /// types (`len` is one id for string, Vector, Map, and Set); the VM
-/// dispatches on the receiver's runtime kind, exactly like the
-/// tree-walker's builtin table (`brasa_interp::builtins`).
+/// dispatches on the receiver's runtime kind.
 pub const BUILTINS: &[BuiltinDef] = &[
     // Prelude functions (`docs/spec/05-stdlib.md`).
     free("puts"),
     free("print"),
-    // `std::math` members executable in M1 (`brasa_interp::math_call`).
+    // `std::math` members (`docs/spec/05-stdlib.md`).
     free("math.sqrt"),
     free("math.floor"),
     free("math.ceil"),

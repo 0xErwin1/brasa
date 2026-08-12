@@ -1,11 +1,15 @@
 # Brasa — bytecode design
 
-> Status: draft for review (M3, unit BRS-26). The reference semantics are
-> the M1/M2 tree-walker (`crates/brasa_interp`): where this document and
-> the walker's observable behavior disagree, the walker wins and this
-> document has a bug. HIR→bytecode compilation (BRS-27), the VM loop
-> (BRS-28), and GC plus string interning (BRS-29) build on this design;
-> the container types live in `crates/brasa_bytecode`.
+> Status: draft for review (M3, unit BRS-26). The reference semantics
+> are the conformance corpus (`crates/brasa_vm/tests/conformance.rs`):
+> where this document and a pinned expectation there disagree, the
+> corpus wins and this document has a bug. That authority was the M1/M2
+> tree-walker until BRS-108; retiring it meant every expectation that
+> rested on the two backends agreeing became one written in the corpus,
+> recorded from the walker before it went. HIR→bytecode compilation
+> (BRS-27), the VM loop (BRS-28), and GC plus string interning (BRS-29)
+> build on this design; the container types live in
+> `crates/brasa_bytecode`.
 
 ## Scope
 
@@ -26,7 +30,7 @@ primitives those units need.
 | Encoding | **Word-code**: `Vec<Op>` where `Op` is a Rust enum with inline operands, one instruction per element | No byte-level encode/decode layer, no alignment bugs, exhaustive `match` dispatch checked by the compiler. Bytecode is an in-memory compilation artifact, never serialized to disk (non-goal below), so a compact wire format buys nothing |
 | Operands | Inline enum fields: `u16` for local slots, fields, globals, and counts; `u32` newtypes for constant-pool, function, and code indices | Keeps `Op` small (`u16`/`u32` payloads) while indices stay typed — mixing a `ConstId` into a jump is a compile error |
 | Jumps | Absolute instruction indices (`CodeIx`, an index into the `Vec<Op>`), patched by the code generator | Word-code makes relative offsets pointless; absolute indices make the disassembly and handler tables directly readable |
-| Dispatch | Plain `match` over `Op` in the VM loop (BRS-28) | The criterion contract (below) is walker-vs-VM, not VM-vs-Lua; threaded dispatch is a later optimization if ever needed |
+| Dispatch | Plain `match` over `Op` in the VM loop (BRS-28) | The criterion contract (below) was walker-vs-VM, not VM-vs-Lua; threaded dispatch is a later optimization if ever needed |
 
 These operand widths are the compiler's limits, not just its encoding:
 an `argc`/`arity` operand caps a call and a parameter list at 255, and
@@ -140,11 +144,10 @@ emitted: struct receivers compile to `call`, and `toString` compiles to
 
 ### Closures
 
-Capture is **by value at creation time** (M1 decision, `brasa_interp`
-module docs): `make_closure` pops the captured values, snapshotted by the
+Capture is **by value at creation time** (an M1 decision the VM
+inherited): `make_closure` pops the captured values, snapshotted by the
 code generator from the visible slots, into the closure object. At call
-time they are copied into the frame's capture slots. Consequences,
-matching the walker exactly:
+time they are copied into the frame's capture slots. Consequences:
 
 - Rebinding a captured `let mut` after capture is not observable.
 - Assigning to a captured variable inside the lambda writes the frame's
@@ -158,7 +161,8 @@ lambda is captured like any other slot.
 
 ### Signals
 
-The walker's `Signal` enum maps onto the VM as follows:
+The walker's `Signal` enum, which the VM inherited its unwinding
+vocabulary from, maps on as follows:
 
 | Signal | VM mechanism |
 |--------|--------------|
@@ -511,22 +515,22 @@ Explicitly out of scope for M3, recorded so nobody "helpfully" adds them:
 - **No monomorphization**: one bytecode function per generic function,
   uniform value representation (`docs/spec/03-types.md`).
 
-Benchmark contract (M3 acceptance, epic BRS-4):
-
-- The tree-walker remains in-tree as the reference interpreter, and the
-  full golden-program suite runs against **both** backends with
-  byte-identical output.
-- A criterion harness runs a shared set of `.brs` benchmark programs on
-  both backends. Acceptance is a statistically significant speedup of
-  the VM over the walker on every benchmark in the set; the set must
-  cover at least arithmetic loops, collection traversal, closure-heavy
-  code, and catch-on-the-happy-path (which must be free under handler
-  tables).
+Benchmark contract (M3 acceptance, epic BRS-4) — met, and recorded
+here as history. It required the tree-walker to stay in-tree as the
+reference interpreter, the full golden-program suite to run against
+both backends with byte-identical output, and a criterion harness over
+a shared set of `.brs` programs covering at least arithmetic loops,
+collection traversal, closure-heavy code, and catch-on-the-happy-path,
+with acceptance being a statistically significant VM speedup on every
+one. The walker was retired in BRS-108 once that gate had been passed;
+the workloads survive it unchanged, as the baseline M6 performance
+work is measured against.
 
 ### Benchmark results (BRS-30, dev machine)
 
-Measured by `crates/brasa_vm/benches/backends.rs` (criterion 0.8) on a
-dev machine (Intel i7-10850H, x86_64 Linux); criterion keeps the full
+Measured by the criterion harness (0.8), then at
+`crates/brasa_vm/benches/backends.rs` and now VM-only at
+`crates/brasa_vm/benches/vm.rs`, on a dev machine (Intel i7-10850H, x86_64 Linux); criterion keeps the full
 statistical data under `target/criterion/`. Each program compiles once
 outside the measured loop; each iteration executes prebuilt artifacts
 into a sink writer. Values are criterion point estimates.
@@ -540,9 +544,10 @@ into a sink writer. Values are criterion point estimates.
 | `fib` | 21.63 ms | 7.16 ms | 3.02x |
 | `strings` | 1.38 ms | 1.06 ms | 1.30x |
 
-Acceptance holds: the VM is faster on every benchmark with
-non-overlapping confidence intervals, so the CLI default `--backend`
-is `vm` (the walker stays available as `--backend=walker`).
+Acceptance held: the VM was faster on every benchmark with
+non-overlapping confidence intervals, so it became the CLI default and,
+in BRS-108, the only backend — `--backend` is gone and "walker" is no
+longer a user-visible concept.
 
 Catch-on-the-happy-path overhead on the VM (`catch_overhead_vm`): the
 same loop with a never-taken `catch` measured 24.21 ms vs 23.33 ms
@@ -551,6 +556,8 @@ keep the happy path effectively free.
 
 Cold start (full pipeline for a small script): frontend only 19.7 µs,
 walker 98.1 µs, VM 110.8 µs. The VM's extra ~13 µs is the codegen
-phase; execution benchmarks above exclude it by design.
+phase; execution benchmarks above exclude it by design. It is the one
+number where the walker won, and it is why cold start keeps its own
+group in the harness.
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

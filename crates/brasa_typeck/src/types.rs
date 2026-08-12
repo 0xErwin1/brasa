@@ -76,7 +76,7 @@ pub enum Type {
 /// How one `Expr::OptionWrap` node resolved: `?.` flattens, so the
 /// checker decides per node whether the member value gets wrapped in
 /// `Some` or is already an `Option` (`docs/spec/03-types.md`, the `?.`
-/// operator rule). The tree-walker consumes this table verbatim.
+/// operator rule). Code generation consumes this table verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapDecision {
     Wrap,

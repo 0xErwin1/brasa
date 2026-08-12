@@ -40,29 +40,9 @@ struct Cli {
     #[arg(long)]
     dump_bytecode: bool,
 
-    /// Execution backend: the bytecode VM (default since the M3
-    /// acceptance, BRS-30) or the reference tree-walker.
-    #[arg(long, value_enum, default_value_t = Backend::Vm)]
-    backend: Backend,
-
     /// Arguments passed through to the script as `args()`.
     #[arg(trailing_var_arg = true)]
     args: Vec<String>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum Backend {
-    Walker,
-    Vm,
-}
-
-impl std::fmt::Display for Backend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Backend::Walker => "walker",
-            Backend::Vm => "vm",
-        })
-    }
 }
 
 fn main() -> ExitCode {
@@ -176,10 +156,10 @@ fn main() -> ExitCode {
         return ExitCode::from(0);
     }
 
-    // Code generation runs whatever the backend is: the limits it
-    // reports are properties of the program, not of one backend, so
-    // `--backend=walker` must reject exactly what `--backend=vm`
-    // rejects (`docs/spec/06-diagnostics.md`, code generation).
+    // Code generation runs even under `--check`: the limits it reports
+    // are properties of the program, so a program that cannot be
+    // compiled must be rejected here rather than at run time
+    // (`docs/spec/06-diagnostics.md`, code generation).
     let compiled = brasa_codegen::compile(
         &lowered.hir,
         &lowered.roots,
@@ -202,17 +182,7 @@ fn main() -> ExitCode {
     }
 
     let mut stdout = std::io::stdout();
-    let outcome = match cli.backend {
-        Backend::Walker => brasa_interp::run(
-            &lowered.hir,
-            &lowered.roots,
-            &resolved.resolutions,
-            &checked.types,
-            &mut stdout,
-            &cli.args,
-        ),
-        Backend::Vm => brasa_vm::run(&compiled.module, &mut stdout, &cli.args),
-    };
+    let outcome = brasa_vm::run(&compiled.module, &mut stdout, &cli.args);
     let flushed = stdout.flush();
 
     // The outcome is reported before any flush handling: a script

@@ -74,7 +74,7 @@ pub(crate) fn compile_arm_body(f: &mut FuncCx, body: &ArmBody, span: Span) {
 }
 
 /// Binds one `for` element (on top of the stack) to the loop pattern.
-/// A mismatch raises `panics.AssertionFailed`, exactly like the walker.
+/// A mismatch raises `panics.AssertionFailed`.
 pub(crate) fn compile_for_binding(f: &mut FuncCx, pattern: PatternId, span: Span) {
     let mut fails = Vec::new();
     compile_pattern_test(f, pattern, &mut fails);
@@ -175,7 +175,7 @@ fn compile_pattern_test(f: &mut FuncCx, pattern: PatternId, fails: &mut Vec<Code
                 compound_test(f, &args, Op::EnumField, vec![wrong_variant], fails, span);
             }
             // `Set` never resolves in pattern position; an unresolved
-            // constructor pattern mirrors the walker's fatal.
+            // constructor pattern is a fatal.
             None | Some(CtorRes::SetCtor) => {
                 f.emit(Op::Pop, span);
                 f.emit_fatal("brasa: unresolved constructor pattern", span);

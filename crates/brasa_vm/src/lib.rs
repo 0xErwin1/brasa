@@ -3,18 +3,18 @@
 //! Executes a compiled [`brasa_bytecode::Module`] with an iterative
 //! dispatch loop over one contiguous value stack, per the normative
 //! design in `docs/spec/07-bytecode.md`. The observable-behavior oracle
-//! is the reference tree-walker (`brasa_interp`): outputs, error and
-//! panic messages, stacktraces, and exit semantics must match it byte
-//! for byte — where they disagree, this crate has a bug.
+//! is the conformance corpus (`tests/conformance.rs`): outputs, error
+//! and panic messages, stacktraces, and exit semantics must match what
+//! is pinned there byte for byte — where they disagree, this crate has
+//! a bug. That role belonged to the reference tree-walker until
+//! BRS-108.
 //!
 //! Decisions this unit fixes:
 //!
 //! - **Outcome sharing**: [`Outcome`] is re-exported from
-//!   `brasa_interp`. One type means the CLI maps exit codes through a
-//!   single `match` and the parity suite compares outcomes with plain
-//!   equality — no conversion layer to drift. The walker stays in-tree
-//!   as the reference interpreter, so the dependency is permanent by
-//!   design.
+//!   `brasa_runtime`. One type means the CLI maps exit codes through a
+//!   single `match` and the corpus compares outcomes with plain
+//!   equality — no conversion layer to drift.
 //! - **Heap layer**: the mutable, cycle-capable value kinds (`Vector`,
 //!   `Map`, `Set`, `Struct`) live in a precise mark-and-sweep arena
 //!   ([`heap`]); the immutable kinds stay behind `Rc` handles, which
@@ -23,9 +23,8 @@
 //! - **Reentrancy**: the dispatch loop is iterative (compiled calls
 //!   push frames, never Rust frames), but native builtins that invoke
 //!   user code (`map`, `filter`, `sortBy`, user `toString` during
-//!   rendering) run a nested bounded loop — mirroring the walker's own
-//!   recursion at exactly the same points, bounded by the same
-//!   call-depth guard.
+//!   rendering) run a nested bounded loop, bounded by the same
+//!   call-depth guard as compiled calls.
 
 mod builtins;
 mod display;

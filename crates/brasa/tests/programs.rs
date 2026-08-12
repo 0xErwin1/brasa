@@ -1,12 +1,9 @@
-//! Golden `.brs` program suite for the M1 tree-walker (BRS-20) and,
-//! since M3, the bytecode VM backend (BRS-28).
+//! Golden `.brs` program suite, run through the CLI.
 //!
 //! Success programs under `tests/programs/` pin their exact stdout in a
 //! sibling `.out` file; failure programs assert the exit code and
 //! stderr substrings. The runnable repository examples are pinned here
 //! too, so a semantic regression in any layer shows up as a diff.
-//! Every golden and example runs on BOTH backends against the same
-//! pinned expectations, so the VM must match the walker byte for byte.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -14,19 +11,14 @@ use std::process::{Command, Output};
 #[path = "support/example_walk.rs"]
 mod example_walk;
 
-/// The two execution backends behind `--backend`; every golden runs on
-/// both against the same pinned output.
-const BACKENDS: &[&str] = &["walker", "vm"];
-
-fn run_with_backend(path: &PathBuf, backend: &str) -> Output {
-    run_with_backend_args(path, backend, &[])
+fn run_program(path: &PathBuf) -> Output {
+    run_program_args(path, &[])
 }
 
-/// Runs a program on one backend with trailing script arguments (what
-/// `env.args()` sees).
-fn run_with_backend_args(path: &PathBuf, backend: &str, args: &[PathBuf]) -> Output {
+/// Runs a program with trailing script arguments (what `env.args()`
+/// sees).
+fn run_program_args(path: &PathBuf, args: &[PathBuf]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_brasa"))
-        .arg(format!("--backend={backend}"))
         .arg(path)
         .args(args)
         .output()
@@ -45,63 +37,43 @@ fn example_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Runs a golden program on every backend and compares its stdout
-/// byte-for-byte against the sibling `.out` file; each run must
-/// succeed with empty stderr.
+/// Runs a golden program and compares its stdout byte-for-byte against
+/// the sibling `.out` file; it must succeed with empty stderr.
 fn assert_golden(name: &str) {
     let expected = std::fs::read_to_string(program_path(&format!("{name}.out")))
         .expect("missing expected-output file");
 
-    for backend in BACKENDS {
-        let output = run_with_backend(&program_path(&format!("{name}.brs")), backend);
+    let output = run_program(&program_path(&format!("{name}.brs")));
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            expected,
-            "[{backend}] stdout mismatch"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        expected,
+        "stdout mismatch"
+    );
 }
 
-/// Runs an example on every backend and compares its stdout against
-/// the expectation pinned inline; each run must succeed with empty
-/// stderr.
+/// Runs an example and compares its stdout against the expectation
+/// pinned inline; it must succeed with empty stderr.
 fn assert_example(name: &str, expected: &str) {
     assert_example_args(name, &[], expected);
 }
 
-/// Runs an example with trailing script arguments on every backend and
-/// compares its stdout against the expectation pinned inline.
+/// Runs an example with trailing script arguments and compares its
+/// stdout against the expectation pinned inline.
 fn assert_example_args(name: &str, args: &[PathBuf], expected: &str) {
-    for backend in BACKENDS {
-        let output = run_with_backend_args(&example_path(name), backend, args);
+    let output = run_program_args(&example_path(name), args);
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            expected,
-            "[{backend}] stdout mismatch"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        expected,
+        "stdout mismatch"
+    );
 }
 
 #[test]
@@ -131,16 +103,14 @@ fn golden_errors() {
 
 #[test]
 fn uncaught_throw_exits_70_with_the_error_message() {
-    for backend in BACKENDS {
-        let output = run_with_backend(&program_path("throw_uncaught.brs"), backend);
+    let output = run_program(&program_path("throw_uncaught.brs"));
 
-        assert_eq!(output.status.code(), Some(70), "[{backend}]");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
+    assert_eq!(output.status.code(), Some(70));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("error:"), "[{backend}] stderr: {stderr}");
-        assert!(stderr.contains("BoomError"), "[{backend}] stderr: {stderr}");
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error:"), "stderr: {stderr}");
+    assert!(stderr.contains("BoomError"), "stderr: {stderr}");
 }
 
 /// The defect this closes: a CLI-shaped script had no way to signal
@@ -150,39 +120,35 @@ fn uncaught_throw_exits_70_with_the_error_message() {
 /// itself wrote.
 #[test]
 fn env_exit_sets_the_status_without_a_runtime_banner() {
-    for backend in BACKENDS {
-        let output = run_with_backend(&program_path("exit_status.brs"), backend);
+    let output = run_program(&program_path("exit_status.brs"));
 
-        assert_eq!(output.status.code(), Some(4), "[{backend}]");
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            "checked 3 things\n"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stderr),
-            "usage: exit_status <path>\n",
-            "[{backend}] the runtime added something of its own"
-        );
-    }
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "checked 3 things\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "usage: exit_status <path>\n",
+        "the runtime added something of its own"
+    );
 }
 
 #[test]
 fn uncaught_panic_exits_70_with_type_and_call_chain() {
-    for backend in BACKENDS {
-        let output = run_with_backend(&program_path("panic_uncaught.brs"), backend);
+    let output = run_program(&program_path("panic_uncaught.brs"));
 
-        assert_eq!(output.status.code(), Some(70), "[{backend}]");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
+    assert_eq!(output.status.code(), Some(70));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("panic"), "[{backend}] stderr: {stderr}");
-        assert!(
-            stderr.contains("panics.IndexOutOfBounds"),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(stderr.contains("in inner"), "[{backend}] stderr: {stderr}");
-        assert!(stderr.contains("in outer"), "[{backend}] stderr: {stderr}");
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("panic"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("panics.IndexOutOfBounds"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("in inner"), "stderr: {stderr}");
+    assert!(stderr.contains("in outer"), "stderr: {stderr}");
 }
 
 #[test]
@@ -396,47 +362,35 @@ fn example_real_gitreport() {
             .to_string_lossy()
     );
 
-    for backend in BACKENDS {
-        let output = run_with_backend(&example_path("real/gitreport.brs"), backend);
+    let output = run_program(&example_path("real/gitreport.brs"));
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
 
-        if stdout.is_empty() {
-            assert!(
-                stderr == "git is not installed\n" || stderr == "not inside a git repository\n",
-                "[{backend}] unexpected refusal: {stderr}"
-            );
-            continue;
-        }
-
+    if stdout.is_empty() {
         assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
+            stderr == "git is not installed\n" || stderr == "not inside a git repository\n",
+            "unexpected refusal: {stderr}"
         );
-        assert!(
-            stdout.starts_with(&expected_header),
-            "[{backend}] expected the header {expected_header:?} in: {stdout}"
-        );
+        return;
+    }
 
-        for marker in [
-            "\nrange: ",
-            "\ntarget tag v0.1.0: ",
-            "\ncommits: ",
-            "\nby type:\n",
-            "\nworktree: ",
-        ] {
-            assert!(
-                stdout.contains(marker),
-                "[{backend}] missing {marker:?} in: {stdout}"
-            );
-        }
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert!(
+        stdout.starts_with(&expected_header),
+        "expected the header {expected_header:?} in: {stdout}"
+    );
+
+    for marker in [
+        "\nrange: ",
+        "\ntarget tag v0.1.0: ",
+        "\ncommits: ",
+        "\nby type:\n",
+        "\nworktree: ",
+    ] {
+        assert!(stdout.contains(marker), "missing {marker:?} in: {stdout}");
     }
 }
 
@@ -478,29 +432,16 @@ toolbelt: 337
 4 popular repos
 ";
 
-    for backend in BACKENDS {
-        let fixture = example_path("data/repos.json");
-        let expected = format!("{expected_repos}12 lines read from {}\n", fixture.display());
-        let output = run_with_backend_args(
-            &example_path("stars.brs"),
-            backend,
-            std::slice::from_ref(&fixture),
-        );
+    let fixture = example_path("data/repos.json");
+    let expected = format!("{expected_repos}12 lines read from {}\n", fixture.display());
+    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
-        );
-        assert_eq!(stdout, expected, "[{backend}] stdout mismatch");
-    }
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(stdout, expected, "stdout mismatch");
 }
 
 /// The container lookup is total too, and nothing else reaches it: the
@@ -520,59 +461,33 @@ toolbelt: 337
 /// and one whose `stars` is a string.
 #[test]
 fn example_stars_reads_a_document_without_repos() {
-    for backend in BACKENDS {
-        let fixture = example_path("data/no-repos.json");
-        let output = run_with_backend_args(
-            &example_path("stars.brs"),
-            backend,
-            std::slice::from_ref(&fixture),
-        );
+    let fixture = example_path("data/no-repos.json");
+    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
-            "[{backend}] stdout mismatch"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
+        "stdout mismatch"
+    );
 
     // The other half of the container's totality: `repos` present, but
     // not an array. `asArray()` yields `None` for a wrong-kinded node
     // exactly as it does for an absent key, which is what the example's
     // own comment claims and what this fixture is for.
-    for backend in BACKENDS {
-        let fixture = example_path("data/repos-scalar.json");
-        let output = run_with_backend_args(
-            &example_path("stars.brs"),
-            backend,
-            std::slice::from_ref(&fixture),
-        );
+    let fixture = example_path("data/repos-scalar.json");
+    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert!(
-            stderr.is_empty(),
-            "[{backend}] expected empty stderr, got: {stderr}"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
-            "[{backend}] stdout mismatch"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("0 popular repos\n3 lines read from {}\n", fixture.display()),
+        "stdout mismatch"
+    );
 }
 
 /// The example refuses without an argument rather than defaulting to
@@ -582,65 +497,46 @@ fn example_stars_reads_a_document_without_repos() {
 /// alongside the happy one.
 #[test]
 fn example_stars_reports_bad_input() {
-    for backend in BACKENDS {
-        let no_args = run_with_backend(&example_path("stars.brs"), backend);
-        assert_eq!(
-            no_args.status.code(),
-            Some(2),
-            "[{backend}] expected a refusal"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&no_args.stderr),
-            "usage: stars.brs <repos.json>\n",
-            "[{backend}] unexpected refusal"
-        );
-        assert!(no_args.stdout.is_empty(), "[{backend}] expected no stdout");
+    let no_args = run_program(&example_path("stars.brs"));
+    assert_eq!(no_args.status.code(), Some(2), "expected a refusal");
+    assert_eq!(
+        String::from_utf8_lossy(&no_args.stderr),
+        "usage: stars.brs <repos.json>\n",
+        "unexpected refusal"
+    );
+    assert!(no_args.stdout.is_empty(), "expected no stdout");
 
-        let missing = run_with_backend_args(
-            &example_path("stars.brs"),
-            backend,
-            std::slice::from_ref(&example_path("data/does-not-exist.json")),
-        );
-        assert_eq!(
-            missing.status.code(),
-            Some(70),
-            "[{backend}] expected a failure"
-        );
-        assert!(
-            missing.stdout.is_empty(),
-            "[{backend}] expected nothing before the abort"
-        );
-        let stderr = String::from_utf8_lossy(&missing.stderr);
-        assert!(
-            stderr.starts_with("error: fs.NotFound: "),
-            "[{backend}] got: {stderr}"
-        );
+    let missing = run_program_args(
+        &example_path("stars.brs"),
+        std::slice::from_ref(&example_path("data/does-not-exist.json")),
+    );
+    assert_eq!(missing.status.code(), Some(70), "expected a failure");
+    assert!(
+        missing.stdout.is_empty(),
+        "expected nothing before the abort"
+    );
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(stderr.starts_with("error: fs.NotFound: "), "got: {stderr}");
 
-        // A file that certainly exists and certainly is not JSON, so no
-        // fixture has to exist only in order to be broken. Deliberately
-        // not another `.brs`: `every_example_is_pinned` counts any
-        // quoted example name in this file, so naming one as an INPUT
-        // here would stand in for pinning it.
-        let not_json = run_with_backend_args(
-            &example_path("stars.brs"),
-            backend,
-            std::slice::from_ref(&example_path("README.md")),
-        );
-        assert_eq!(
-            not_json.status.code(),
-            Some(70),
-            "[{backend}] expected a failure"
-        );
-        assert!(
-            not_json.stdout.is_empty(),
-            "[{backend}] expected nothing before the abort"
-        );
-        let stderr = String::from_utf8_lossy(&not_json.stderr);
-        assert!(
-            stderr.starts_with("error: json.ParseError: "),
-            "[{backend}] got: {stderr}"
-        );
-    }
+    // A file that certainly exists and certainly is not JSON, so no
+    // fixture has to exist only in order to be broken. Deliberately
+    // not another `.brs`: `every_example_is_pinned` counts any
+    // quoted example name in this file, so naming one as an INPUT
+    // here would stand in for pinning it.
+    let not_json = run_program_args(
+        &example_path("stars.brs"),
+        std::slice::from_ref(&example_path("README.md")),
+    );
+    assert_eq!(not_json.status.code(), Some(70), "expected a failure");
+    assert!(
+        not_json.stdout.is_empty(),
+        "expected nothing before the abort"
+    );
+    let stderr = String::from_utf8_lossy(&not_json.stderr);
+    assert!(
+        stderr.starts_with("error: json.ParseError: "),
+        "got: {stderr}"
+    );
 }
 
 /// A module: it declares functions and runs nothing, so the pin is that
@@ -657,20 +553,18 @@ fn example_modules_utils() {
 /// what to replace it with.
 #[test]
 fn example_modules_main_is_not_runnable_yet() {
-    for backend in BACKENDS {
-        let output = run_with_backend(&example_path("modules/main.brs"), backend);
+    let output = run_program(&example_path("modules/main.brs"));
 
-        assert_eq!(
-            output.status.code(),
-            Some(70),
-            "[{backend}] file imports appear to work now: pin this example's real output instead"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stderr),
-            "brasa: module `utils` is not available yet (importing from another file is not implemented)\n",
-            "[{backend}] unexpected failure"
-        );
-    }
+    assert_eq!(
+        output.status.code(),
+        Some(70),
+        "file imports appear to work now: pin this example's real output instead"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "brasa: module `utils` is not available yet (importing from another file is not implemented)\n",
+        "unexpected failure"
+    );
 }
 
 /// Every `.brs` under `examples/` must be exercised by a test in this

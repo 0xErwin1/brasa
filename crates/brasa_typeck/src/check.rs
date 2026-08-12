@@ -2642,7 +2642,7 @@ impl<'a> Checker<'a> {
     ///   legitimate);
     /// - exactly one resolved panic name (`panics.X`, BRS-24) →
     ///   `string`: the runtime binds the panic's detail message
-    ///   (`brasa_interp`'s `eval_catch`; `04-errors.md`);
+    ///   (`docs/spec/04-errors.md`);
     /// - exactly one resolved native-error name (`string.ParseError`,
     ///   BRS-41) → `string`, for the same reason: a native error
     ///   carries only a message, and the runtime binds it in the arm —

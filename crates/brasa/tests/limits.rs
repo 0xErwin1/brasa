@@ -1,12 +1,12 @@
 //! Bytecode-limit diagnostics (`docs/spec/06-diagnostics.md`, the `C`
-//! family) driven through the CLI on both backends.
+//! family) driven through the CLI.
 //!
 //! Each program here breaks a limit that is inherent to the instruction
 //! set in `docs/spec/07-bytecode.md`. What is pinned is the diagnostic:
 //! before these limits were checked, the same programs aborted the
-//! process with a raw Rust panic (`TryFromIntError`) instead. Both
-//! backends must report the same thing, because the limits belong to the
-//! program, not to an execution strategy.
+//! process with a raw Rust panic (`TryFromIntError`) instead. They are
+//! reported at compile time even for a run that would never reach the
+//! offending code, because the limits belong to the program.
 //!
 //! The programs are generated here rather than committed: the smallest
 //! of them is a few hundred kilobytes of source.
@@ -14,11 +14,13 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const BACKENDS: &[&str] = &["walker", "vm"];
+fn run_script(script: &Path) -> Output {
+    run_script_with(script, &[])
+}
 
-fn run_backend(script: &Path, backend: &str) -> Output {
+fn run_script_with(script: &Path, flags: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_brasa"))
-        .arg(format!("--backend={backend}"))
+        .args(flags)
         .arg(script)
         .output()
         .expect("failed to run brasa")
@@ -33,31 +35,43 @@ fn write_script(name: &str, source: &str) -> PathBuf {
     script
 }
 
-/// Runs `source` on both backends and asserts each one rejected it with
-/// the same exit code and the same diagnostic codes and messages.
-fn assert_rejected_by_both(name: &str, source: &str, expected: &[&str]) {
+/// Runs `source` and asserts it was rejected at compile time with the
+/// expected diagnostic codes and messages.
+fn assert_rejected(name: &str, source: &str, expected: &[&str]) {
     let script = write_script(name, source);
 
+    // Under `--check` as well as under a plain run: the limits are
+    // properties of the program's bytecode encoding rather than of a
+    // run, which is what `docs/spec/06-diagnostics.md` promises. Code
+    // generation therefore has to happen before the `--check` return,
+    // and running both ways is what holds it there.
     let mut seen: Option<String> = None;
-    for backend in BACKENDS {
-        let output = run_backend(&script, backend);
+    for flags in [[].as_slice(), ["--check"].as_slice()] {
+        let output = run_script_with(&script, flags);
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
         assert_eq!(
             output.status.code(),
             Some(65),
-            "[{backend}] expected a compile-time rejection, got stderr: {stderr}"
+            "{flags:?}: expected a compile-time rejection, got stderr: {stderr}"
         );
         for fragment in expected {
             assert!(
                 stderr.contains(fragment),
-                "[{backend}] expected {fragment:?} in stderr, got: {stderr}"
+                "{flags:?}: expected {fragment:?} in stderr, got: {stderr}"
             );
         }
 
+        // Byte-for-byte between the two legs, not just the fragments:
+        // `--check` dropping a note or moving a span would satisfy every
+        // assertion above. The old shape compared the two backends this
+        // way and the comparison should not be lost with them.
         match &seen {
             None => seen = Some(stderr),
-            Some(first) => assert_eq!(first, &stderr, "backends disagree on the diagnostics"),
+            Some(first) => assert_eq!(
+                first, &stderr,
+                "`--check` and a plain run disagree on the diagnostics"
+            ),
         }
     }
 
@@ -73,7 +87,7 @@ fn too_many_arguments_and_parameters_are_reported() {
         params.join(", ")
     );
 
-    assert_rejected_by_both(
+    assert_rejected(
         "wide_call",
         &source,
         &[
@@ -89,7 +103,7 @@ fn too_many_arguments_and_parameters_are_reported() {
 fn too_many_vector_elements_are_reported() {
     let source = format!("let v = [{}]\nputs v.len()\n", vec!["1"; 65_536].join(", "));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "wide_vector",
         &source,
         &[
@@ -104,7 +118,7 @@ fn too_many_map_entries_are_reported() {
     let entries: Vec<String> = (0..65_536).map(|i| format!("{i}: 1")).collect();
     let source = format!("let m = {{{}}}\nputs m.len()\n", entries.join(", "));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "wide_map",
         &source,
         &[
@@ -118,7 +132,7 @@ fn too_many_map_entries_are_reported() {
 fn too_many_tuple_elements_are_reported() {
     let source = format!("let t = ({},)\nputs t\n", vec!["1"; 65_536].join(", "));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "wide_tuple",
         &source,
         &["[C003]", "tuple has 65536 elements, but the limit is 65535"],
@@ -130,7 +144,7 @@ fn too_many_struct_fields_are_reported() {
     let fields: Vec<String> = (0..65_536).map(|i| format!("  f{i}: int")).collect();
     let source = format!("struct Wide\n{}\nend\n\nputs 1\n", fields.join("\n"));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "wide_struct",
         &source,
         &[
@@ -145,7 +159,7 @@ fn too_many_local_slots_are_reported() {
     let lets: Vec<String> = (0..65_536).map(|i| format!("  let a{i} = {i}")).collect();
     let source = format!("def f(): int\n{}\n  1\nend\n\nputs f()\n", lets.join("\n"));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "many_locals",
         &source,
         &["[C005]", "`f` needs more than 65535 local slots"],
@@ -159,7 +173,7 @@ fn too_many_local_slots_are_reported() {
 fn an_over_deep_operand_stack_is_reported() {
     let source = format!("let t = (1, [{}])\nputs t\n", vec!["1"; 65_535].join(", "));
 
-    assert_rejected_by_both(
+    assert_rejected(
         "deep_stack",
         &source,
         &[
@@ -181,17 +195,11 @@ fn the_largest_fitting_call_still_runs() {
     );
     let script = write_script("fitting_call", &source);
 
-    for backend in BACKENDS {
-        let output = run_backend(&script, backend);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let output = run_script(&script);
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "[{backend}] stderr: {stderr}"
-        );
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
-    }
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
 
     let _ = std::fs::remove_file(&script);
 }

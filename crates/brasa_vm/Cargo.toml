@@ -9,7 +9,6 @@ edition.workspace = true
 [dependencies]
 brasa_bytecode = { workspace = true }
 brasa_runtime = { workspace = true }
-brasa_interp = { workspace = true }
 regex = { workspace = true }
 
 [dev-dependencies]
@@ -23,5 +22,5 @@ brasa_codegen = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]
-name = "backends"
+name = "vm"
 harness = false

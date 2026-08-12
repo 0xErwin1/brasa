@@ -318,10 +318,10 @@ Notes on kind boundaries:
 - `C006` is the operand stack a single frame needs, which no individual
   literal or call limit bounds on its own: a wide literal beside other
   live values can require more slots than any one of them.
-- The `C` phase runs for **both** backends. The limits are properties of
-  the program and its bytecode encoding, not of one execution strategy,
-  so `--backend=walker` rejects exactly what `--backend=vm` rejects even
-  though the walker never runs the module.
+- The `C` phase runs before execution and independently of it. The
+  limits are properties of the program and its bytecode encoding, not of
+  a run, so `--check` reports them too: a program that cannot be
+  compiled is rejected without being run.
 
 ## Deferred (M5)
 

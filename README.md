@@ -92,7 +92,7 @@ cargo test
 | Milestone | Scope | Status |
 |-----------|-------|--------|
 | M0 | Lexer, parser, AST, diagnostics | in progress |
-| M1 | Type checker + reference tree-walking interpreter | — |
+| M1 | Type checker + reference tree-walking interpreter (retired in M6) | — |
 | M2 | Error system (inferred error sets, `catch`) | — |
 | M3 | Bytecode VM + GC | — |
 | M4 | Scripting stdlib (strings, proc, fs, json, regex) | — |

@@ -1,25 +1,26 @@
-//! Walker-vs-VM criterion harness (BRS-30, the M3 acceptance gate).
+//! VM criterion harness.
 //!
 //! Every program compiles through the full frontend ONCE, outside the
 //! measured loop; each iteration then executes the prebuilt artifacts
-//! on one backend into a sink writer, so the measurement isolates pure
-//! execution. The acceptance criterion (`docs/spec/07-bytecode.md`) is
-//! a statistically significant VM speedup on every program, and the
-//! `catch_overhead_vm` group additionally demonstrates that a
-//! never-throwing `catch` is free under handler tables by comparing
-//! the same loop with and without the `catch`.
+//! into a sink writer, so the measurement isolates pure execution. The
+//! `catch_overhead_vm` group demonstrates that a never-throwing
+//! `catch` is free under handler tables, by comparing the same loop
+//! with and without the `catch`.
 //!
 //! `cold_start` measures the full pipeline (parse through execute) for
-//! a small script on each backend, plus the frontend alone, so startup
-//! overhead stays visible.
+//! a small script, plus the frontend alone, so startup overhead stays
+//! visible.
+//!
+//! This compared the VM against the tree-walker until BRS-108 (it was
+//! BRS-30's M3 acceptance gate, and the VM won it). The walker legs are
+//! gone with the walker; the WORKLOADS are deliberately unchanged,
+//! because they are the baseline M6 performance work is measured
+//! against and rewriting them now would destroy the comparison.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-/// Every frontend artifact a backend needs, built once per program.
+/// Everything the VM needs, built once per program.
 struct Compiled {
-    lowered: brasa_hir::LowerResult,
-    resolved: brasa_resolver::ResolveResult,
-    checked: brasa_typeck::TypeckResult,
     module: brasa_bytecode::Module,
 }
 
@@ -58,9 +59,9 @@ fn frontend(
     (lowered, resolved, checked)
 }
 
-/// Frontend plus codegen, then a sanity run on BOTH backends: a broken
-/// benchmark program must fail loudly instead of being measured as a
-/// fast panic path.
+/// Frontend plus codegen, then a sanity run: a broken benchmark
+/// program must fail loudly instead of being measured as a fast panic
+/// path.
 fn compile(source: &str) -> Compiled {
     let (lowered, resolved, checked) = frontend(source);
     let compiled = brasa_codegen::compile(
@@ -75,29 +76,11 @@ fn compile(source: &str) -> Compiled {
         compiled.diagnostics
     );
     let module = compiled.module;
-    let compiled = Compiled {
-        lowered,
-        resolved,
-        checked,
-        module,
-    };
+    let compiled = Compiled { module };
 
-    assert_eq!(run_walker(&compiled), brasa_vm::Outcome::Success);
     assert_eq!(run_vm(&compiled), brasa_vm::Outcome::Success);
 
     compiled
-}
-
-fn run_walker(compiled: &Compiled) -> brasa_vm::Outcome {
-    let mut out = std::io::sink();
-    brasa_interp::run(
-        &compiled.lowered.hir,
-        &compiled.lowered.roots,
-        &compiled.resolved.resolutions,
-        &compiled.checked.types,
-        &mut out,
-        &[],
-    )
 }
 
 fn run_vm(compiled: &Compiled) -> brasa_vm::Outcome {
@@ -117,12 +100,11 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("strings", include_str!("programs/strings.brs")),
 ];
 
-fn backend_benches(criterion: &mut Criterion) {
+fn program_benches(criterion: &mut Criterion) {
     for (name, source) in PROGRAMS {
         let compiled = compile(source);
 
         let mut group = criterion.benchmark_group(*name);
-        group.bench_function("walker", |b| b.iter(|| run_walker(&compiled)));
         group.bench_function("vm", |b| b.iter(|| run_vm(&compiled)));
         group.finish();
     }
@@ -145,20 +127,6 @@ fn cold_start(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("cold_start");
     group.bench_function("frontend_only", |b| b.iter(|| frontend(source)));
-    group.bench_function("walker", |b| {
-        b.iter(|| {
-            let (lowered, resolved, checked) = frontend(source);
-            let mut out = std::io::sink();
-            brasa_interp::run(
-                &lowered.hir,
-                &lowered.roots,
-                &resolved.resolutions,
-                &checked.types,
-                &mut out,
-                &[],
-            )
-        })
-    });
     group.bench_function("vm", |b| {
         b.iter(|| {
             let (lowered, resolved, checked) = frontend(source);
@@ -186,6 +154,6 @@ criterion_group! {
     config = Criterion::default()
         .warm_up_time(std::time::Duration::from_secs(1))
         .measurement_time(std::time::Duration::from_secs(3));
-    targets = backend_benches, catch_overhead, cold_start
+    targets = program_benches, catch_overhead, cold_start
 }
 criterion_main!(benches);

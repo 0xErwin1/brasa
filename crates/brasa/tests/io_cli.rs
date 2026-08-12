@@ -1,20 +1,17 @@
 //! CLI-level `std::io` tests (BRS-34, `docs/spec/05-stdlib.md`).
 //!
-//! The library-level parity harness injects all three streams, so it
-//! pins the `std::io` semantics themselves. What only the CLI can pin
-//! is the WIRING: that `brasa` hands the real process stdin, stdout,
-//! and stderr to the run. These tests drive the built binary with piped
-//! stdin on BOTH backends and assert identical stdout, stderr, and exit
-//! status.
+//! The library-level conformance harness injects all three streams, so
+//! it pins the `std::io` semantics themselves. What only the CLI can
+//! pin is the WIRING: that `brasa` hands the real process stdin,
+//! stdout, and stderr to the run. These tests drive the built binary
+//! with piped stdin and assert stdout, stderr, and exit status.
 
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-fn run_backend(script: &Path, backend: &str, stdin: &[u8]) -> std::process::Output {
+fn run_script(script: &Path, stdin: &[u8]) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_brasa"))
-        .arg("--backend")
-        .arg(backend)
         .arg(script)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -32,37 +29,26 @@ fn run_backend(script: &Path, backend: &str, stdin: &[u8]) -> std::process::Outp
     child.wait_with_output().expect("failed to collect output")
 }
 
-/// Runs `source` with `stdin` on both backends, asserts they agree,
-/// and returns the shared `(stdout, stderr, code)`.
-fn run_both(tag: &str, source: &str, stdin: &[u8]) -> (String, String, Option<i32>) {
+/// Runs `source` with `stdin` through the built binary and returns
+/// `(stdout, stderr, code)`.
+fn run_cli(tag: &str, source: &str, stdin: &[u8]) -> (String, String, Option<i32>) {
     let dir = std::env::temp_dir().join(format!("brasa-io-cli-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
     let script = dir.join("io.brs");
     std::fs::write(&script, source).expect("failed to write script");
 
-    let walker = run_backend(&script, "walker", stdin);
-    let vm = run_backend(&script, "vm", stdin);
+    let run = run_script(&script, stdin);
 
-    let walker_stdout = String::from_utf8_lossy(&walker.stdout).into_owned();
-    let vm_stdout = String::from_utf8_lossy(&vm.stdout).into_owned();
-    let walker_stderr = String::from_utf8_lossy(&walker.stderr).into_owned();
-    let vm_stderr = String::from_utf8_lossy(&vm.stderr).into_owned();
-
-    assert_eq!(walker_stdout, vm_stdout, "stdout parity failed");
-    assert_eq!(walker_stderr, vm_stderr, "stderr parity failed");
-    assert_eq!(
-        walker.status.code(),
-        vm.status.code(),
-        "exit-code parity failed"
-    );
+    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
 
     std::fs::remove_dir_all(&dir).ok();
-    (walker_stdout, walker_stderr, walker.status.code())
+    (stdout, stderr, run.status.code())
 }
 
 #[test]
 fn read_line_strips_newlines_and_reports_eof_as_none() {
-    let (stdout, stderr, code) = run_both(
+    let (stdout, stderr, code) = run_cli(
         "readline",
         r#"
 import std::io
@@ -86,7 +72,7 @@ puts fourth
 
 #[test]
 fn read_all_takes_the_remaining_stdin_verbatim() {
-    let (stdout, stderr, code) = run_both(
+    let (stdout, stderr, code) = run_cli(
         "readall",
         r#"
 import std::io
@@ -106,7 +92,7 @@ puts "rest: #{rest}"
 
 #[test]
 fn eprint_writes_to_stderr_and_io_printers_mirror_the_prelude() {
-    let (stdout, stderr, code) = run_both(
+    let (stdout, stderr, code) = run_cli(
         "eprint",
         r#"
 import std::io
@@ -126,7 +112,7 @@ io.eprint(42)
 
 #[test]
 fn empty_stdin_reads_cleanly() {
-    let (stdout, stderr, code) = run_both(
+    let (stdout, stderr, code) = run_cli(
         "empty",
         r#"
 import std::io
@@ -144,7 +130,7 @@ puts "all: #{io.readAll()}"
 
 #[test]
 fn invalid_utf8_stdin_decodes_lossily() {
-    let (stdout, stderr, code) = run_both(
+    let (stdout, stderr, code) = run_cli(
         "lossy",
         r#"
 import std::io

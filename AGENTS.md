@@ -53,8 +53,8 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_bytecode` | Bytecode containers (M3): opcodes, chunks, constant pool, module format, disassembler |
 
 Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
-`brasa_errorset` (fixpoint inference), `brasa_interp` (reference
-tree-walker), `brasa_vm` + `brasa_codegen` (M3), `brasa_stdlib` (native).
+`brasa_errorset` (fixpoint inference), `brasa_runtime` (stdlib glue),
+`brasa_vm` + `brasa_codegen` (M3), `brasa_stdlib` (native).
 
 ## Architecture invariants
 

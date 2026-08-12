@@ -1,7 +1,6 @@
-//! Native builtin implementations, ported from the walker
-//! (`brasa_interp::builtins`): every `brasa_bytecode::BUILTINS` entry
-//! the code generator can emit, with the walker's exact messages and
-//! failure classes. Method-style entries dispatch on the receiver's
+//! Native builtin implementations: every `brasa_bytecode::BUILTINS`
+//! entry the code generator can emit, with the messages and failure
+//! classes `docs/spec/05-stdlib.md` fixes. Method-style entries dispatch on the receiver's
 //! runtime kind; higher-order entries (`map`, `filter`, `each`,
 //! `sortBy`) call back into user code through the VM's bounded
 //! reentrant loop.
@@ -553,7 +552,7 @@ impl Vm<'_> {
     }
 
     /// Method-style builtins, dispatched on the receiver's runtime
-    /// kind exactly like the walker's `call_builtin`.
+    /// kind.
     pub(crate) fn method_builtin(&mut self, name: &str, recv: Value, args: Vec<Value>) -> VmResult {
         // The universal derived `toString` applies to every type; a
         // struct's own method wins inside `display` via the shape.
@@ -645,8 +644,7 @@ impl Vm<'_> {
     }
 
     /// Compiles `pattern` through the per-run cache; an invalid pattern
-    /// throws the native `string.RegexError`. Mirrors the walker's
-    /// `compile_regex` exactly, message included.
+    /// throws the native `string.RegexError`, message included.
     fn compile_regex(&mut self, pattern: &str) -> Result<regex::Regex, Signal> {
         if let Some(re) = self.regex_cache.get(pattern) {
             return Ok(re.clone());

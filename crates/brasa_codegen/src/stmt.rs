@@ -1,7 +1,7 @@
 //! Statement and block lowering: statements have net-zero stack effect;
 //! `block_value` pushes exactly one value (the trailing expression
 //! statement, or a trailing `if` when the block is consumed as a value
-//! — mirroring the checker's and walker's block typing exactly).
+//! — mirroring the checker's block typing exactly).
 
 use brasa_bytecode::Op;
 use brasa_hir::{Block, Expr, ExprId, IfNode, Item, Stmt, StmtId};

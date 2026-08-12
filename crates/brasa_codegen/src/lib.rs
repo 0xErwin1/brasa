@@ -5,8 +5,9 @@
 //! checker's [`brasa_typeck::TypeTables`] — and produces a
 //! [`brasa_bytecode::Module`] per the normative design in
 //! `docs/spec/07-bytecode.md`. The observable-behavior oracle is the
-//! reference tree-walker (`brasa_interp`): where compiled code and the
-//! walker disagree, this crate has a bug.
+//! conformance corpus (`brasa_vm/tests/conformance.rs`): where compiled
+//! code and a pinned expectation disagree, this crate has a bug. That
+//! role belonged to the reference tree-walker until BRS-108.
 //!
 //! Decisions this unit fixes (the spec fixes primitives, not strategy):
 //!
