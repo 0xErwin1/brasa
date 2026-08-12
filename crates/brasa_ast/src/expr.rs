@@ -51,6 +51,12 @@ pub struct LambdaParam {
     /// parameter point at the name rather than the whole lambda
     /// (`docs/spec/06-diagnostics.md`).
     pub name_span: Span,
+    /// Set when the parameter was written as a destructuring pattern
+    /// (`|(key, hits)|`), in which case `name` is empty: the value
+    /// still needs a name to bind to, but minting one is AST→HIR
+    /// lowering's job, which turns the pair into a `match` over a
+    /// temporary no source identifier can reach.
+    pub pattern: Option<PatternId>,
     pub ty: Option<TypeExprId>,
 }
 

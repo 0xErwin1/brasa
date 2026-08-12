@@ -47,6 +47,10 @@ pub enum SugarOrigin {
     SafeNav,
     /// `a ?? b`.
     Coalesce,
+    /// A destructuring lambda parameter, `|(a, b)| body`. The match it
+    /// lowers to has one arm the user did not write, so a "cover the
+    /// missing cases" diagnostic would ask for something impossible.
+    LambdaParam,
 }
 
 /// The output of lowering one parsed file: the HIR arenas, the top-level
@@ -448,20 +452,7 @@ impl LowerCtx<'_> {
             },
             ast::Expr::Pipe { lhs, target } => return self.lower_pipe(*lhs, *target, span),
             ast::Expr::Coalesce { lhs, rhs } => return self.lower_coalesce(*lhs, *rhs, span),
-            ast::Expr::Lambda { params, body } => Expr::Lambda {
-                params: params
-                    .iter()
-                    .map(|p| LambdaParam {
-                        name: p.name.clone(),
-                        name_span: p.name_span,
-                        ty: p.ty.map(|ty| self.lower_type_expr(ty)),
-                    })
-                    .collect(),
-                body: match body {
-                    ast::LambdaBody::Expr(value) => LambdaBody::Expr(self.lower_expr(*value)),
-                    ast::LambdaBody::Block(block) => LambdaBody::Block(self.lower_block(block)),
-                },
-            },
+            ast::Expr::Lambda { params, body } => return self.lower_lambda(params, body, span),
             ast::Expr::If(node) => Expr::If(self.lower_if(node)),
             ast::Expr::Match { scrutinee, arms } => Expr::Match {
                 scrutinee: self.lower_expr(*scrutinee),
@@ -562,6 +553,78 @@ impl LowerCtx<'_> {
         };
 
         self.hir.alloc_expr(expr, span)
+    }
+
+    /// A lambda, with any destructuring parameter desugared away:
+    /// `|(a, b)| body` becomes `|$t| match $t { (a, b) => body }`.
+    ///
+    /// Binding through a pattern is the same work `match` already does,
+    /// including the exhaustiveness check that makes an irrefutable
+    /// tuple pattern acceptable and a refutable one an error, so the
+    /// pattern is handed to `match` rather than given a second
+    /// implementation in the resolver, the checker, and both backends.
+    /// Several pattern parameters nest, innermost last, so each one's
+    /// bindings are in scope for the body.
+    fn lower_lambda(
+        &mut self,
+        params: &[ast::LambdaParam],
+        body: &ast::LambdaBody,
+        span: Span,
+    ) -> ExprId {
+        let mut destructured: Vec<(String, ast::PatternId, Span)> = Vec::new();
+
+        let params: Vec<LambdaParam> = params
+            .iter()
+            .map(|p| {
+                let name = match p.pattern {
+                    Some(pattern) => {
+                        let name = self.fresh_temp();
+                        destructured.push((name.clone(), pattern, p.name_span));
+                        name
+                    }
+                    None => p.name.clone(),
+                };
+
+                LambdaParam {
+                    name,
+                    name_span: p.name_span,
+                    ty: p.ty.map(|ty| self.lower_type_expr(ty)),
+                }
+            })
+            .collect();
+
+        let mut body = match body {
+            ast::LambdaBody::Expr(value) => LambdaBody::Expr(self.lower_expr(*value)),
+            ast::LambdaBody::Block(block) => LambdaBody::Block(self.lower_block(block)),
+        };
+
+        // Each synthesized node carries the PARAMETER's span, not the
+        // lambda's: a diagnostic about one destructuring parameter has
+        // to underline that parameter, not the whole `|...| body`.
+        for (name, pattern, param_span) in destructured.into_iter().rev() {
+            let scrutinee = self.hir.alloc_expr(Expr::Ident(name), param_span);
+            let pattern = self.lower_pattern(pattern);
+            let arm_body = match body {
+                LambdaBody::Expr(value) => ArmBody::Expr(value),
+                LambdaBody::Block(block) => ArmBody::Block(block),
+            };
+
+            let matched = self.hir.alloc_expr(
+                Expr::Match {
+                    scrutinee,
+                    arms: vec![MatchArm {
+                        pattern,
+                        guard: None,
+                        body: arm_body,
+                    }],
+                },
+                param_span,
+            );
+            self.sugar_origins.insert(matched, SugarOrigin::LambdaParam);
+            body = LambdaBody::Expr(matched);
+        }
+
+        self.hir.alloc_expr(Expr::Lambda { params, body }, span)
     }
 
     /// `lhs ?? rhs` → `match lhs { Some($t) => $t, None => rhs }`. The

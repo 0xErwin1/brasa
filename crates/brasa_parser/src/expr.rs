@@ -431,7 +431,15 @@ impl<'a> Parser<'a> {
         params
     }
 
+    /// A lambda parameter is a name, `_`, or a destructuring pattern.
+    /// `match` and `for` already bind through patterns, so the one
+    /// binding position that could not was this one
+    /// (`docs/spec/02-grammar.md`).
     fn parse_lambda_param(&mut self) -> LambdaParam {
+        if self.at(TokenKind::LParen) {
+            return self.parse_lambda_pattern_param();
+        }
+
         let (name, name_span) = if let Some(tok) = self.eat(TokenKind::Underscore) {
             ("_".to_string(), tok.span)
         } else {
@@ -447,6 +455,30 @@ impl<'a> Parser<'a> {
         LambdaParam {
             name,
             name_span,
+            pattern: None,
+            ty,
+        }
+    }
+
+    /// The pattern form. The value itself still needs a name to bind
+    /// to, but naming it is lowering's job — it already mints the
+    /// unreachable temporaries the other desugarings use — so the name
+    /// is left empty here.
+    fn parse_lambda_pattern_param(&mut self) -> LambdaParam {
+        let start = self.span();
+        let pattern = self.parse_pattern();
+        let name_span = Span::merge(&start, &self.ast.span_of_pattern(pattern));
+
+        let ty = if self.eat(TokenKind::Colon).is_some() {
+            Some(self.parse_type())
+        } else {
+            None
+        };
+
+        LambdaParam {
+            name: String::new(),
+            name_span,
+            pattern: Some(pattern),
             ty,
         }
     }

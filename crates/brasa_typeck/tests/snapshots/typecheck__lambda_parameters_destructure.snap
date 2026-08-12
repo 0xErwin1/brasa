@@ -1,0 +1,136 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 counts -> Map<string, int>
+  i1 ranked -> Vector<(string, int)>
+  i2 pairs -> Vector<(int, string)>
+  i3 rendered -> Vector<string>
+  i4 firsts -> Vector<int>
+  i5 annotated -> Vector<int>
+  i6 nested -> Vector<((int, int), string)>
+  i7 flattened -> Vector<int>
+  i8 folded -> int
+  i9 combine -> (((int, int), int, (int, int)) -> int) -> int
+  i10 combined -> int
+local types
+  l0 $tmp0 -> (string, int)
+  l1 key -> string
+  l2 hits -> int
+  l3 $tmp1 -> (int, string)
+  l4 n -> int
+  l5 s -> string
+  l6 $tmp2 -> (int, string)
+  l7 n -> int
+  l8 $tmp3 -> (int, string)
+  l9 n -> int
+  l10 s -> string
+  l11 $tmp4 -> ((int, int), string)
+  l12 a -> int
+  l13 b -> int
+  l14 s -> string
+  l15 acc -> int
+  l16 $tmp5 -> (int, string)
+  l17 n -> int
+  l18 f -> ((int, int), int, (int, int)) -> int
+  l19 $tmp6 -> (int, int)
+  l20 m -> int
+  l21 $tmp7 -> (int, int)
+  l22 a -> int
+  l23 b -> int
+  l24 c -> int
+  l25 d -> int
+expr types
+  e0 -> string
+  e1 -> int
+  e2 -> Map<string, int>
+  e3 -> Map<string, int>
+  e4 -> () -> Vector<(string, int)>
+  e5 -> Vector<(string, int)>
+  e6 -> (((string, int)) -> unknown) -> Vector<(string, int)>
+  e7 -> int
+  e8 -> int
+  e9 -> (string, int)
+  e10 -> int
+  e11 -> ((string, int)) -> int
+  e12 -> Vector<(string, int)>
+  e13 -> int
+  e14 -> string
+  e15 -> (int, string)
+  e16 -> Vector<(int, string)>
+  e17 -> Vector<(int, string)>
+  e18 -> (((int, string)) -> unknown) -> Vector<string>
+  e19 -> int
+  e20 -> string
+  e21 -> string
+  e22 -> string
+  e23 -> string
+  e24 -> (int, string)
+  e25 -> string
+  e26 -> ((int, string)) -> string
+  e27 -> Vector<string>
+  e28 -> Vector<(int, string)>
+  e29 -> (((int, string)) -> unknown) -> Vector<int>
+  e30 -> int
+  e31 -> (int, string)
+  e32 -> int
+  e33 -> ((int, string)) -> int
+  e34 -> Vector<int>
+  e35 -> Vector<(int, string)>
+  e36 -> (((int, string)) -> unknown) -> Vector<int>
+  e37 -> int
+  e38 -> (int, string)
+  e39 -> int
+  e40 -> ((int, string)) -> int
+  e41 -> Vector<int>
+  e42 -> int
+  e43 -> int
+  e44 -> (int, int)
+  e45 -> string
+  e46 -> ((int, int), string)
+  e47 -> Vector<((int, int), string)>
+  e48 -> Vector<((int, int), string)>
+  e49 -> ((((int, int), string)) -> unknown) -> Vector<int>
+  e50 -> int
+  e51 -> int
+  e52 -> int
+  e53 -> ((int, int), string)
+  e54 -> int
+  e55 -> (((int, int), string)) -> int
+  e56 -> Vector<int>
+  e57 -> Vector<(int, string)>
+  e58 -> (int, (int, (int, string)) -> int) -> int
+  e59 -> int
+  e60 -> int
+  e61 -> int
+  e62 -> int
+  e63 -> (int, string)
+  e64 -> int
+  e65 -> (int, (int, string)) -> int
+  e66 -> int
+  e67 -> ((int, int), int, (int, int)) -> int
+  e68 -> int
+  e69 -> int
+  e70 -> (int, int)
+  e71 -> int
+  e72 -> int
+  e73 -> int
+  e74 -> (int, int)
+  e75 -> int
+  e76 -> (((int, int), int, (int, int)) -> int) -> int
+  e77 -> int
+  e78 -> int
+  e79 -> int
+  e80 -> int
+  e81 -> int
+  e82 -> int
+  e83 -> int
+  e84 -> int
+  e85 -> int
+  e86 -> (int, int)
+  e87 -> int
+  e88 -> (int, int)
+  e89 -> int
+  e90 -> ((int, int), int, (int, int)) -> int
+  e91 -> int

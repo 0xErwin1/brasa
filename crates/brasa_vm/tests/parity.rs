@@ -592,6 +592,56 @@ puts(ordered(1, 2))
     );
 }
 
+/// A lambda parameter can destructure, which is what makes a vector of
+/// pairs usable without unpacking it by hand first. The shape the
+/// defect was filed for — rank a counter map — is the first line.
+///
+/// It desugars to a `match` over a synthetic parameter, so the runtime
+/// path is the one `match` already had; both backends must agree on
+/// every arity and on nesting.
+#[test]
+fn lambda_parameters_destructure_on_both_backends() {
+    assert_success(
+        r##"
+let counts: Map<string, int> = { "a": 3, "b": 1, "c": 7 }
+puts(counts.entries().sortBy(|(key, hits)| -hits))
+
+let pairs = [(1, "a"), (2, "b")]
+puts(pairs.map(|(n, s)| "#{n}#{s}"))
+puts(pairs.map(|(n, _)| n))
+
+let triples = [(1, 2, 3)]
+puts(triples.map(|(a, b, c)| a + b + c))
+
+let nested = [((1, 2), "x")]
+puts(nested.map(|((a, b), s)| "#{a + b}#{s}"))
+
+puts(pairs.reduce(0, |acc, (n, _)| acc + n))
+
+let outer = 10
+puts(pairs.map(|(n, _)| n + outer))
+
+pairs.each do |(n, s)|
+  puts("#{n}=#{s}")
+end
+
+let lefts = [(1, 2)]
+let rights = [(3, 4)]
+puts(lefts.zip(rights).map(|((a, b), (c, d))| a + b + c + d))
+"##,
+        "[(\"c\", 7), (\"a\", 3), (\"b\", 1)]\n\
+         [\"1a\", \"2b\"]\n\
+         [1, 2]\n\
+         [6]\n\
+         [\"3x\"]\n\
+         3\n\
+         [11, 12]\n\
+         1=a\n\
+         2=b\n\
+         [10]\n",
+    );
+}
+
 /// `toFixed` exists so a report column can promise its own shape. The
 /// property under test is that the decimal count comes from the CALL
 /// and not from the value: every row below is the same width, which the

@@ -164,7 +164,8 @@ struct_lit  = TYPE_IDENT "{" ( IDENT ":" expr ( "," IDENT ":" expr )* )? "}"
 lambda      = "|" lparams? "|" expr
             | "do" "|" lparams? "|" NL block "end"
 lparams     = lparam ( "," lparam )*
-lparam      = IDENT ( ":" type )?
+lparam      = ( IDENT | "_" | tuple_pat ) ( ":" type )?
+tuple_pat   = "(" pattern ( "," pattern )* ")"   # destructures the argument
 
 match_expr  = "match" expr NL match_arm+ "end"
 match_arm   = pattern ( "if" expr )? "=>" arm_body NL

@@ -70,6 +70,19 @@ nums.each do |n|                  # multi-line form
 end
 ```
 
+A parameter may destructure instead of naming, which is what makes a
+vector of pairs usable without unpacking it by hand first:
+
+```ruby
+counts.entries().sortBy(|(key, hits)| -hits)
+```
+
+`match` and `for` already bind through patterns; this is the same
+binding, in the one position that used to require a name. The pattern
+has to match every value the parameter can take — a lambda has no arms
+to add — so a refutable one is an error that points you at binding the
+parameter and writing the `match` yourself.
+
 Lambdas capture their environment by reference (closures).
 
 ## Control flow

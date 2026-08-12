@@ -352,6 +352,56 @@ let mixed = h.with("a")
 "##
 );
 
+// A lambda parameter binds through a pattern, like `match` and `for`
+// already do. It lowers to a `match` over a synthetic parameter, so the
+// bindings are ordinary locals with ordinary inferred types.
+//
+// The last case has SEVERAL pattern parameters in one lambda, one of
+// them interleaved with an ordinary named parameter: each gets its own
+// temporary, so the empty names the parser leaves behind cannot
+// collide with each other.
+typecheck_test!(
+    lambda_parameters_destructure,
+    r##"
+let counts: Map<string, int> = { "a": 1 }
+let ranked = counts.entries().sortBy(|(key, hits)| -hits)
+
+let pairs = [(1, "a")]
+let rendered = pairs.map(|(n, s)| "#{n}#{s}")
+let firsts = pairs.map(|(n, _)| n)
+let annotated = pairs.map(|(n, s): (int, string)| n)
+
+let nested = [((1, 2), "x")]
+let flattened = nested.map(|((a, b), s)| a + b)
+
+let folded = pairs.reduce(0, |acc, (n, _)| acc + n)
+
+def combine(f: ((int, int), int, (int, int)) -> int): int
+  f((1, 2), 10, (3, 4))
+end
+let combined = combine(|(a, b), m, (c, d)| a + b + m + c + d)
+"##
+);
+
+// The pattern has to match every value the parameter can take, and a
+// lambda has no arms to add — so the diagnostic points somewhere the
+// reader can actually go. A tuple pattern against a non-tuple is the
+// ordinary pattern error.
+typecheck_error_test!(
+    a_lambda_parameter_pattern_must_match_every_value,
+    r#"
+struct P
+  x: int
+end
+
+let refutable: Vector<(Option<int>, int)> = [(Some(1), 2)]
+let bad = refutable.map(|(Some(a), b)| a + b)
+
+let structs = [P { x: 1 }]
+let wrong = structs.map(|(a, b)| a)
+"#
+);
+
 // `Comparable` is structural like any other interface: a type with a
 // conforming `cmp` satisfies it. Primitives are answered natively
 // because they have no `cmp` to find, not because non-primitives are
