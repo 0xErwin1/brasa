@@ -155,6 +155,26 @@ fn restores_the_parentheses_the_ast_dropped() {
     );
 }
 
+/// `**` is the one right-associative binary operator, so it is the one
+/// whose left child needs parentheses the precedence table does not
+/// hand out for free.
+#[test]
+fn parenthesizes_the_left_operand_of_a_power() {
+    let out = fmt("let a = (2 ** 2) ** 3\nlet b = 2 ** 2 ** 3\n");
+
+    assert_eq!(out, "let a = (2 ** 2) ** 3\nlet b = 2 ** 2 ** 3\n");
+}
+
+/// A struct method's span is not recorded, so its body's territory has
+/// to be clipped to its own `end`; otherwise it swallows whatever was
+/// written between that `end` and the next member.
+#[test]
+fn a_comment_stays_above_the_member_it_describes() {
+    let source = "struct P\n  def f(self): int\n    1\n  end\n\n  # about g\n  def g(self): int\n    2\n  end\nend\n";
+
+    assert_eq!(fmt(source), source);
+}
+
 #[test]
 fn keeps_a_one_element_tuple_comma() {
     let out = fmt("let one = (7,)\nlet pair = (1, \"a\")\n");

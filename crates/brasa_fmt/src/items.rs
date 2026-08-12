@@ -79,9 +79,27 @@ impl<'a> Printer<'a> {
     }
 
     /// `pub def name<T>(a: int): ret throws E` plus the body and `end`.
-    pub(crate) fn func_def(&mut self, func: &FuncDef, level: usize, region_end: u32) -> String {
+    ///
+    /// `bound` is the furthest the body could possibly reach, which for a
+    /// struct method is only "wherever the next member starts" — the AST
+    /// records no span for one. The body's real territory stops at its
+    /// own `end`, so it is clipped here; without that, a comment written
+    /// between this method's `end` and the next member would be swept
+    /// into this body.
+    pub(crate) fn func_def(&mut self, func: &FuncDef, level: usize, bound: u32) -> String {
         let mut lines = Lines::new();
         lines.push(&format!("{}{}", indent_of(level), self.func_signature(func)));
+
+        // Only a body with statements can be clipped: with none, there is
+        // nothing to search forward from, and `bound` is already the
+        // tightest answer available.
+        let region_end = match func.body.last() {
+            Some(stmt) => {
+                let after_body = self.ast.span_of_stmt(*stmt).end.0;
+                self.next_token_pos(after_body).min(bound)
+            }
+            None => bound,
+        };
 
         let body = self.block(&func.body, level + INDENT, region_end);
         if !body.is_empty() {

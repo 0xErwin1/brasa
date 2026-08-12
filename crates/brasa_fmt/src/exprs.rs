@@ -214,13 +214,26 @@ impl<'a> Printer<'a> {
         format!("({inner})")
     }
 
+    /// How tightly `id` binds, as a threshold a parent compares its own
+    /// binding power against.
+    ///
+    /// A binary node reports the *lower* of its two binding powers. For
+    /// the left-associative operators the two are adjacent and the lower
+    /// one is the left power, so this is the obvious answer; for a
+    /// right-associative one it is the only correct answer. `**` is
+    /// (101, 100): reporting 101 would let the left child of a `**` pass
+    /// its parent's own 101 threshold and lose the parentheses that
+    /// `(a ** b) ** c` needs to survive a reparse.
     fn prec(&self, id: ExprId) -> u8 {
         match self.ast.expr(id) {
             Expr::Lambda { .. } => P_LAMBDA,
             Expr::Pipe { .. } => P_PIPE,
             Expr::Coalesce { .. } => P_COALESCE,
             Expr::Range { .. } => P_RANGE,
-            Expr::Binary { op, .. } => binary_bp(*op).0,
+            Expr::Binary { op, .. } => {
+                let (left, right) = binary_bp(*op);
+                left.min(right)
+            }
             Expr::Unary { .. } => P_UNARY,
             Expr::Call { .. }
             | Expr::Field { .. }

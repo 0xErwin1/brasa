@@ -127,7 +127,59 @@ pub fn format(source: &str, file: FileId) -> Result<String, FormatError> {
         ));
     }
 
+    verify_comments_survived(source, &formatted, file)?;
+    verify_no_trailing_whitespace(&formatted)?;
+
     Ok(formatted)
+}
+
+/// Checks that the output carries exactly the comments the input did.
+///
+/// The tree comparison above cannot do this: the dump is comment-free by
+/// construction, so a comment the printer forgot to flush — or flushed
+/// twice — reparses into an identical tree and passes unnoticed. Compared
+/// as a sorted multiset rather than in order, because hoisting a comment
+/// that has no line of its own is allowed to move it; losing one or
+/// inventing one is not.
+fn verify_comments_survived(
+    source: &str,
+    formatted: &str,
+    file: FileId,
+) -> Result<(), FormatError> {
+    let before = comment_texts(source, file);
+    let after = comment_texts(formatted, file);
+
+    if before == after {
+        return Ok(());
+    }
+
+    Err(FormatError::Unstable(format!(
+        "formatted output does not carry the same comments: {} in, {} out",
+        before.len(),
+        after.len()
+    )))
+}
+
+fn comment_texts(source: &str, file: FileId) -> Vec<&str> {
+    let mut texts: Vec<&str> = brasa_lexer::comment_spans(source, file)
+        .iter()
+        .map(|span| source[span.start.0 as usize..span.end.0 as usize].trim_end())
+        .collect();
+
+    texts.sort_unstable();
+    texts
+}
+
+/// Trailing whitespace is invisible in the editor and loud in a diff, so
+/// a formatter that emits any has a bug in one of its line builders.
+fn verify_no_trailing_whitespace(formatted: &str) -> Result<(), FormatError> {
+    match formatted.lines().position(|line| line != line.trim_end()) {
+        None => Ok(()),
+        Some(index) => Err(FormatError::Unstable(format!(
+            "formatted output has trailing whitespace on line {}",
+            index + 1
+        ))),
+    }
 }
 
 /// Whether `source` is already formatted, without producing the output.
