@@ -592,6 +592,43 @@ puts(ordered(1, 2))
     );
 }
 
+/// `Comparable` reached transitively: a parameter constrained by a USER
+/// interface that declares `cmp` satisfies `Comparable` too, and this is
+/// the one shape other than a struct that can reach the ordering
+/// fallback. It is sound by construction — whatever instantiates `U`
+/// must itself satisfy `Ord`, so the backends still see a struct — and
+/// both must agree on the answer.
+#[test]
+fn comparable_is_satisfied_transitively_through_a_user_constraint() {
+    assert_success(
+        r##"
+interface Ord
+  def cmp(self, other: Self): int
+end
+
+struct Money
+  cents: int
+
+  def cmp(self, other: Money): int
+    self.cents - other.cents
+  end
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def viaOrd<U: Ord>(a: U, b: U): U
+  maxOf(a, b)
+end
+
+puts(viaOrd(Money { cents: 1 }, Money { cents: 2 }))
+puts(viaOrd(Money { cents: 7 }, Money { cents: 3 }))
+"##,
+        "Money { cents: 2 }\nMoney { cents: 7 }\n",
+    );
+}
+
 /// Every module the resolver accepts must have a runtime behind it in
 /// both backends.
 ///
@@ -626,7 +663,17 @@ fn every_std_module_runs_on_both_backends() {
             "[1,2]\n",
         ),
         ("math", "puts(math.abs(-2))", "2\n"),
-        ("proc", r#"puts(proc.run(["true"]).code)"#, "0\n"),
+        // Probing the spawn-failure path rather than running a real
+        // program: it reaches the same module dispatch and its error
+        // namespace, without depending on any binary existing on the
+        // machine that runs the suite.
+        (
+            "proc",
+            "puts(proc.run([\"brasa-parity-no-such-binary\"]).code catch (e)\n\
+             \x20 proc.SpawnError => -1\n\
+             end)",
+            "-1\n",
+        ),
         // A single-value range: random, but only one answer.
         ("rand", "puts(rand.int(5..6))", "5\n"),
         ("time", "puts(time.nowMillis() > 0)", "true\n"),

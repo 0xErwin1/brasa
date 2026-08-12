@@ -1,0 +1,13 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T027] Error: `U` does not satisfy `Comparable`
+    ╭─[ comparable_is_not_satisfied_by_an_unrelated_constraint.brs:11:3 ]
+    │
+ 11 │   maxOf(a, b)
+    │   ──────┬─────  
+    │         ╰─────── constraint not satisfied
+    │ 
+    │ Note: `U` has no member `cmp` with a compatible signature
+────╯

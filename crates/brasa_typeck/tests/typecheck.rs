@@ -377,6 +377,44 @@ let later = maxOf("a", "b")
 "#
 );
 
+// Satisfaction is transitive through a user interface: a parameter
+// constrained by an `Ord` that declares `cmp` also satisfies
+// `Comparable`. An unrelated constraint does not — a generic exposes
+// only its own constraint's members.
+typecheck_test!(
+    comparable_is_satisfied_transitively_through_a_user_constraint,
+    r#"
+interface Ord
+  def cmp(self, other: Self): int
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def viaOrd<U: Ord>(a: U, b: U): U
+  maxOf(a, b)
+end
+"#
+);
+
+typecheck_error_test!(
+    comparable_is_not_satisfied_by_an_unrelated_constraint,
+    r#"
+interface Named
+  def name(self): string
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def viaNamed<U: Named>(a: U, b: U): U
+  maxOf(a, b)
+end
+"#
+);
+
 // The three ways to miss: no `cmp` at all, a `cmp` with the wrong
 // signature, and a type that has no members to look at. Each names the
 // member rather than reporting a bare "constraint not satisfied".

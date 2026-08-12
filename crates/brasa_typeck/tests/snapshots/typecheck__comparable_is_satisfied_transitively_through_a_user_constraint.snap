@@ -1,0 +1,22 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 maxOf -> (T, T) -> T
+  i2 viaOrd -> (U, U) -> U
+local types
+  l0 a -> T
+  l1 b -> T
+  l2 a -> U
+  l3 b -> U
+expr types
+  e0 -> T
+  e1 -> T
+  e2 -> bool
+  e3 -> T
+  e4 -> T
+  e5 -> (U, U) -> U
+  e6 -> U
+  e7 -> U
+  e8 -> U
