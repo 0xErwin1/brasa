@@ -238,7 +238,18 @@ impl Vm<'_> {
             ("isSymlink?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_symlink(path))),
             ("ls", [Value::Str(path)]) => self.fs_strings(fs_glue::ls(path)),
             ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
-            ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path)),
+            ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path, &[])),
+            ("walk", [Value::Str(path), Value::Vector(prune)]) => {
+                let items = self.heap.vector(*prune).borrow().clone();
+                let mut names = Vec::with_capacity(items.len());
+                for item in &items {
+                    match item {
+                        Value::Str(name) => names.push(name.to_string()),
+                        _ => return Err(builtin_error("walk")),
+                    }
+                }
+                self.fs_strings(fs_glue::walk(path, &names))
+            }
             ("mkdir", [Value::Str(path)]) => fs_unit(fs_glue::mkdir(path)),
             ("mkdirAll", [Value::Str(path)]) => fs_unit(fs_glue::mkdir_all(path)),
             ("rm", [Value::Str(path)]) => fs_unit(fs_glue::rm(path)),

@@ -108,7 +108,8 @@ Rules:
 
 - `read(path): string`, `write`, `append`.
 - `exists?`, `isDir?`, `isFile?`.
-- `ls(path): Vector<string>`, `glob(pattern): Vector<string>`, `walk(path)`.
+- `ls(path): Vector<string>`, `glob(pattern): Vector<string>`,
+  `walk(path)`, `walk(path, prune)`.
 - `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`.
 - `path` helpers: `join`, `base`, `dir`, `ext`, `abs`, `resolve`.
 - `isSymlink?`.
@@ -163,6 +164,30 @@ Signatures closed in M4 (BRS-33):
   PATHS (the argument joined with each relative path) of every
   non-directory entry — files and symlinks — recursively, sorted
   bytewise; symlinks are reported as leaf entries and never followed.
+- `walk(path, prune)` takes an optional trailing `Vector<string>` of
+  directory NAMES to skip, along with everything beneath them. Without
+  it a walk of any real repository is a walk of its object store, which
+  is why every script that tried hand-rolled its own descent instead.
+
+  The rules, each chosen so the member stays predictable:
+
+  - Matching is on the entry NAME, exactly, no globbing. Names are the
+    vocabulary `ls` already speaks, and `glob` is the member for
+    patterns.
+  - It prunes DIRECTORIES. A pruned name that is a file is still
+    returned, because pruning is about subtrees and a file has none.
+  - The root is never pruned, even when its own base name is in the
+    list: pruning the argument you just passed is a mistake, not a
+    request.
+  - An empty list is exactly the one-argument form.
+
+  A predicate would be more expressive — prune by full path, by depth —
+  but it would be the first higher-order argument in the module
+  surface, and every higher-order member is committed to error-set
+  transparency, which means threading a lambda's error set through the
+  collector. A name list needs none of that and covers what real
+  scripts ask for. Widening `prune` to accept a predicate later is
+  source-compatible.
 - `glob(pattern): Vector<string>` uses Rust `glob`-crate syntax (`*`,
   `?`, `[...]`, `**`), resolves relative patterns against the current
   directory, and returns the matched paths sorted bytewise. An invalid

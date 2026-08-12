@@ -2896,6 +2896,50 @@ end)
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `walk` on a real tree walks the object store unless it can skip a
+/// subtree, which is why both dogfooding scripts hand-rolled their own
+/// descent. Pruning is by entry NAME — the vocabulary `ls` already
+/// speaks — and the three rules that make it predictable are pinned
+/// here: an empty list is the one-argument form, a pruned name that is
+/// a FILE is still returned because pruning is about subtrees, and the
+/// root is never pruned by its own base name.
+#[test]
+fn fs_walk_prunes_subtrees_by_directory_name() {
+    let tmp = fs_temp_dir("walkprune");
+    std::fs::create_dir_all(tmp.join(".git/objects/ab")).expect("fixture dirs");
+    std::fs::create_dir_all(tmp.join("node_modules/left-pad")).expect("fixture dirs");
+    std::fs::create_dir_all(tmp.join("src")).expect("fixture dirs");
+    std::fs::write(tmp.join(".git/config"), "x").expect("fixture written");
+    std::fs::write(tmp.join(".git/objects/ab/deadbeef"), "y").expect("fixture written");
+    std::fs::write(tmp.join("node_modules/left-pad/index.js"), "z").expect("fixture written");
+    std::fs::write(tmp.join("src/main.brs"), "s").expect("fixture written");
+    std::fs::write(tmp.join("README.md"), "r").expect("fixture written");
+
+    let t = tmp.display();
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+
+let root = "{t}"
+
+let kept = fs.walk(root, [".git", "node_modules"])
+puts(kept.len())
+for p in kept
+  puts(fs.base(p))
+end
+
+puts(fs.walk(root, []) == fs.walk(root))
+puts(fs.walk(root, ["README.md"]).len())
+puts(fs.walk(root, [fs.base(root)]).len())
+"##
+        ),
+        "2\nREADME.md\nmain.brs\ntrue\n5\n5\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// A symlink loop has no real path either, and the OS says so with a
 /// kind that is neither not-found nor denied.
 #[test]

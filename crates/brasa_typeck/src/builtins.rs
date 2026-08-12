@@ -338,9 +338,16 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![],
             Type::Bool,
         )),
-        ("fs", "ls" | "glob" | "walk") => Some(msig(
+        ("fs", "ls" | "glob") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![],
+            Type::vector(Type::String),
+        )),
+        // The optional trailing list is directory names to prune,
+        // following `proc.run`'s optional-stdin shape.
+        ("fs", "walk") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![ModuleParam::Ty(Type::vector(Type::String))],
             Type::vector(Type::String),
         )),
         ("fs", "mkdir" | "mkdirAll" | "rm" | "rmAll") => Some(msig(

@@ -27,8 +27,12 @@
 //!   `.`/`..`. `walk` returns PATHS (the argument joined with each
 //!   relative path) of every non-directory entry, recursively, sorted
 //!   bytewise; symlinks are reported as leaf entries and never
-//!   followed. `glob` returns the matched paths sorted bytewise; an
-//!   invalid pattern raises `fs.IoError`.
+//!   followed. `walk` takes an optional list of directory NAMES to
+//!   prune, skipping each matching directory and everything beneath
+//!   it — a real tree has a `.git` and a `target` in it, and a walk
+//!   that cannot skip them is a walk of the object store. `glob`
+//!   returns the matched paths sorted bytewise; an invalid pattern
+//!   raises `fs.IoError`.
 //! - `rm` removes a file, a symlink, or an EMPTY directory; `rmAll`
 //!   removes a whole tree (or a single file) recursively. Both raise
 //!   `fs.NotFound` on a missing path.
@@ -156,9 +160,18 @@ pub fn glob(pattern: &str) -> FsResult<Vec<String>> {
     Ok(paths)
 }
 
-pub fn walk(path: &str) -> FsResult<Vec<String>> {
+/// Every non-directory entry under `path`, with any directory whose
+/// NAME appears in `prune` skipped along with everything beneath it.
+///
+/// Pruning is by entry name, the vocabulary `ls` already speaks, and
+/// matching is exact — `glob` is the member for patterns. It applies
+/// to directories only: a pruned name that is a file is still
+/// returned, since pruning is about subtrees and a file has none. The
+/// root is never pruned, even when its own base name is listed:
+/// pruning the argument you just passed is a mistake, not a request.
+pub fn walk(path: &str, prune: &[String]) -> FsResult<Vec<String>> {
     let mut paths = Vec::new();
-    walk_into(Path::new(path), &mut paths)?;
+    walk_into(Path::new(path), prune, &mut paths)?;
 
     paths.sort();
     Ok(paths)
@@ -166,8 +179,9 @@ pub fn walk(path: &str) -> FsResult<Vec<String>> {
 
 /// Depth-first collection under `dir`: non-directory entries (files
 /// and symlinks — `DirEntry::file_type` never follows links) are
-/// leaves, directories recurse. Sorting happens once at the end.
-fn walk_into(dir: &Path, paths: &mut Vec<String>) -> FsResult<()> {
+/// leaves, directories recurse unless pruned. Sorting happens once at
+/// the end.
+fn walk_into(dir: &Path, prune: &[String], paths: &mut Vec<String>) -> FsResult<()> {
     let shown = lossy(dir);
     let entries = std::fs::read_dir(dir).map_err(|err| fs_err("walk", &shown, err))?;
 
@@ -178,7 +192,11 @@ fn walk_into(dir: &Path, paths: &mut Vec<String>) -> FsResult<()> {
             .map_err(|err| fs_err("walk", &lossy(&entry.path()), err))?;
 
         if file_type.is_dir() {
-            walk_into(&entry.path(), paths)?;
+            let name = entry.file_name();
+            if prune.iter().any(|skip| skip.as_str() == name) {
+                continue;
+            }
+            walk_into(&entry.path(), prune, paths)?;
         } else {
             paths.push(lossy(&entry.path()));
         }
