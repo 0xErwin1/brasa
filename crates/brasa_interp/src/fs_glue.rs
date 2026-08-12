@@ -15,7 +15,14 @@
 //!   exists for that); `append` creates the file itself when missing,
 //!   like `>>` in a shell.
 //! - The predicates follow symlinks (`std::fs::metadata`), so a
-//!   dangling symlink reports `exists?` false; they never throw.
+//!   dangling symlink reports `exists?` false; they never throw. The
+//!   exception is `isSymlink?`, whose whole job is to answer about the
+//!   path rather than its target, so it stats without following.
+//! - `abs` is lexical and `resolve` is not: `abs` normalizes `.`/`..`
+//!   without touching an inode, `resolve` follows every link and
+//!   requires the path to exist. A containment check needs `resolve`;
+//!   one written on `abs` can be walked out of its root through a
+//!   link.
 //! - `ls` returns entry NAMES (not paths), sorted bytewise, without
 //!   `.`/`..`. `walk` returns PATHS (the argument joined with each
 //!   relative path) of every non-directory entry, recursively, sorted
@@ -107,6 +114,14 @@ pub fn is_file(path: &str) -> bool {
 
 pub fn is_dir(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
+/// Whether the path ITSELF is a symlink, following nothing — the one
+/// predicate that must not follow, since following one answers about
+/// its target instead. Like the others it never throws: a path the OS
+/// refuses to stat is simply `false`.
+pub fn is_symlink(path: &str) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
 pub fn ls(path: &str) -> FsResult<Vec<String>> {
@@ -244,6 +259,20 @@ pub fn ext(path: &str) -> String {
         .extension()
         .map(|ext| ext.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// The real path: absolute AND with every symlink followed, so it
+/// answers where a path actually leads rather than where it reads as
+/// leading. [`abs`] is lexical and cannot do this — it never touches an
+/// inode — which is why a containment check written on `abs` can be
+/// walked straight out of its root through a link.
+///
+/// Requires the path to exist, since a link with no target has no real
+/// path to report. A symlink loop surfaces as `fs.IoError`, the OS's
+/// own answer.
+pub fn resolve(path: &str) -> FsResult<String> {
+    let real = std::fs::canonicalize(path).map_err(|err| fs_err("resolve", path, err))?;
+    Ok(lossy(&real))
 }
 
 pub fn abs(path: &str) -> FsResult<String> {

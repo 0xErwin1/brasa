@@ -2834,6 +2834,99 @@ end
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// The defect this closes: a containment check written on `fs.abs` is
+/// wrong, because `abs` is lexical and never touches an inode. A path
+/// under the root that is a symlink out of it passes the check and then
+/// reads a file outside — verified before the fix, on the fixture built
+/// here.
+///
+/// `resolve` follows the link, so the same check answers correctly, and
+/// `isSymlink?` is the one predicate that must NOT follow: it answers
+/// about the path, not about its target.
+#[test]
+#[cfg(unix)]
+fn fs_resolve_and_is_symlink_make_a_containment_check_possible() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = fs_temp_dir("resolve");
+    std::fs::create_dir_all(tmp.join("root/sub")).expect("fixture dirs");
+    std::fs::create_dir_all(tmp.join("outside")).expect("fixture dirs");
+    std::fs::write(tmp.join("outside/secret.txt"), "s").expect("fixture written");
+    symlink("../../outside/secret.txt", tmp.join("root/sub/leak")).expect("link created");
+    symlink("/definitely/not/here", tmp.join("root/dangling")).expect("link created");
+
+    let t = tmp.display();
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+
+def contained?(root: string, candidate: string): bool
+  let r = fs.resolve(root)
+  let c = fs.resolve(candidate)
+  c == r || c.startsWith?(r + "/")
+end
+
+let root = "{t}/root"
+
+puts(contained?(root, "{t}/root/sub"))
+puts(contained?(root, root))
+puts(contained?(root, "{t}/root/sub/leak"))
+
+puts(fs.isSymlink?("{t}/root/sub/leak"))
+puts(fs.isSymlink?("{t}/root/sub"))
+puts(fs.isSymlink?("{t}/root/dangling"))
+puts(fs.isSymlink?("{t}/root/nothing-here"))
+
+puts(fs.exists?("{t}/root/dangling"))
+
+puts(fs.resolve("{t}/root/dangling") catch (e)
+  fs.NotFound => "dangling has no real path"
+  fs.Denied => "denied"
+  fs.IoError => "io"
+end)
+"##
+        ),
+        "true\ntrue\nfalse\n\
+         true\nfalse\ntrue\nfalse\n\
+         false\n\
+         dangling has no real path\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// A symlink loop has no real path either, and the OS says so with a
+/// kind that is neither not-found nor denied.
+#[test]
+#[cfg(unix)]
+fn fs_resolve_reports_a_symlink_loop_as_an_io_error() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = fs_temp_dir("resolveloop");
+    std::fs::create_dir_all(&tmp).expect("fixture dir");
+    symlink("b", tmp.join("a")).expect("link created");
+    symlink("a", tmp.join("b")).expect("link created");
+
+    let t = tmp.display();
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+
+puts(fs.resolve("{t}/a") catch (e)
+  fs.NotFound => "not found"
+  fs.Denied => "denied"
+  fs.IoError => "a loop has no end"
+end)
+"##
+        ),
+        "a loop has no end\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 #[cfg(unix)]
 fn fs_denied_maps_permission_errors() {
@@ -3803,6 +3896,14 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
         ("fs.dir", format!("{fs}puts fs.dir(\"a/b.txt\")\n")),
         ("fs.ext", format!("{fs}puts fs.ext(\"a/b.txt\")\n")),
         ("fs.abs", format!("{fs}puts fs.abs(\"/a/./b\")\n")),
+        (
+            "fs.resolve",
+            format!("{fs}puts fs.resolve(\"{dir}/ro\").len() > 0\n"),
+        ),
+        (
+            "fs.isSymlink?",
+            format!("{fs}puts fs.isSymlink?(\"{dir}/ro\")\n"),
+        ),
         // std::json.
         ("json.parse", format!("{json}puts json.parse(\"1\")\n")),
         (

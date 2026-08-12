@@ -110,7 +110,8 @@ Rules:
 - `exists?`, `isDir?`, `isFile?`.
 - `ls(path): Vector<string>`, `glob(pattern): Vector<string>`, `walk(path)`.
 - `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`.
-- `path` helpers: `join`, `base`, `dir`, `ext`, `abs`.
+- `path` helpers: `join`, `base`, `dir`, `ext`, `abs`, `resolve`.
+- `isSymlink?`.
 - Errors: `fs.NotFound`, `fs.Denied`, `fs.IoError`.
 
 Signatures closed in M4 (BRS-33):
@@ -131,7 +132,32 @@ Signatures closed in M4 (BRS-33):
   Neither creates parent directories — that is `mkdirAll`'s job.
 - The predicates `exists?`, `isFile?`, `isDir?` follow symlinks and
   never throw: a path the OS refuses to stat (missing, denied, broken
-  link) is simply `false`.
+  link) is simply `false`. `isSymlink?` is the one that does NOT
+  follow — its whole job is to answer about the path rather than about
+  its target — and it never throws either.
+- **`abs` is lexical, `resolve` is not.** `abs` normalizes `.`/`..`
+  without touching an inode and accepts a path that does not exist.
+  `resolve(path): string` follows every symlink and requires the path
+  to exist, so it answers where a path actually LEADS rather than where
+  it reads as leading. Both are needed and they are not
+  interchangeable: a containment check written on `abs` is wrong, since
+  a path under the root can be a link out of it and still pass —
+
+  ```ruby
+  def contained?(root: string, candidate: string): bool
+    let r = fs.resolve(root)
+    let c = fs.resolve(candidate)
+    c == r || c.startsWith?(r + "/")
+  end
+  ```
+
+  A dangling link raises `fs.NotFound` (there is no real path to
+  report) and a symlink loop raises `fs.IoError`, the OS's own answer.
+  Two caveats worth stating rather than papering over: `resolve`
+  requires existence, so for a not-yet-created target resolve the
+  parent and join; and the check is still TOCTOU — a link swapped
+  between the check and the open defeats it, and nothing at this layer
+  can fix that.
 - `ls(path): Vector<string>` returns entry NAMES (not paths), sorted
   bytewise, without `.`/`..`. `walk(path): Vector<string>` returns
   PATHS (the argument joined with each relative path) of every

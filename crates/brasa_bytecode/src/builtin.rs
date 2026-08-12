@@ -209,6 +209,8 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("rand.shuffle"),
     method("toFixed"),
     free("env.exit"),
+    free("fs.resolve"),
+    free("fs.isSymlink?"),
 ];
 
 /// Looks up a builtin by its stable name.

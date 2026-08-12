@@ -338,7 +338,7 @@ impl<'a> Collector<'a> {
                 (
                     Some("fs"),
                     "read" | "write" | "append" | "ls" | "glob" | "walk" | "mkdir" | "mkdirAll"
-                    | "rm" | "rmAll" | "cp" | "mv",
+                    | "rm" | "rmAll" | "cp" | "mv" | "resolve",
                 )
                 | (Some("env"), "cd") => {
                     set.tags.insert(ErrorTag::Opaque(FS_NOT_FOUND));

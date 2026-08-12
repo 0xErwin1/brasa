@@ -758,6 +758,9 @@ impl Interp<'_> {
             ("exists?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::exists(path))),
             ("isFile?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_file(path))),
             ("isDir?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_dir(path))),
+            // The one predicate that must NOT follow the link: it
+            // answers about the path, not about its target.
+            ("isSymlink?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_symlink(path))),
             ("ls", [Value::Str(path)]) => self.fs_strings(fs_glue::ls(path)),
             ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
             ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path)),
@@ -774,6 +777,7 @@ impl Interp<'_> {
             ("dir", [Value::Str(path)]) => Ok(Value::str(fs_glue::dir(path))),
             ("ext", [Value::Str(path)]) => Ok(Value::str(fs_glue::ext(path))),
             ("abs", [Value::Str(path)]) => self.fs_str(fs_glue::abs(path)),
+            ("resolve", [Value::Str(path)]) => self.fs_str(fs_glue::resolve(path)),
             (
                 "read" | "write" | "append" | "exists?" | "isFile?" | "isDir?" | "ls" | "glob"
                 | "walk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join" | "base"

@@ -316,7 +316,7 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         // `std::fs` (BRS-33): every member takes string paths. The
         // path helpers (`join`, `base`, `dir`, `ext`, `abs`) are `fs`
         // members per the spec's "`path` helpers" bullet.
-        ("fs", "read" | "base" | "dir" | "ext" | "abs") => Some(msig(
+        ("fs", "read" | "base" | "dir" | "ext" | "abs" | "resolve") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![],
             Type::String,
@@ -333,7 +333,7 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
                 ret,
             ))
         }
-        ("fs", "exists?" | "isFile?" | "isDir?") => Some(msig(
+        ("fs", "exists?" | "isFile?" | "isDir?" | "isSymlink?") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![],
             Type::Bool,
