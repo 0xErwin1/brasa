@@ -33,7 +33,7 @@ mod heap;
 mod value;
 mod vm;
 
-pub use brasa_interp::{Outcome, Streams};
+pub use brasa_runtime::{Outcome, Streams};
 pub use heap::{DEFAULT_GC_THRESHOLD, GcRef};
 pub use value::Value;
 
@@ -42,8 +42,8 @@ use std::io::{BufReader, Write};
 use brasa_bytecode::Module;
 
 /// Default call-depth limit, identical to the walker's
-/// (`brasa_interp::DEFAULT_MAX_CALL_DEPTH`).
-pub const DEFAULT_MAX_CALL_DEPTH: usize = brasa_interp::DEFAULT_MAX_CALL_DEPTH;
+/// (`brasa_runtime::DEFAULT_MAX_CALL_DEPTH`).
+pub const DEFAULT_MAX_CALL_DEPTH: usize = brasa_runtime::DEFAULT_MAX_CALL_DEPTH;
 
 /// Stack size of the dedicated VM thread. The dispatch loop itself is
 /// iterative, but builtins that call back into user code nest Rust

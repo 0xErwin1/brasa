@@ -39,11 +39,11 @@ use brasa_hir::{
 use brasa_resolver::{CtorRes, DefRef, LocalId, Res, Resolutions};
 use brasa_typeck::{TypeTables, WrapDecision};
 
-use crate::io_glue::Streams;
-use crate::table::{OrderedMap, OrderedSet};
 use crate::value::{
     BoundBuiltin, BoundMethod, ClosureValue, EnumValue, StructValue, Value, value_cmp, value_eq,
 };
+use brasa_runtime::io_glue::Streams;
+use brasa_runtime::table::{OrderedMap, OrderedSet};
 
 /// Maximum nesting `toString` renders, a bound on the host stack.
 ///
@@ -154,7 +154,7 @@ pub(crate) struct Interp<'a> {
     pub(crate) env_overlay: HashMap<String, String>,
     /// The per-run PRNG behind `std::rand` (BRS-35): entropy-seeded at
     /// startup, reset deterministically by `rand.seed`.
-    pub(crate) rng: crate::rand_glue::Rng,
+    pub(crate) rng: brasa_runtime::rand_glue::Rng,
 }
 
 impl<'a> Interp<'a> {
@@ -179,7 +179,7 @@ impl<'a> Interp<'a> {
             regex_cache: HashMap::new(),
             script_args: args.to_vec(),
             env_overlay: HashMap::new(),
-            rng: crate::rand_glue::Rng::from_entropy(),
+            rng: brasa_runtime::rand_glue::Rng::from_entropy(),
         }
     }
 
@@ -778,10 +778,14 @@ impl<'a> Interp<'a> {
         }
     }
 
-    fn json_index(&mut self, tree: &crate::json_glue::JsonValue, index: &Value) -> EvalResult {
+    fn json_index(
+        &mut self,
+        tree: &brasa_runtime::json_glue::JsonValue,
+        index: &Value,
+    ) -> EvalResult {
         let subtree = match index {
-            Value::Str(key) => crate::json_glue::index_key(tree, key),
-            Value::Int(position) => crate::json_glue::index_position(tree, *position),
+            Value::Str(key) => brasa_runtime::json_glue::index_key(tree, key),
+            Value::Int(position) => brasa_runtime::json_glue::index_position(tree, *position),
             _ => return Err(self.fatal("brasa: a Json index must be a string or an int")),
         };
 
@@ -1732,7 +1736,7 @@ impl<'a> Interp<'a> {
             // the same text `json.stringify` yields, in every position
             // (JSON is its own quoting) — BRS-34,
             // `docs/spec/05-stdlib.md`.
-            Value::Json(tree) => Ok(crate::json_glue::stringify(tree)),
+            Value::Json(tree) => Ok(brasa_runtime::json_glue::stringify(tree)),
         }
     }
 

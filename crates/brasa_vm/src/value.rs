@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use brasa_bytecode::{BuiltinId, EnumId, FuncId, StructId};
-use brasa_interp::table::{HashKey, HashKeyed};
+use brasa_runtime::table::{HashKey, HashKeyed};
 
 use crate::heap::{GcRef, Heap};
 
@@ -48,7 +48,7 @@ pub enum Value {
     Tuple(Handle<[Value]>),
     Vector(GcRef),
     /// Insertion-ordered map with a hashed position index, as in the
-    /// walker (`brasa_interp::table`).
+    /// walker (`brasa_runtime::table`).
     Map(GcRef),
     /// Insertion-ordered set, same representation rationale as `Map`.
     Set(GcRef),
@@ -86,7 +86,7 @@ pub enum Value {
     /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): frozen at
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
-    Json(brasa_interp::json_glue::JsonRef),
+    Json(brasa_runtime::json_glue::JsonRef),
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
@@ -225,7 +225,7 @@ impl Value {
     pub const NONE: Value = Value::Option(None);
 }
 
-/// The `Hashable` projection (`brasa_interp::table`), the walker's arm
+/// The `Hashable` projection (`brasa_runtime::table`), the walker's arm
 /// for arm. Strings project by CONTENT, so a constant-pool string
 /// interned at VM startup and a structurally equal runtime-built string
 /// hash the same — the handle is never part of the key.
@@ -255,7 +255,7 @@ const CYCLE_GUARD_DEPTH: usize = 16;
 /// The arena cell pairs currently assumed equal, scoped to the
 /// derivation path. Hashed rather than scanned so a deep acyclic
 /// comparison stays linear, and behind a `RefCell` so the comparators
-/// handed to the hashed tables stay `Fn` (`brasa_interp::table`).
+/// handed to the hashed tables stay `Fn` (`brasa_runtime::table`).
 /// Allocated by the first descent that reaches [`CYCLE_GUARD_DEPTH`]
 /// and by nothing shallower.
 #[derive(Default)]
@@ -449,7 +449,7 @@ mod tests {
     }
 
     /// The correctness crux of the hashed tables
-    /// (`brasa_interp::table`): for every pair that projects,
+    /// (`brasa_runtime::table`): for every pair that projects,
     /// `value_eq` and key equality must be the same relation, and equal
     /// keys must hash equally. Two structurally equal strings behind
     /// different allocations are the case that would break if the

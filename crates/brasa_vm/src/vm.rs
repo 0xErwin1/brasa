@@ -25,8 +25,8 @@ use brasa_bytecode::{
     BuiltinId, CodeIx, ConstId, Constant, EnumShape, FuncId, Function, Module, Op, StructShape,
     builtin_def, builtin_id,
 };
-use brasa_interp::Outcome;
-use brasa_interp::table::{OrderedMap, OrderedSet};
+use brasa_runtime::Outcome;
+use brasa_runtime::table::{OrderedMap, OrderedSet};
 
 use crate::heap::{Heap, Interner};
 use crate::value::{
@@ -118,13 +118,13 @@ pub(crate) struct Vm<'a> {
     /// The per-run PRNG behind `std::rand` (BRS-35): entropy-seeded at
     /// startup, reset deterministically by `rand.seed` (mirrors the
     /// walker's generator through the shared glue).
-    pub(crate) rng: brasa_interp::rand_glue::Rng,
+    pub(crate) rng: brasa_runtime::rand_glue::Rng,
 }
 
 impl<'a> Vm<'a> {
     pub(crate) fn new(
         module: &'a Module,
-        streams: brasa_interp::Streams<'a>,
+        streams: brasa_runtime::Streams<'a>,
         max_depth: usize,
         gc_threshold: usize,
         args: &[String],
@@ -157,7 +157,7 @@ impl<'a> Vm<'a> {
             regex_cache: std::collections::HashMap::new(),
             script_args: args.to_vec(),
             env_overlay: std::collections::HashMap::new(),
-            rng: brasa_interp::rand_glue::Rng::from_entropy(),
+            rng: brasa_runtime::rand_glue::Rng::from_entropy(),
         }
     }
 
@@ -1311,10 +1311,10 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn json_index_value(tree: &brasa_interp::json_glue::JsonValue, index: &Value) -> VmResult {
+    fn json_index_value(tree: &brasa_runtime::json_glue::JsonValue, index: &Value) -> VmResult {
         let subtree = match index {
-            Value::Str(key) => brasa_interp::json_glue::index_key(tree, key),
-            Value::Int(position) => brasa_interp::json_glue::index_position(tree, *position),
+            Value::Str(key) => brasa_runtime::json_glue::index_key(tree, key),
+            Value::Int(position) => brasa_runtime::json_glue::index_position(tree, *position),
             _ => {
                 return Err(Self::fatal(
                     "brasa: a Json index must be a string or an int",

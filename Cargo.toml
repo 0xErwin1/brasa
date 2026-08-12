@@ -33,6 +33,7 @@ brasa_hir = { path = "crates/brasa_hir" }
 brasa_resolver = { path = "crates/brasa_resolver" }
 brasa_typeck = { path = "crates/brasa_typeck" }
 brasa_errorset = { path = "crates/brasa_errorset" }
+brasa_runtime = { path = "crates/brasa_runtime" }
 brasa_interp = { path = "crates/brasa_interp" }
 brasa_bytecode = { path = "crates/brasa_bytecode" }
 brasa_codegen = { path = "crates/brasa_codegen" }

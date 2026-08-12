@@ -1,0 +1,12 @@
+[package]
+name = "brasa_runtime"
+description.workspace = true
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+brasa_resolver = { workspace = true }
+glob = { workspace = true }
+serde_json = { workspace = true }

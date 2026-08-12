@@ -4,7 +4,7 @@
 //! live data or misses roots corrupts it — and the run statistics
 //! prove collections actually happened and garbage was reclaimed.
 
-use brasa_interp::Outcome;
+use brasa_runtime::Outcome;
 use brasa_vm::{RunStats, run_with_gc_threshold};
 
 /// Threshold low enough that every test triggers collections while the

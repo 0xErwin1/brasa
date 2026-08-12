@@ -9,7 +9,7 @@
 //! checker accepted — and wires all three streams, so `io.eprint` and
 //! `io.readLine`/`io.readAll` are as observable here as `puts`.
 
-use brasa_interp::{Outcome, Streams};
+use brasa_runtime::{Outcome, Streams};
 
 /// Everything both backends consume, produced by the CLI's phase
 /// sequence with every diagnostic asserted empty.
@@ -3673,7 +3673,7 @@ fn time_negative_sleep_panics_match() {
 #[test]
 fn rand_seeded_sequences_are_pinned() {
     // The pinned values are the shared xoshiro256** sequence for seed
-    // 42 (`brasa_interp::rand_glue`); a change here means the PRNG or
+    // 42 (`brasa_runtime::rand_glue`); a change here means the PRNG or
     // its consumption order changed, which breaks seeded scripts.
     assert_success(
         r##"

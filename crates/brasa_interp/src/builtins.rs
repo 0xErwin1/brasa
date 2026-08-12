@@ -53,12 +53,12 @@ use brasa_resolver::{
 };
 
 use crate::interp::{EvalResult, Interp, PanicKind, Signal};
-use crate::proc_env::{
+use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
+use brasa_runtime::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
-use crate::table::{OrderedMap, OrderedSet};
-use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
-use crate::{fs_glue, io_glue, json_glue, num_glue, time_glue};
+use brasa_runtime::table::{OrderedMap, OrderedSet};
+use brasa_runtime::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 impl Interp<'_> {
     pub(crate) fn call_builtin(&mut self, recv: Value, name: &str, args: Vec<Value>) -> EvalResult {
@@ -879,13 +879,13 @@ impl Interp<'_> {
     }
 
     /// The `std::rand` members (BRS-35, `docs/spec/05-stdlib.md`),
-    /// backed by the shared per-run PRNG ([`crate::rand_glue`]).
+    /// backed by the shared per-run PRNG ([`brasa_runtime::rand_glue`]).
     /// Picking from an empty range or vector panics with
     /// `panics.AssertionFailed`; `shuffle` returns a NEW vector.
     pub(crate) fn rand_call(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
         match (name, args.as_slice()) {
             ("seed", [Value::Int(n)]) => {
-                self.rng = crate::rand_glue::Rng::seeded(*n as u64);
+                self.rng = brasa_runtime::rand_glue::Rng::seeded(*n as u64);
                 Ok(Value::Unit)
             }
             ("int", [Value::Range { lo, hi, inclusive }]) => {
@@ -1050,9 +1050,9 @@ mod tests {
     use brasa_typeck::TypeTables;
 
     use crate::interp::Interp;
-    use crate::io_glue::Streams;
-    use crate::table::OrderedSet;
     use crate::value::{Value, value_eq};
+    use brasa_runtime::io_glue::Streams;
+    use brasa_runtime::table::OrderedSet;
 
     fn set_of(items: Vec<Value>) -> Value {
         Value::set(OrderedSet::from_distinct_items(items))

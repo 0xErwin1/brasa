@@ -9,11 +9,11 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use brasa_interp::proc_env::{
+use brasa_runtime::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
-use brasa_interp::table::{OrderedMap, OrderedSet};
-use brasa_interp::{fs_glue, io_glue, json_glue, num_glue, time_glue};
+use brasa_runtime::table::{OrderedMap, OrderedSet};
+use brasa_runtime::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
@@ -219,7 +219,7 @@ impl Vm<'_> {
 
     /// The `std::fs` members plus path helpers, ported from the
     /// walker's `fs_call` (BRS-33, `docs/spec/05-stdlib.md`); all OS
-    /// behavior lives in the shared `brasa_interp::fs_glue`, only value
+    /// behavior lives in the shared `brasa_runtime::fs_glue`, only value
     /// construction happens here.
     fn fs_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
@@ -324,7 +324,7 @@ impl Vm<'_> {
 
     /// The `std::json` members, ported from the walker's `json_call`
     /// (BRS-34, `docs/spec/05-stdlib.md`); all JSON behavior lives in
-    /// the shared `brasa_interp::json_glue`, only value construction
+    /// the shared `brasa_runtime::json_glue`, only value construction
     /// happens here.
     fn json_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
@@ -346,7 +346,7 @@ impl Vm<'_> {
     /// (BRS-34, `docs/spec/05-stdlib.md`): `puts`/`print` mirror the
     /// prelude printers, `eprint` writes to the run's error stream, and
     /// the readers consume the run's input stream through the shared
-    /// `brasa_interp::io_glue`.
+    /// `brasa_runtime::io_glue`.
     fn io_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
             ("puts" | "print" | "eprint", [value]) => {
@@ -486,7 +486,7 @@ impl Vm<'_> {
 
     /// The `std::time` members (BRS-35), ported from the walker's
     /// `time_call`; all clock and formatting behavior lives in the
-    /// shared `brasa_interp::time_glue`. A negative `sleep` duration
+    /// shared `brasa_runtime::time_glue`. A negative `sleep` duration
     /// panics with `panics.AssertionFailed`.
     fn time_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
@@ -514,13 +514,13 @@ impl Vm<'_> {
 
     /// The `std::rand` members (BRS-35), ported from the walker's
     /// `rand_call` and backed by the same shared PRNG
-    /// (`brasa_interp::rand_glue`). Picking from an empty range or
+    /// (`brasa_runtime::rand_glue`). Picking from an empty range or
     /// vector panics with `panics.AssertionFailed`; `shuffle` returns
     /// a NEW vector.
     fn rand_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         match (name, args.as_slice()) {
             ("seed", [Value::Int(n)]) => {
-                self.rng = brasa_interp::rand_glue::Rng::seeded(*n as u64);
+                self.rng = brasa_runtime::rand_glue::Rng::seeded(*n as u64);
                 Ok(Value::Unit)
             }
             ("int", [Value::Range { lo, hi, inclusive }]) => {

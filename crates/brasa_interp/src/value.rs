@@ -22,7 +22,7 @@ use std::rc::Rc;
 use brasa_hir::{ExprId, ItemId};
 use brasa_resolver::LocalId;
 
-use crate::table::{HashKey, HashKeyed, OrderedMap, OrderedSet};
+use brasa_runtime::table::{HashKey, HashKeyed, OrderedMap, OrderedSet};
 
 /// A Brasa runtime value.
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub enum Value {
     Tuple(Rc<[Value]>),
     Vector(Rc<RefCell<Vec<Value>>>),
     /// Insertion-ordered map: the ordered entries plus a hashed position
-    /// index over the closed `Hashable` key set (`crate::table`).
+    /// index over the closed `Hashable` key set (`brasa_runtime::table`).
     Map(Rc<RefCell<OrderedMap<Value>>>),
     /// Insertion-ordered set, same representation rationale as `Map`.
     Set(Rc<RefCell<OrderedSet<Value>>>),
@@ -78,7 +78,7 @@ pub enum Value {
     /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): immutable
     /// after `parse` and free of language values, so a shared `Rc`
     /// clone is indistinguishable from a copy.
-    Json(crate::json_glue::JsonRef),
+    Json(brasa_runtime::json_glue::JsonRef),
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
@@ -160,7 +160,7 @@ impl Value {
     pub const NONE: Value = Value::Option(None);
 }
 
-/// The `Hashable` projection (`crate::table`). Every arm mirrors the
+/// The `Hashable` projection (`brasa_runtime::table`). Every arm mirrors the
 /// corresponding [`value_eq`] arm exactly: scalars compare by content,
 /// strings by content (`Rc<str>` hashes and compares as `str`), tuples
 /// element-wise with a matching length. Everything outside the closed
@@ -193,7 +193,7 @@ const CYCLE_GUARD_DEPTH: usize = 16;
 /// The cell pairs currently assumed equal, scoped to the derivation
 /// path. Hashed rather than scanned so a deep acyclic comparison stays
 /// linear, and behind a `RefCell` so the comparators handed to the
-/// hashed tables stay `Fn` (`crate::table`). Allocated by the first
+/// hashed tables stay `Fn` (`brasa_runtime::table`). Allocated by the first
 /// descent that reaches [`CYCLE_GUARD_DEPTH`] and by nothing shallower.
 #[derive(Default)]
 struct Assumed(RefCell<HashSet<(usize, usize)>>);
@@ -397,7 +397,7 @@ mod tests {
         ]
     }
 
-    /// The correctness crux of the hashed tables (`crate::table`): for
+    /// The correctness crux of the hashed tables (`brasa_runtime::table`): for
     /// every pair that projects, `value_eq` and key equality must be the
     /// same relation, and equal keys must hash equally.
     #[test]

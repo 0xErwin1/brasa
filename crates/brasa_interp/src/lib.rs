@@ -16,18 +16,10 @@
 //! panic additionally carries the call chain).
 
 mod builtins;
-pub mod fs_glue;
 mod interp;
-pub mod io_glue;
-pub mod json_glue;
-pub mod num_glue;
-pub mod proc_env;
-pub mod rand_glue;
-pub mod table;
-pub mod time_glue;
 mod value;
 
-pub use io_glue::Streams;
+pub use brasa_runtime::{DEFAULT_MAX_CALL_DEPTH, Outcome, Streams};
 pub use value::Value;
 
 use std::io::{BufReader, Write};
@@ -38,40 +30,11 @@ use brasa_typeck::TypeTables;
 
 use interp::{Interp, Signal};
 
-/// Default call-depth limit: deep enough for real scripts, shallow
-/// enough that the guarded Rust stack never overflows first.
-pub const DEFAULT_MAX_CALL_DEPTH: usize = 4096;
-
 /// Stack size of the dedicated interpreter thread. Each Brasa call
 /// frame costs a handful of Rust frames, so the walker runs on its own
 /// generously-sized stack and the call-depth guard — not the host
 /// stack — is what bounds recursion.
 const INTERP_STACK_SIZE: usize = 256 * 1024 * 1024;
-
-/// How one program run ended.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    Success,
-    /// An uncaught thrown error (`docs/spec/04-errors.md`: message and
-    /// exit code, no stacktrace).
-    Error {
-        message: String,
-    },
-    /// An uncaught panic (`docs/spec/04-errors.md`: message plus the
-    /// call chain, innermost first).
-    Panic {
-        message: String,
-    },
-    /// The output stream's read end closed mid-write (`EPIPE`, e.g.
-    /// `brasa script.brs | head`). Standard Unix tools treat this as a
-    /// silent, successful exit, so the CLI reports nothing and exits 0.
-    BrokenPipe,
-    /// `env.exit(code)`: the script chose its own status. The CLI
-    /// prints nothing — a chosen exit is not a failure to report.
-    Exit {
-        code: i32,
-    },
-}
 
 /// Runs the program rooted at `roots`, writing its output to `out`.
 /// `io.eprint` and the stdin readers reach the real process streams;

@@ -223,12 +223,12 @@ fn main() -> ExitCode {
     // deliberate: a future outcome must not be able to take the
     // success path by default.
     let chosen = match outcome {
-        brasa_interp::Outcome::Error { message } | brasa_interp::Outcome::Panic { message } => {
+        brasa_runtime::Outcome::Error { message } | brasa_runtime::Outcome::Panic { message } => {
             eprintln!("{message}");
             return ExitCode::from(70);
         }
-        brasa_interp::Outcome::Exit { code } => code as u8,
-        brasa_interp::Outcome::Success | brasa_interp::Outcome::BrokenPipe => 0,
+        brasa_runtime::Outcome::Exit { code } => code as u8,
+        brasa_runtime::Outcome::Success | brasa_runtime::Outcome::BrokenPipe => 0,
     };
 
     match flushed {

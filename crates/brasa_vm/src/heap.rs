@@ -35,7 +35,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use brasa_bytecode::StructId;
-use brasa_interp::table::{OrderedMap, OrderedSet};
+use brasa_runtime::table::{OrderedMap, OrderedSet};
 
 use crate::value::{Caught, IterState, StructValue, Value};
 

@@ -234,7 +234,7 @@ impl<'a> Vm<'a> {
             // the same text `json.stringify` yields, in every position
             // (JSON is its own quoting) — BRS-34,
             // `docs/spec/05-stdlib.md`.
-            Value::Json(tree) => Ok(brasa_interp::json_glue::stringify(tree)),
+            Value::Json(tree) => Ok(brasa_runtime::json_glue::stringify(tree)),
             Value::Caught(_) | Value::Iter(_) => {
                 unreachable!("internal values never render")
             }
