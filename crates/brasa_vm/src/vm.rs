@@ -1062,10 +1062,25 @@ impl<'a> Vm<'a> {
                 };
                 let bound = match &**caught {
                     Caught::Error(value) => value.clone(),
-                    // `_` never selects a panic; a panic binding is
-                    // always `caught_detail`, but mirror the walker's
-                    // detail-string binding for safety.
-                    Caught::Panic(panic) => Value::str(&panic.detail),
+                    // A panic can never arrive here, and it is the
+                    // code generator that guarantees it, not this VM
+                    // (`brasa_codegen::catch`): a wildcard arm emits
+                    // `JumpIfPanic` ahead of the binding, so a panic
+                    // jumps past it; a `panics.`-qualified arm is
+                    // dotted and emits `CaughtDetail` instead; and any
+                    // other named arm is guarded by `JumpIfTagNe` on a
+                    // tag no panic carries. One conformance test per
+                    // mechanism: `wildcard_never_catches_a_panic`,
+                    // `recursion_limit_panic_is_catchable_by_its_named_arm`
+                    // (a `panics.`-qualified arm), and
+                    // `rethrow_wrapping_replaces_the_original_error` (a
+                    // bare struct name). The arm used to bind
+                    // the detail string here as well, mirroring the
+                    // walker; with one backend, an unreachable case
+                    // says so.
+                    Caught::Panic(_) => {
+                        unreachable!("a panic binding compiles to caught_detail")
+                    }
                 };
                 self.push(bound);
             }
@@ -1145,6 +1160,15 @@ impl<'a> Vm<'a> {
             None => match (&a, &b) {
                 // IEEE: comparisons involving NaN are all false.
                 (Value::Float(_), Value::Float(_)) => false,
+                // A struct satisfying `Comparable` through its own
+                // `cmp`, reached from inside a generic function where
+                // the operand type is not statically one of the
+                // orderable primitives. `a > b` on two struct values
+                // written directly is a T004 diagnostic, which is why
+                // this reads as unreachable and is not:
+                // `comparable_structs_order_through_their_cmp` and
+                // `comparable_is_satisfied_transitively_through_a_user_constraint`
+                // both come through here.
                 (Value::Struct(_), Value::Struct(_)) => {
                     let cmp = self.call_struct_by_name(a.clone(), "cmp", vec![b.clone()])?;
                     match cmp {
@@ -1159,9 +1183,10 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
-    /// Runtime member dispatch on a struct receiver, mirroring the
-    /// walker's `call_method_by_name`: declared methods first, then
-    /// fields holding callables, then the universal `toString`.
+    /// Runtime member dispatch on a struct receiver: declared methods
+    /// first, then fields holding callables, then the universal
+    /// `toString`. Reached from [`Vm::ordering`] for a struct
+    /// satisfying `Comparable` through its own `cmp`.
     fn call_struct_by_name(&mut self, recv: Value, name: &str, args: Vec<Value>) -> VmResult {
         let Value::Struct(s) = &recv else {
             unreachable!("struct dispatch needs a struct receiver");
@@ -1249,22 +1274,27 @@ impl<'a> Vm<'a> {
         Err(Self::fatal(format!("brasa: unknown member `{name}`")))
     }
 
-    /// `bind_method_dyn c`: the same lookup without calling, mirroring
-    /// the walker's `eval_field` — a struct reads fields before methods
-    /// here, the reverse of the call path.
+    /// `bind_method_dyn c`: the same lookup without calling.
+    ///
+    /// Methods before fields, in the same order as the call path. The
+    /// two used to disagree, each mirroring one of the walker's own
+    /// paths, and it never mattered: a struct's fields and its methods
+    /// are ONE member namespace (`docs/spec/06-diagnostics.md`, R006),
+    /// so no checked program can hold a name that both would find. Two
+    /// orders for one concept is still a defect, whoever implements it.
     fn bind_member_by_name(&mut self, recv: Value, name: &str) -> VmResult {
         if let Value::Struct(s) = recv {
             let shape = self.module_struct(self.heap.struct_value(s).shape);
 
-            if let Some(ix) = shape.fields.iter().position(|field| field == name) {
-                return Ok(self.heap.struct_value(s).fields.borrow()[ix].clone());
-            }
             if let Some(&func) = shape
                 .methods
                 .iter()
                 .find(|&&method| self.function(method).name == name)
             {
                 return Ok(Value::BoundMethod(Rc::new(BoundMethod { recv, func })));
+            }
+            if let Some(ix) = shape.fields.iter().position(|field| field == name) {
+                return Ok(self.heap.struct_value(s).fields.borrow()[ix].clone());
             }
         }
 
