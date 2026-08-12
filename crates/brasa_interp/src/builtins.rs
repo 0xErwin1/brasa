@@ -57,7 +57,7 @@ use crate::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
 };
 use crate::table::{OrderedMap, OrderedSet};
-use crate::value::{OutputValue, Value, value_cmp, value_eq};
+use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
 use crate::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
 impl Interp<'_> {
@@ -85,6 +85,10 @@ impl Interp<'_> {
                 let output = output.clone();
                 self.proc_output_builtin(&output, name, &args)
             }
+            Value::Walk(walk) => {
+                let walk = walk.clone();
+                self.walk_builtin(&walk, name, &args)
+            }
             Value::Json(tree) => {
                 let tree = tree.clone();
                 json_builtin(&tree, name, &args).ok_or_else(|| self.builtin_error(name))
@@ -97,6 +101,16 @@ impl Interp<'_> {
                 json_option_builtin(inner.as_deref(), name, &args)
                     .ok_or_else(|| self.builtin_error(name))
             }
+            _ => Err(self.builtin_error(name)),
+        }
+    }
+
+    /// The `Walk` record's field accessors (BRS-66), the same shape as
+    /// `proc_output_builtin`.
+    fn walk_builtin(&mut self, walk: &WalkValue, name: &str, args: &[Value]) -> EvalResult {
+        match (name, args) {
+            ("paths", []) => Ok(walk.paths.clone()),
+            ("unreadable", []) => Ok(walk.unreadable.clone()),
             _ => Err(self.builtin_error(name)),
         }
     }
@@ -765,14 +779,13 @@ impl Interp<'_> {
             ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
             ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path, &[])),
             ("walk", [Value::Str(path), Value::Vector(prune)]) => {
-                let mut names = Vec::with_capacity(prune.borrow().len());
-                for item in prune.borrow().iter() {
-                    match item {
-                        Value::Str(name) => names.push(name.to_string()),
-                        _ => return Err(self.builtin_error("walk")),
-                    }
-                }
+                let names = self.prune_names(prune, "walk")?;
                 self.fs_strings(fs_glue::walk(path, &names))
+            }
+            ("tryWalk", [Value::Str(path)]) => self.fs_walk(fs_glue::try_walk(path, &[])),
+            ("tryWalk", [Value::Str(path), Value::Vector(prune)]) => {
+                let names = self.prune_names(prune, "tryWalk")?;
+                self.fs_walk(fs_glue::try_walk(path, &names))
             }
             ("mkdir", [Value::Str(path)]) => self.fs_unit(fs_glue::mkdir(path)),
             ("mkdirAll", [Value::Str(path)]) => self.fs_unit(fs_glue::mkdir_all(path)),
@@ -790,8 +803,8 @@ impl Interp<'_> {
             ("resolve", [Value::Str(path)]) => self.fs_str(fs_glue::resolve(path)),
             (
                 "read" | "write" | "append" | "exists?" | "isFile?" | "isDir?" | "ls" | "glob"
-                | "walk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join" | "base"
-                | "dir" | "ext" | "abs",
+                | "walk" | "tryWalk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join"
+                | "base" | "dir" | "ext" | "abs",
                 _,
             ) => Err(self.fatal(format!("brasa: invalid argument(s) to `fs.{name}`"))),
             _ => Err(self.fatal(format!("brasa: unknown member `{name}` on module `fs`"))),
@@ -942,6 +955,38 @@ impl Interp<'_> {
     fn fs_strings(&mut self, result: fs_glue::FsResult<Vec<String>>) -> EvalResult {
         result
             .map(|items| Value::vector(items.into_iter().map(Value::str).collect()))
+            .map_err(|err| self.fs_signal(err))
+    }
+
+    /// The directory names a `walk`/`tryWalk` prune argument carries.
+    fn prune_names(
+        &mut self,
+        prune: &std::rc::Rc<std::cell::RefCell<Vec<Value>>>,
+        member: &str,
+    ) -> EvalResult<Vec<String>> {
+        let items = prune.borrow().clone();
+
+        let mut names = Vec::with_capacity(items.len());
+        for item in &items {
+            match item {
+                Value::Str(name) => names.push(name.to_string()),
+                _ => return Err(self.builtin_error(member)),
+            }
+        }
+
+        Ok(names)
+    }
+
+    /// Builds the `Walk` record (BRS-66) from what the traversal
+    /// reached and what it could not read.
+    fn fs_walk(&mut self, result: fs_glue::FsResult<(Vec<String>, Vec<String>)>) -> EvalResult {
+        result
+            .map(|(paths, unreadable)| {
+                Value::Walk(std::rc::Rc::new(WalkValue {
+                    paths: Value::vector(paths.into_iter().map(Value::str).collect()),
+                    unreadable: Value::vector(unreadable.into_iter().map(Value::str).collect()),
+                }))
+            })
             .map_err(|err| self.fs_signal(err))
     }
 }

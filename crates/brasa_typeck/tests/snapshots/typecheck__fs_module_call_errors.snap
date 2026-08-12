@@ -30,17 +30,52 @@ expression: rendered
    │ ──────┬──────  
    │       ╰──────── unknown member
 ───╯
-[T005] Error: wrong number of arguments: expected 0, found 1
-   ╭─[ fs_module_call_errors.brs:9:1 ]
+[T001] Error: mismatched types: expected `string`, found `int`
+   ╭─[ fs_module_call_errors.brs:9:12 ]
    │
- 9 │ env.cwd("x")
-   │ ──────┬──────  
-   │       ╰──────── expected 0 argument(s)
+ 9 │ fs.tryWalk(42)
+   │            ─┬  
+   │             ╰── expected `string`
 ───╯
-[T005] Error: wrong number of arguments: expected 1, found 0
-    ╭─[ fs_module_call_errors.brs:10:1 ]
+[T001] Error: mismatched types: expected `Vector<string>`, found `string`
+    ╭─[ fs_module_call_errors.brs:10:20 ]
     │
- 10 │ env.cd()
+ 10 │ fs.tryWalk("/tmp", ".git")
+    │                    ───┬───  
+    │                       ╰───── expected `Vector<string>`
+────╯
+[T005] Error: wrong number of arguments: expected 1 to 2, found 3
+    ╭─[ fs_module_call_errors.brs:11:1 ]
+    │
+ 11 │ fs.tryWalk("/tmp", [".git"], "extra")
+    │ ───────────────────┬──────────────────  
+    │                    ╰──────────────────── expected 1 to 2 argument(s)
+────╯
+[T007] Error: no method `bogus` on `Walk`
+    ╭─[ fs_module_call_errors.brs:16:14 ]
+    │
+ 16 │ let absent = attempt.bogus
+    │              ───────┬──────  
+    │                     ╰──────── unknown method
+────╯
+[T007] Error: no method `len` on `Walk`
+    ╭─[ fs_module_call_errors.brs:17:15 ]
+    │
+ 17 │ let counted = attempt.len()
+    │               ───────┬──────  
+    │                      ╰──────── unknown method
+────╯
+[T005] Error: wrong number of arguments: expected 0, found 1
+    ╭─[ fs_module_call_errors.brs:18:1 ]
+    │
+ 18 │ env.cwd("x")
+    │ ──────┬──────  
+    │       ╰──────── expected 0 argument(s)
+────╯
+[T005] Error: wrong number of arguments: expected 1, found 0
+    ╭─[ fs_module_call_errors.brs:19:1 ]
+    │
+ 19 │ env.cd()
     │ ────┬────  
     │     ╰────── expected 1 argument(s)
 ────╯

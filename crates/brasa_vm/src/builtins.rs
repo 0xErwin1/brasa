@@ -15,7 +15,7 @@ use brasa_interp::proc_env::{
 use brasa_interp::table::{OrderedMap, OrderedSet};
 use brasa_interp::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
-use crate::value::{OutputValue, Value, value_cmp, value_eq};
+use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
 /// The canonical qualified name of the native `string` parse error
@@ -240,15 +240,13 @@ impl Vm<'_> {
             ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
             ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path, &[])),
             ("walk", [Value::Str(path), Value::Vector(prune)]) => {
-                let items = self.heap.vector(*prune).borrow().clone();
-                let mut names = Vec::with_capacity(items.len());
-                for item in &items {
-                    match item {
-                        Value::Str(name) => names.push(name.to_string()),
-                        _ => return Err(builtin_error("walk")),
-                    }
-                }
+                let names = self.prune_names(*prune, "walk")?;
                 self.fs_strings(fs_glue::walk(path, &names))
+            }
+            ("tryWalk", [Value::Str(path)]) => self.fs_walk(fs_glue::try_walk(path, &[])),
+            ("tryWalk", [Value::Str(path), Value::Vector(prune)]) => {
+                let names = self.prune_names(*prune, "tryWalk")?;
+                self.fs_walk(fs_glue::try_walk(path, &names))
             }
             ("mkdir", [Value::Str(path)]) => fs_unit(fs_glue::mkdir(path)),
             ("mkdirAll", [Value::Str(path)]) => fs_unit(fs_glue::mkdir_all(path)),
@@ -266,8 +264,8 @@ impl Vm<'_> {
             ("resolve", [Value::Str(path)]) => fs_str(fs_glue::resolve(path)),
             (
                 "read" | "write" | "append" | "exists?" | "isFile?" | "isDir?" | "ls" | "glob"
-                | "walk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join" | "base"
-                | "dir" | "ext" | "abs",
+                | "walk" | "tryWalk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join"
+                | "base" | "dir" | "ext" | "abs",
                 _,
             ) => Err(Signal::Fatal(format!(
                 "brasa: invalid argument(s) to `fs.{name}`"
@@ -283,6 +281,45 @@ impl Vm<'_> {
         Ok(self
             .heap
             .alloc_vector(items.into_iter().map(Value::str).collect()))
+    }
+
+    /// The directory names a `walk`/`tryWalk` prune argument carries.
+    fn prune_names(&self, prune: crate::heap::GcRef, member: &str) -> VmResult<Vec<String>> {
+        let items = self.heap.vector(prune).borrow().clone();
+
+        let mut names = Vec::with_capacity(items.len());
+        for item in &items {
+            match item {
+                Value::Str(name) => names.push(name.to_string()),
+                _ => return Err(builtin_error(member)),
+            }
+        }
+
+        Ok(names)
+    }
+
+    /// Builds the `Walk` record (BRS-66) from what the traversal
+    /// reached and what it could not read.
+    fn fs_walk(&mut self, result: fs_glue::FsResult<(Vec<String>, Vec<String>)>) -> VmResult {
+        let (paths, unreadable) = result.map_err(fs_signal)?;
+
+        let paths = self
+            .heap
+            .alloc_vector(paths.into_iter().map(Value::str).collect());
+
+        // The first vector is reachable from nothing until the record
+        // exists, so it is rooted across the second allocation. Nothing
+        // between them can collect today — allocation is not a
+        // safepoint — but saying so here is cheaper than a reader
+        // having to re-derive it (BRS-62).
+        let rooted = [paths.clone()];
+        self.with_rooted(&rooted, |this| {
+            let unreadable = this
+                .heap
+                .alloc_vector(unreadable.into_iter().map(Value::str).collect());
+
+            Ok(Value::Walk(Rc::new(WalkValue { paths, unreadable })))
+        })
     }
 
     /// The `std::json` members, ported from the walker's `json_call`
@@ -539,6 +576,10 @@ impl Vm<'_> {
             Value::ProcOutput(output) => {
                 let output = output.clone();
                 proc_output_builtin(&output, name, &args)
+            }
+            Value::Walk(walk) => {
+                let walk = walk.clone();
+                walk_builtin(&walk, name, &args)
             }
             Value::Json(tree) => {
                 let tree = tree.clone();
@@ -1114,6 +1155,16 @@ fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmRe
         ("stdout", []) => Ok(Value::Str(output.stdout.clone())),
         ("stderr", []) => Ok(Value::Str(output.stderr.clone())),
         ("code", []) => Ok(Value::Int(output.code)),
+        _ => Err(builtin_error(name)),
+    }
+}
+
+/// The `Walk` record's field accessors (BRS-66), the same shape as
+/// `proc_output_builtin`.
+fn walk_builtin(walk: &WalkValue, name: &str, args: &[Value]) -> VmResult {
+    match (name, args) {
+        ("paths", []) => Ok(walk.paths.clone()),
+        ("unreadable", []) => Ok(walk.unreadable.clone()),
         _ => Err(builtin_error(name)),
     }
 }

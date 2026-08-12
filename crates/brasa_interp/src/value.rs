@@ -72,6 +72,9 @@ pub enum Value {
     /// code. Immutable after construction, so a shared `Rc` clone is
     /// indistinguishable from a copy.
     ProcOutput(Rc<OutputValue>),
+    /// The `fs.tryWalk` record (BRS-66), holding what the traversal
+    /// reached and what it could not read.
+    Walk(Rc<WalkValue>),
     /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): immutable
     /// after `parse` and free of language values, so a shared `Rc`
     /// clone is indistinguishable from a copy.
@@ -85,6 +88,14 @@ pub struct OutputValue {
     pub stdout: Rc<str>,
     pub stderr: Rc<str>,
     pub code: i64,
+}
+
+/// The fields of a [`Value::Walk`], in declaration order (`paths`,
+/// `unreadable`). Both are `Vector<string>`.
+#[derive(Debug)]
+pub struct WalkValue {
+    pub paths: Value,
+    pub unreadable: Value,
 }
 
 #[derive(Debug)]

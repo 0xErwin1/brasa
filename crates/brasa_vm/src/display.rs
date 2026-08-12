@@ -216,6 +216,20 @@ impl<'a> Vm<'a> {
                     output.code
                 ))
             }
+            // The `Walk` record renders like a struct too (BRS-66). Its
+            // fields are arena vectors, so the copies are rooted for
+            // the nested renders exactly as a struct's fields are.
+            Value::Walk(walk) => {
+                let fields = [walk.paths.clone(), walk.unreadable.clone()];
+                self.with_rooted(&fields, |this| {
+                    let paths = this.render(&fields[0], true, depth + 1, path)?;
+                    let unreadable = this.render(&fields[1], true, depth + 1, path)?;
+
+                    Ok(format!(
+                        "Walk {{ paths: {paths}, unreadable: {unreadable} }}"
+                    ))
+                })
+            }
             // A `Json` value renders as its compact serialization —
             // the same text `json.stringify` yields, in every position
             // (JSON is its own quoting) — BRS-34,

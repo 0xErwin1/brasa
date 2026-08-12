@@ -3012,6 +3012,306 @@ puts blocked
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// The defect BRS-66 records: one directory the process cannot read
+/// threw away everything already collected from the rest of the tree.
+/// `walk` still does that, on purpose — a short list presented as a
+/// complete one is how a backup script loses files quietly. `tryWalk`
+/// is the way to ask for best effort, and it reports what it skipped
+/// rather than swallowing it.
+#[test]
+#[cfg(unix)]
+fn try_walk_reports_what_it_could_not_read_and_walk_still_refuses() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Restores the fixture's mode on the way out, including out of a
+    /// panicking assertion: a mode-000 directory left behind makes the
+    /// cleanup below fail for a reason that has nothing to do with the
+    /// defect under test.
+    struct Unlock(std::path::PathBuf);
+
+    impl Drop for Unlock {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let tmp = fs_temp_dir("trywalk");
+    // Two unreadable directories, created in reverse, so `unreadable`
+    // pins its own bytewise order the way the eight files pin `paths`.
+    for dir in ["open", "secret-b", "secret-a", "empty"] {
+        std::fs::create_dir(tmp.join(dir)).expect("fixture dir created");
+    }
+    // Created in reverse so the sorted answer is not the order the
+    // directory hands back: without the sort this is one of 8! orders,
+    // and the assertion below is the only thing that pins it.
+    for name in ["h", "g", "f", "e", "d", "c", "b", "a"] {
+        std::fs::write(tmp.join(format!("open/{name}.txt")), name).expect("fixture written");
+    }
+    // `open.txt` against the `open/` directory: bytewise puts the file
+    // first ('.' is 0x2E, '/' is 0x2F), component order puts it last.
+    // The pair is what separates the two, and `walk` is bytewise.
+    std::fs::write(tmp.join("open.txt"), "o").expect("fixture written");
+
+    // And a pair that separates bytewise from sorting the RENDERED
+    // names: every byte that is not valid UTF-8 renders as the same
+    // replacement character, so these two compare equal on their first
+    // character and then invert — rendered order puts the `a` first,
+    // byte order puts the 0x80 first. Both render distinctly, so the
+    // assertion below can tell which one happened.
+    // Probed rather than expected: APFS and HFS+ reject a filename
+    // that is not valid UTF-8, so on macOS these cannot be created at
+    // all. Failing there would take the ordering, prune and aliasing
+    // assertions down with them for a reason that has nothing to do
+    // with the traversal.
+    let raw_paths = [b"\x80b.txt".as_slice(), b"\xFFa.txt".as_slice()]
+        .map(|name| tmp.join("open").join(OsStr::from_bytes(name)));
+    let written = raw_paths
+        .each_ref()
+        .map(|path| std::fs::write(path, "u").is_ok());
+    let raw_names = written.iter().all(|written| *written);
+
+    if !raw_names {
+        // Both or neither: one name landing and the other not would
+        // leave a file the traversal reports and every expectation
+        // below, keyed off this flag, omits — a correct traversal
+        // failing as an ordering regression.
+        for path in &raw_paths {
+            let _ = std::fs::remove_file(path);
+        }
+
+        eprintln!(
+            "skipping the byte-ordering assertion: this filesystem rejects names that \
+             are not valid UTF-8, so bytewise and rendered order cannot be told apart"
+        );
+    }
+    for dir in ["secret-b", "secret-a"] {
+        std::fs::write(tmp.join(dir).join("hidden.txt"), "h").expect("fixture written");
+    }
+
+    let _unlock = ["secret-b", "secret-a"].map(|dir| {
+        std::fs::set_permissions(tmp.join(dir), std::fs::Permissions::from_mode(0o000))
+            .expect("permissions set");
+
+        Unlock(tmp.join(dir))
+    });
+
+    // Root ignores mode bits; probe rather than assert a Denied that
+    // cannot happen here.
+    let denied = matches!(
+        std::fs::read_dir(tmp.join("secret-a")),
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied
+    );
+
+    let raw_tail = if raw_names {
+        ",\u{fffd}b.txt,\u{fffd}a.txt"
+    } else {
+        ""
+    };
+
+    if denied {
+        let t = tmp.display();
+
+        assert_success(
+            &format!(
+                r##"
+import std::fs
+let r = fs.tryWalk("{t}")
+puts(r.paths.map(|p| fs.base(p)).join(","))
+puts(r.unreadable.map(|p| fs.base(p)).join(","))
+"##
+            ),
+            &format!(
+                "open.txt,a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt{raw_tail}\nsecret-a,secret-b\n"
+            ),
+        );
+
+        // The strict form is unchanged, and the error names the
+        // directory it could not read.
+        assert_success(
+            &format!(
+                r##"
+import std::fs
+let outcome = fs.walk("{t}") catch (e)
+  fs.Denied => []
+end
+puts outcome.len()
+"##
+            ),
+            "0
+",
+        );
+
+        // An unreadable ROOT is not tolerated either — the case the
+        // single read of the root bears on.
+        assert_success(
+            &format!(
+                r##"
+import std::fs
+
+def reach(path: string): string
+  "reached #{{fs.tryWalk(path).paths.len()}}"
+end
+
+puts(reach("{t}/secret-a") catch (e)
+  fs.Denied => "threw"
+end)
+"##
+            ),
+            "threw
+",
+        );
+    } else {
+        // Worth being plain about what a root run does NOT verify: the
+        // tolerance itself. Everything below this branch — ordering,
+        // the prune form, the shared field — still runs, but a
+        // regression that stopped recording `unreadable`, or that made
+        // `tryWalk` abort like `walk`, would satisfy every remaining
+        // assertion. Mode bits are the only portable way to make a
+        // directory unreadable, and root ignores them.
+        eprintln!(
+            "skipping the tryWalk tolerance assertions: this user bypasses mode 000, \
+             so an unreadable directory cannot be built"
+        );
+    }
+
+    let t = tmp.display();
+
+    // The byte order of every member that promises one, over the one
+    // pair that can tell it from ordering the rendered names: both
+    // invalid bytes render as the same replacement character, so
+    // rendered order inverts them. `open` is readable, so this is
+    // outside the `denied` branch — nothing here needs an unreadable
+    // directory, and under a root runner it is the only place the
+    // ordering is pinned at all. `glob` is pinned alongside them to
+    // record that it never sees such a name: the crate behind it
+    // matches on `str`, so its bytewise promise is vacuous rather
+    // than kept. Gated on the names existing, because without them
+    // nothing here can tell the two orders apart.
+    if raw_names {
+        assert_success(
+            &format!(
+                r##"
+import std::fs
+puts(fs.walk("{t}/open").map(|p| fs.base(p)).join(","))
+puts(fs.tryWalk("{t}/open").paths.map(|p| fs.base(p)).join(","))
+puts(fs.ls("{t}/open").join(","))
+puts(fs.glob("{t}/open/*").map(|p| fs.base(p)).join(","))
+"##
+            ),
+            "a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt,\u{fffd}b.txt,\u{fffd}a.txt
+a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt,\u{fffd}b.txt,\u{fffd}a.txt
+a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt,\u{fffd}b.txt,\u{fffd}a.txt
+a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt
+",
+        );
+    }
+
+    drop(_unlock);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// The half of the `tryWalk` surface that needs no unix: byte ordering
+/// against the `open.txt` / `open/` pair, the two-argument prune form,
+/// the field that hands back the record's own vector, and the render.
+/// Kept out of the unix test because none of it needs a mode-000
+/// directory or a filename holding invalid UTF-8, and a regression in
+/// any of the four would otherwise pass everywhere else.
+#[test]
+fn walk_and_try_walk_agree_on_order_prune_and_fields() {
+    let tmp = fs_temp_dir("trywalkorder");
+    for dir in ["open", "secret-a", "secret-b", "empty"] {
+        std::fs::create_dir_all(tmp.join(dir)).expect("fixture dir created");
+    }
+
+    // Created in reverse so the sorted answer is not the order the
+    // directory hands back.
+    for name in ["h", "g", "f", "e", "d", "c", "b", "a"] {
+        std::fs::write(tmp.join(format!("open/{name}.txt")), name).expect("fixture written");
+    }
+
+    // The pair that separates bytewise order from `PathBuf`'s
+    // component order: `.` is 0x2E and `/` is 0x2F, so bytewise puts
+    // the file first and component order puts the directory first.
+    std::fs::write(tmp.join("open.txt"), "o").expect("fixture written");
+
+    for dir in ["secret-a", "secret-b"] {
+        std::fs::write(tmp.join(dir).join("hidden.txt"), "h").expect("fixture written");
+    }
+
+    let t = tmp.display();
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+let pruned = ["secret-a", "secret-b"]
+puts(fs.walk("{t}", pruned).map(|p| fs.base(p)).join(","))
+puts(fs.tryWalk("{t}", pruned).paths.map(|p| fs.base(p)).join(","))
+puts fs.tryWalk("{t}", pruned).unreadable.len()
+
+# Reading a field hands back the record's own vector, as the spec
+# says: a `Vector` is a shared reference, so this is what pushing
+# into a vector you hold means. Pinned because the two engines
+# reach the field by different routes and could drift.
+let r = fs.tryWalk("{t}", pruned)
+let held = r.paths
+held.push("extra")
+puts r.paths.len()
+
+# `Walk` promises the two fields and the universal `toString`, and
+# the second is reached by a different dispatch arm than the render
+# `puts` uses. An empty directory is the one root whose rendering
+# does not carry the temp path.
+puts fs.tryWalk("{t}/empty").toString()
+"##
+        ),
+        "open.txt,a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt
+open.txt,a.txt,b.txt,c.txt,d.txt,e.txt,f.txt,g.txt,h.txt
+0
+10
+Walk { paths: [], unreadable: [] }
+",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `tryWalk` tolerates everything BELOW the root and nothing about the
+/// root itself: a root that is not there is the caller asking for the
+/// wrong thing, not a subtree it could not reach.
+///
+/// The call is wrapped in a function returning a string because `Walk`
+/// is not constructible, so a `catch` arm cannot produce one — the same
+/// constraint `Output` carries.
+#[test]
+fn try_walk_still_throws_for_the_root() {
+    let tmp = fs_temp_dir("trywalk-root");
+    let t = tmp.display();
+
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+
+def reach(path: string): string
+  "reached #{{fs.tryWalk(path).paths.len()}}"
+end
+
+puts(reach("{t}/does-not-exist") catch (e)
+  fs.NotFound => e.startsWith?("cannot tryWalk ").toString()
+end)
+"##
+        ),
+        // Only the member naming is pinned, not the OS message around
+        // it: telling the two members apart is the point of having
+        // both, and the rest of the text is the platform's.
+        "true\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 // --- std::io streams (BRS-34) ------------------------------------------
 //
 // `io.eprint` and the stdin readers are wired to the run's streams, so
@@ -3872,6 +4172,15 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String)> {
         ("fs.ls", format!("{fs}puts fs.ls(\"{dir}/ro\")\n")),
         ("fs.glob", format!("{fs}puts fs.glob(\"{dir}/ro/*.txt\")\n")),
         ("fs.walk", format!("{fs}puts fs.walk(\"{dir}/ro\")\n")),
+        ("fs.tryWalk", format!("{fs}puts fs.tryWalk(\"{dir}/ro\")\n")),
+        (
+            "paths",
+            format!("{fs}puts fs.tryWalk(\"{dir}/ro\").paths\n"),
+        ),
+        (
+            "unreadable",
+            format!("{fs}puts fs.tryWalk(\"{dir}/ro\").unreadable\n"),
+        ),
         // std::fs: mutating members, each on paths it owns alone and
         // re-runnable from any starting state.
         (

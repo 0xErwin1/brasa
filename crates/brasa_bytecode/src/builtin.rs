@@ -211,6 +211,11 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("env.exit"),
     free("fs.resolve"),
     free("fs.isSymlink?"),
+    // The `Walk` record's field reads are receiver-only, exactly like
+    // `Output`'s (BRS-66).
+    method("paths"),
+    method("unreadable"),
+    free("fs.tryWalk"),
 ];
 
 /// Looks up a builtin by its stable name.

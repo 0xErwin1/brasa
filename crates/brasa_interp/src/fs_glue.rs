@@ -134,11 +134,14 @@ pub fn ls(path: &str) -> FsResult<Vec<String>> {
     let mut names = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|err| fs_err("list", path, err))?;
-        names.push(entry.file_name().to_string_lossy().into_owned());
+        names.push(entry.file_name());
     }
 
-    names.sort();
-    Ok(names)
+    names.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    Ok(names
+        .iter()
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect())
 }
 
 pub fn glob(pattern: &str) -> FsResult<Vec<String>> {
@@ -173,15 +176,21 @@ pub fn walk(path: &str, prune: &[String]) -> FsResult<Vec<String>> {
     let mut paths = Vec::new();
     walk_into(Path::new(path), prune, &mut paths)?;
 
-    paths.sort();
-    Ok(paths)
+    // Ordered by the encoded bytes, as the spec says and as `tryWalk`
+    // does. Sorting the rendered strings instead would order two names
+    // differing only in bytes that are not valid UTF-8 by their
+    // replacement characters, and the two members would disagree on a
+    // tree holding such a name.
+    paths.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+
+    Ok(paths.iter().map(|path| lossy(path)).collect())
 }
 
 /// Depth-first collection under `dir`: non-directory entries (files
 /// and symlinks — `DirEntry::file_type` never follows links) are
 /// leaves, directories recurse unless pruned. Sorting happens once at
 /// the end.
-fn walk_into(dir: &Path, prune: &[String], paths: &mut Vec<String>) -> FsResult<()> {
+fn walk_into(dir: &Path, prune: &[String], paths: &mut Vec<PathBuf>) -> FsResult<()> {
     let shown = lossy(dir);
     let entries = std::fs::read_dir(dir).map_err(|err| fs_err("walk", &shown, err))?;
 
@@ -198,11 +207,134 @@ fn walk_into(dir: &Path, prune: &[String], paths: &mut Vec<String>) -> FsResult<
             }
             walk_into(&entry.path(), prune, paths)?;
         } else {
-            paths.push(lossy(&entry.path()));
+            paths.push(entry.path());
         }
     }
 
     Ok(())
+}
+
+/// `walk`, but a directory below the root that cannot be read is
+/// recorded instead of aborting the whole traversal.
+///
+/// Returns what it reached and what it could not read, both sorted.
+/// Never silently: the point of the pair is that a best-effort caller
+/// can still say what it missed, which `walk` returning a short list
+/// could not. The root itself is NOT tolerated — a root that is not
+/// there, or not readable, is the caller asking for the wrong thing,
+/// and `tryWalk` throws it exactly as `walk` would.
+///
+/// That rule is about OPENING the root. Once it is open, an entry
+/// inside it that cannot be enumerated carries no path of its own, so
+/// it is named by its parent — which is the root. Seeing the root in
+/// `unreadable` therefore means "some entries directly under it could
+/// not be listed", not "the root could not be opened": that second
+/// case raised instead of returning.
+pub fn try_walk(path: &str, prune: &[String]) -> FsResult<(Vec<String>, Vec<String>)> {
+    let root = Path::new(path);
+
+    // The root is read ONCE, here, and the iterator is handed to the
+    // descent. Reading it a second time inside the tolerant walk would
+    // put a root that became unreadable between the two opens into
+    // `unreadable` instead of raising — and a tree changing under the
+    // walk is the very thing this member exists to survive.
+    let entries = std::fs::read_dir(root).map_err(|err| fs_err("tryWalk", &lossy(root), err))?;
+
+    let mut paths = Vec::new();
+    let mut unreadable = Vec::new();
+    try_walk_entries(entries, root, prune, &mut paths, &mut unreadable);
+
+    // Both halves are collected as paths and ordered by their encoded
+    // bytes, then rendered. Neither of the obvious alternatives is the
+    // bytewise order the spec promises and `walk` produces: sorting the
+    // lossy strings orders two names differing in invalid UTF-8 by
+    // their replacement characters, and `PathBuf`'s own `Ord` compares
+    // component by component, which puts `a/b.txt` BEFORE `a.txt`
+    // because "a" < "a.txt" — a walk and a tryWalk of the same tree
+    // would then disagree.
+    let by_bytes = |a: &PathBuf, b: &PathBuf| a.as_os_str().cmp(b.as_os_str());
+
+    paths.sort_by(by_bytes);
+
+    // A directory names its whole skipped subtree, so it is worth
+    // saying once. Without this, one whose entries individually failed
+    // to enumerate would appear once per failure, and a caller counting
+    // `unreadable.len()` as "places I could not reach" would be wrong.
+    //
+    // Deduplicated as paths, not as the strings they render to: two
+    // directories whose names differ only in bytes that are not valid
+    // UTF-8 render the same and would collapse into one, undercounting
+    // the very thing this field is for.
+    unreadable.sort_by(by_bytes);
+
+    // Deduplicated by the same relation it was sorted by. `PathBuf`'s
+    // own `PartialEq` compares components, so `a//b` equals `a/b` while
+    // sorting apart — `dedup` needs equal elements adjacent, and only
+    // matching the two keeps that true if a path ever arrives
+    // unnormalized.
+    unreadable.dedup_by(|a, b| a.as_os_str() == b.as_os_str());
+
+    let rendered = |paths: Vec<PathBuf>| paths.iter().map(|path| lossy(path)).collect();
+
+    Ok((rendered(paths), rendered(unreadable)))
+}
+
+/// The tolerant half of [`try_walk`]. A directory it cannot read, or an
+/// entry it cannot stat, is recorded and the traversal continues;
+/// nothing below such a directory is reachable, so the directory stands
+/// for its whole subtree.
+fn try_walk_into(
+    dir: &Path,
+    prune: &[String],
+    paths: &mut Vec<PathBuf>,
+    unreadable: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        unreadable.push(dir.to_path_buf());
+        return;
+    };
+
+    try_walk_entries(entries, dir, prune, paths, unreadable);
+}
+
+/// The loop body, split out so the root can be walked from an iterator
+/// its caller already opened (see [`try_walk`]).
+fn try_walk_entries(
+    entries: std::fs::ReadDir,
+    dir: &Path,
+    prune: &[String],
+    paths: &mut Vec<PathBuf>,
+    unreadable: &mut Vec<PathBuf>,
+) {
+    for entry in entries {
+        // A failed entry carries no path of its own, so the directory
+        // holding it is what gets named. `try_walk` deduplicates, so a
+        // directory with several such entries is still one report.
+        let Ok(entry) = entry else {
+            unreadable.push(dir.to_path_buf());
+            continue;
+        };
+        // Recorded before the prune list is consulted, and it has to
+        // be: pruning applies to directories, and an entry whose kind
+        // cannot be read is not known to be one. Reporting a pruned
+        // name that failed to stat is the lesser wrong — the caller
+        // learns something it can check, rather than having a failure
+        // hidden under a rule that may not even apply.
+        let Ok(file_type) = entry.file_type() else {
+            unreadable.push(entry.path());
+            continue;
+        };
+
+        if file_type.is_dir() {
+            let name = entry.file_name();
+            if prune.iter().any(|skip| skip.as_str() == name) {
+                continue;
+            }
+            try_walk_into(&entry.path(), prune, paths, unreadable);
+        } else {
+            paths.push(entry.path());
+        }
+    }
 }
 
 pub fn mkdir(path: &str) -> FsResult<()> {

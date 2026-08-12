@@ -350,6 +350,14 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![ModuleParam::Ty(Type::vector(Type::String))],
             Type::vector(Type::String),
         )),
+        // The tolerant form (BRS-66): same arguments, but a directory
+        // below the root that cannot be read is reported rather than
+        // thrown, so the result carries both halves.
+        ("fs", "tryWalk") => Some(msig(
+            vec![ModuleParam::Ty(Type::String)],
+            vec![ModuleParam::Ty(Type::vector(Type::String))],
+            Type::Walk,
+        )),
         ("fs", "mkdir" | "mkdirAll" | "rm" | "rmAll") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![],

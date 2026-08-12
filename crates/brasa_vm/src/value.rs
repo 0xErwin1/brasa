@@ -80,6 +80,9 @@ pub enum Value {
     /// code. Frozen at construction and free of heap references, so a
     /// plain [`Handle`] is a precise collector for it.
     ProcOutput(Handle<OutputValue>),
+    /// The `fs.tryWalk` record (BRS-66), holding what the traversal
+    /// reached and what it could not read.
+    Walk(Handle<WalkValue>),
     /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): frozen at
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
@@ -93,6 +96,15 @@ pub struct OutputValue {
     pub stdout: Handle<str>,
     pub stderr: Handle<str>,
     pub code: i64,
+}
+
+/// The fields of a [`Value::Walk`], in declaration order (`paths`,
+/// `unreadable`). Both are `Vector<string>`, so both are arena
+/// handles the collector has to trace through this record.
+#[derive(Debug)]
+pub struct WalkValue {
+    pub paths: Value,
+    pub unreadable: Value,
 }
 
 #[derive(Debug)]

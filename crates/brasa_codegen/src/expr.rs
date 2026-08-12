@@ -504,13 +504,17 @@ fn field(f: &mut FuncCx, recv: ExprId, name: &str, span: Span) {
         return;
     }
 
-    // A field read on the `proc` `Output` record (BRS-32,
-    // `docs/spec/05-stdlib.md`): the accessor is a receiver-only
-    // builtin call yielding the field value directly.
-    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::ProcOutput))
-        && matches!(name, "stdout" | "stderr" | "code")
-    {
-        let builtin = builtin_id(name).expect("Output field accessors are registered");
+    // A field read on a native record — the `proc` `Output` (BRS-32) or
+    // the `fs` `Walk` (BRS-66) — is a receiver-only builtin call
+    // yielding the field value directly, rather than a bound method.
+    let native_field = match f.cx.types.expr_types.get(&recv) {
+        Some(Type::ProcOutput) => matches!(name, "stdout" | "stderr" | "code"),
+        Some(Type::Walk) => matches!(name, "paths" | "unreadable"),
+        _ => false,
+    };
+
+    if native_field {
+        let builtin = builtin_id(name).expect("native record field accessors are registered");
         compile_expr(f, recv);
         f.emit(Op::CallBuiltin { builtin, argc: 1 }, span);
         return;

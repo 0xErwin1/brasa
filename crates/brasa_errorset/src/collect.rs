@@ -337,8 +337,11 @@ impl<'a> Collector<'a> {
                 }
                 (
                     Some("fs"),
-                    "read" | "write" | "append" | "ls" | "glob" | "walk" | "mkdir" | "mkdirAll"
-                    | "rm" | "rmAll" | "cp" | "mv" | "resolve",
+                    // `tryWalk` tolerates every failure BELOW the root
+                    // but still throws for the root itself, so it
+                    // raises the same three (BRS-66).
+                    "read" | "write" | "append" | "ls" | "glob" | "walk" | "tryWalk" | "mkdir"
+                    | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "resolve",
                 )
                 | (Some("env"), "cd") => {
                     set.tags.insert(ErrorTag::Opaque(FS_NOT_FOUND));
@@ -381,9 +384,9 @@ impl<'a> Collector<'a> {
             }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, enums (whose only member is the derived
-            // `toString`), the `proc` `Output` record (fields plus
-            // `toString` only), and `Json` (the `as*` accessors and
-            // `null?` never throw — BRS-34). Every other builtin method
+            // `toString`), the `proc` `Output` and `fs` `Walk` records
+            // (fields plus `toString` only), and `Json` (the `as*`
+            // accessors and `null?` never throw — BRS-34). Every other builtin method
             // throws nothing in M2; only function arguments they may
             // invoke contribute (HOF transparency).
             Some(
@@ -401,6 +404,7 @@ impl<'a> Collector<'a> {
                 | Type::Tuple(_)
                 | Type::Enum(_, _)
                 | Type::ProcOutput
+                | Type::Walk
                 | Type::Json,
             ) => set.union_with(&self.hof_args(args)),
             // A generic receiver dispatches through its constraint

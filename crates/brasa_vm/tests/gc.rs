@@ -824,3 +824,44 @@ puts board
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
+
+#[test]
+fn a_walk_record_keeps_its_two_vectors_alive_across_collections() {
+    // `Walk` is the first native record whose fields are arena values,
+    // so the collector reaches them only through its own trace arm.
+    // Nothing else in the suite would notice that arm going away: a
+    // traversal followed by a print never survives long enough to be
+    // swept. Here the record is held across enough allocation to force
+    // several collections, and only then are its fields read.
+    let dir = std::env::temp_dir().join(format!("brasa-gc-walk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).expect("fixture dirs");
+
+    for name in ["c", "b", "a"] {
+        std::fs::write(dir.join(format!("sub/{name}.txt")), name).expect("fixture written");
+    }
+
+    let root = dir.display();
+    let stats = run_hot_gc(
+        &format!(
+            r##"
+import std::fs
+
+let held = fs.tryWalk("{root}")
+let mut i = 0
+while i < 200
+  let garbage = ["#{{i}}", "#{{i}}", "#{{i}}"]
+  i = i + 1
+end
+
+puts(held.paths.map(|p| fs.base(p)).join(","))
+puts held.unreadable.len()
+"##
+        ),
+        "a.txt,b.txt,c.txt\n0\n",
+    );
+
+    assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1133,6 +1133,7 @@ impl<'a> Interp<'a> {
             Value::Enum(e) => self.item_name(e.item),
             Value::NativeError { name, .. } => name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
+            Value::Walk(_) => "Walk".to_string(),
             Value::Json(_) => "Json".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
@@ -1495,6 +1496,15 @@ impl<'a> Interp<'a> {
             }
         }
 
+        // The `Walk` record's fields (BRS-66) read the same way.
+        if let Value::Walk(walk) = &recv {
+            match name {
+                "paths" => return Ok(walk.paths.clone()),
+                "unreadable" => return Ok(walk.unreadable.clone()),
+                _ => {}
+            }
+        }
+
         // A builtin method accessed without calling it becomes a bound
         // value; argument validation happens at the call.
         Ok(Value::BoundBuiltin(Rc::new(BoundBuiltin {
@@ -1707,6 +1717,15 @@ impl<'a> Interp<'a> {
                 Ok(format!(
                     "Output {{ stdout: {stdout}, stderr: {stderr}, code: {} }}",
                     output.code
+                ))
+            }
+            // The `Walk` record renders like a struct too (BRS-66).
+            Value::Walk(walk) => {
+                let paths = self.render(&walk.paths, true, depth + 1, path)?;
+                let unreadable = self.render(&walk.unreadable, true, depth + 1, path)?;
+
+                Ok(format!(
+                    "Walk {{ paths: {paths}, unreadable: {unreadable} }}"
                 ))
             }
             // A `Json` value renders as its compact serialization —

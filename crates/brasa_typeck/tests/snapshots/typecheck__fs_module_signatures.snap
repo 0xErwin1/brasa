@@ -10,10 +10,15 @@ item types
   i8 names -> Vector<string>
   i9 matched -> Vector<string>
   i10 everything -> Vector<string>
-  i17 rebuilt -> string
-  i18 extension -> string
-  i19 absolute -> string
-  i20 here -> string
+  i11 pruned -> Vector<string>
+  i12 attempt -> Walk
+  i13 reached -> Vector<string>
+  i14 missed -> Vector<string>
+  i15 rendered -> string
+  i22 rebuilt -> string
+  i23 extension -> string
+  i24 absolute -> string
+  i25 here -> string
 expr types
   e0 -> unknown
   e1 -> unknown
@@ -56,52 +61,74 @@ expr types
   e38 -> unknown
   e39 -> unknown
   e40 -> string
-  e41 -> unit
-  e42 -> unknown
-  e43 -> unknown
-  e44 -> string
-  e45 -> unit
-  e46 -> unknown
-  e47 -> unknown
-  e48 -> string
-  e49 -> string
-  e50 -> unit
-  e51 -> unknown
+  e41 -> string
+  e42 -> Vector<string>
+  e43 -> Vector<string>
+  e44 -> unknown
+  e45 -> unknown
+  e46 -> string
+  e47 -> Walk
+  e48 -> Walk
+  e49 -> Vector<string>
+  e50 -> Walk
+  e51 -> Vector<string>
   e52 -> unknown
-  e53 -> string
+  e53 -> unknown
   e54 -> string
-  e55 -> unit
-  e56 -> unknown
-  e57 -> unknown
-  e58 -> string
-  e59 -> unit
+  e55 -> string
+  e56 -> Vector<string>
+  e57 -> Walk
+  e58 -> () -> string
+  e59 -> string
   e60 -> unknown
   e61 -> unknown
   e62 -> string
   e63 -> unit
   e64 -> unknown
   e65 -> unknown
-  e66 -> unknown
-  e67 -> unknown
-  e68 -> string
-  e69 -> string
-  e70 -> unknown
-  e71 -> unknown
-  e72 -> string
-  e73 -> string
-  e74 -> string
-  e75 -> unknown
-  e76 -> unknown
-  e77 -> string
-  e78 -> string
+  e66 -> string
+  e67 -> unit
+  e68 -> unknown
+  e69 -> unknown
+  e70 -> string
+  e71 -> string
+  e72 -> unit
+  e73 -> unknown
+  e74 -> unknown
+  e75 -> string
+  e76 -> string
+  e77 -> unit
+  e78 -> unknown
   e79 -> unknown
-  e80 -> unknown
-  e81 -> string
-  e82 -> string
+  e80 -> string
+  e81 -> unit
+  e82 -> unknown
   e83 -> unknown
-  e84 -> unknown
-  e85 -> string
+  e84 -> string
+  e85 -> unit
   e86 -> unknown
   e87 -> unknown
-  e88 -> string
-  e89 -> unit
+  e88 -> unknown
+  e89 -> unknown
+  e90 -> string
+  e91 -> string
+  e92 -> unknown
+  e93 -> unknown
+  e94 -> string
+  e95 -> string
+  e96 -> string
+  e97 -> unknown
+  e98 -> unknown
+  e99 -> string
+  e100 -> string
+  e101 -> unknown
+  e102 -> unknown
+  e103 -> string
+  e104 -> string
+  e105 -> unknown
+  e106 -> unknown
+  e107 -> string
+  e108 -> unknown
+  e109 -> unknown
+  e110 -> string
+  e111 -> unit

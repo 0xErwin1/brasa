@@ -109,7 +109,8 @@ Rules:
 - `read(path): string`, `write`, `append`.
 - `exists?`, `isDir?`, `isFile?`.
 - `ls(path): Vector<string>`, `glob(pattern): Vector<string>`,
-  `walk(path)`, `walk(path, prune)`.
+  `walk(path)`, `walk(path, prune)`, `tryWalk(path)`,
+  `tryWalk(path, prune)`.
 - `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`.
 - `path` helpers: `join`, `base`, `dir`, `ext`, `abs`, `resolve`.
 - `isSymlink?`.
@@ -121,8 +122,8 @@ Signatures closed in M4 (BRS-33):
   `fs.NotFound`, permission-denied raises `fs.Denied`, and everything
   else raises `fs.IoError` carrying the OS message. Every
   filesystem-touching member (`read`, `write`, `append`, `ls`, `glob`,
-  `walk`, `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`) can raise
-  all three.
+  `walk`, `tryWalk`, `mkdir`, `mkdirAll`, `rm`, `rmAll`, `cp`, `mv`)
+  can raise all three — `tryWalk` only for its root, as below.
 - `read(path): string` requires valid UTF-8 and raises `fs.IoError`
   otherwise — silently replacing bytes would corrupt data on a
   write-back. The sketched `readBytes` is deferred until a real
@@ -164,6 +165,19 @@ Signatures closed in M4 (BRS-33):
   PATHS (the argument joined with each relative path) of every
   non-directory entry — files and symlinks — recursively, sorted
   bytewise; symlinks are reported as leaf entries and never followed.
+
+  Bytewise means the encoded bytes, not the rendered text. That matters
+  only for a name holding bytes that are not valid UTF-8: every such
+  byte renders as the same replacement character, so ordering the
+  rendered strings would order those names by a character none of them
+  contains. `ls` and `walk` sorted the rendered strings until BRS-66 and
+  now sort the bytes, which is what this sentence always said and what
+  `tryWalk` does — the members must agree on the same tree.
+
+  `glob` is the exception, and by omission rather than by order: the
+  matcher behind it compares names as text, so an entry whose name is
+  not valid UTF-8 is never matched at all. Its ordering promise holds
+  because nothing that could test it ever reaches the sort.
 - `walk(path, prune)` takes an optional trailing `Vector<string>` of
   directory NAMES to skip, along with everything beneath them. Without
   it a walk of any real repository is a walk of its object store, which
@@ -188,6 +202,59 @@ Signatures closed in M4 (BRS-33):
   collector. A name list needs none of that and covers what real
   scripts ask for. Widening `prune` to accept a predicate later is
   source-compatible.
+
+- `tryWalk(path)` / `tryWalk(path, prune)` is the best-effort form,
+  returning the compiler-known `Walk` record with exactly the fields
+  `paths: Vector<string>` and `unreadable: Vector<string>`, both sorted
+  bytewise. It takes the same arguments and prunes by the same rules.
+
+  The pairing is `proc.run` / `proc.tryRun`: the strict member throws
+  and the tolerant one hands the failure back as data. `walk` aborting
+  on the first unreadable directory is deliberate — a short list
+  presented as a complete one is how a backup script loses files with
+  nobody noticing — and pruning cannot substitute, because a script
+  cannot know a directory is unreadable before trying it.
+
+  What `tryWalk` does NOT do is skip quietly: `unreadable` names every
+  place it could not reach, so a best-effort caller can still report
+  what it missed. That is the difference from Python's `os.walk`, whose
+  default swallows the failure entirely.
+
+  Each place appears once, so `unreadable.len()` is a count of skipped
+  locations. A directory it could not open stands for its whole
+  subtree; an entry it could not stat is named itself when it has a
+  path, and by its parent when it does not (a failed directory entry
+  carries no path of its own).
+
+  A pruned name can appear in `unreadable`, because pruning is decided
+  from an entry's kind and that is exactly what could not be read. The
+  alternative is to guess that an unstattable entry is the directory
+  the caller wanted skipped, and a wrong guess drops a subtree while
+  reporting nothing.
+
+  The root is the one thing `tryWalk` does not tolerate: a root that is
+  absent or unreadable raises exactly what `walk` would. Asking to
+  traverse something that is not there is a different mistake from
+  reaching a corner of a tree that is closed.
+
+  That rule is about opening the root. Once it is open, an entry
+  directly under it that cannot be listed is named by its parent, so
+  the root can appear in `unreadable` — meaning "some entries here
+  could not be listed", never "the root could not be opened", which
+  raises instead.
+
+  `Walk`, like `Output`, is native: not user-constructible, not a
+  pattern, no members beyond the two fields and the universal
+  `toString`. Unlike `Output`, whose fields are scalars, its two fields
+  are `Vector`s — and a `Vector` is a shared mutable reference, so
+  reading a field hands back the record's own vector rather than a
+  copy. Pushing into it is the ordinary meaning of pushing into a
+  vector you hold; it does not corrupt the record, but the counts above
+  describe what `tryWalk` returned, not what a caller left there.
+
+  A consequence worth knowing before you hit it: a `catch` arm cannot
+  produce one, so a `tryWalk` call that needs catching is wrapped in a
+  function returning something you can build.
 - `glob(pattern): Vector<string>` uses Rust `glob`-crate syntax (`*`,
   `?`, `[...]`, `**`), resolves relative patterns against the current
   directory, and returns the matched paths sorted bytewise. An invalid

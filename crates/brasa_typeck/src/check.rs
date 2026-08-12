@@ -1419,6 +1419,14 @@ impl<'a> Checker<'a> {
             }
         }
 
+        // `Walk` is the same shape of native record: two fields and the
+        // universal `toString`, nothing else (BRS-66).
+        if let Type::Walk = recv
+            && matches!(name, "paths" | "unreadable")
+        {
+            return Member::Value(Type::vector(Type::String));
+        }
+
         if let Some(sig) = builtins::method(recv, name) {
             return Member::Sig(sig);
         }

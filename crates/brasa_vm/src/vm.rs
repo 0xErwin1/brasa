@@ -1608,6 +1608,7 @@ impl<'a> Vm<'a> {
             Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
             Value::NativeError { name, .. } => name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
+            Value::Walk(_) => "Walk".to_string(),
             Value::Json(_) => "Json".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()

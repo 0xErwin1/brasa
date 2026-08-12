@@ -1275,6 +1275,11 @@ let folder = fs.isDir?("/tmp")
 let names = fs.ls("/tmp")
 let matched = fs.glob("/tmp/*.txt")
 let everything = fs.walk("/tmp")
+let pruned = fs.walk("/tmp", [".git"])
+let attempt = fs.tryWalk("/tmp")
+let reached = attempt.paths
+let missed = attempt.unreadable
+let rendered = fs.tryWalk("/tmp", [".git"]).toString()
 fs.mkdir("/tmp/a")
 fs.mkdirAll("/tmp/a/b/c")
 fs.cp("/tmp/in.txt", "/tmp/copy.txt")
@@ -1299,6 +1304,15 @@ fs.read(42)
 fs.write("/tmp/x")
 fs.join("a", "b", "c")
 fs.nope("x")
+fs.tryWalk(42)
+fs.tryWalk("/tmp", ".git")
+fs.tryWalk("/tmp", [".git"], "extra")
+
+# `Walk` is closed: the two fields and the universal `toString`, and
+# nothing the shared method fallback might later grow.
+let attempt = fs.tryWalk("/tmp")
+let absent = attempt.bogus
+let counted = attempt.len()
 env.cwd("x")
 env.cd()
 "#

@@ -331,6 +331,16 @@ impl Heap {
                     pending.extend(e.fields.iter().cloned());
                 }
             }
+            // `Walk` is the one native record whose fields are arena
+            // values, so unlike `Output` it has to be walked through
+            // (BRS-66). It is frozen at construction, so `Rc` alone
+            // would collect it — but the vectors it holds are cells.
+            Value::Walk(walk) => {
+                if visited.insert(Rc::as_ptr(walk) as *const u8 as usize) {
+                    pending.push(walk.paths.clone());
+                    pending.push(walk.unreadable.clone());
+                }
+            }
             Value::Closure(c) => {
                 if visited.insert(Rc::as_ptr(c) as *const u8 as usize) {
                     pending.extend(c.captures.iter().cloned());

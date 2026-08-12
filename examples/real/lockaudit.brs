@@ -44,8 +44,12 @@ def entries(dir: string): Vector<string>
   end
 end
 
-# `fs.walk` has no way to skip a subtree, and a repository root holds
-# `target/` and `.git/`, so the descent is hand-rolled to prune them.
+# The descent is hand-rolled for reasons that no longer both hold:
+# `fs.walk` gained a prune list (BRS-51) and `fs.tryWalk` gained
+# tolerance for unreadable directories (BRS-66), so this could now be
+# one call plus a filter. It is left as written because it is the
+# pinned example of a hand-rolled traversal, and because its depth
+# limit has no `walk` equivalent.
 def collectLocks(dir: string, found: Vector<string>, depth: int)
   if depth > maxDepth
     return
