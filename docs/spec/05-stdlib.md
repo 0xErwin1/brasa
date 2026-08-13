@@ -738,8 +738,8 @@ Signatures closed in BRS-53:
 
 ## Out of v1
 
-`http` (client), `csv`, `toml`/`yaml`, `crypto`/hashing, sockets,
-concurrency. Added on real demand after M5.
+`csv`, `toml`/`yaml`, `crypto`/hashing, sockets, concurrency. Added on
+real demand after M5.
 
 Also `std::re`. Regex is a string feature here — `match?`, `captures`,
 `replaceRe`, and `scan` above — and patterns are already compiled once
