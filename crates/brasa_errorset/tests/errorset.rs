@@ -1272,3 +1272,126 @@ def eachEntry(counts: Map<string, int>): int
 end
 "#
 );
+
+// --- E007: the rendering contract over the INFERRED set -------------------
+
+// The hole `T034` alone leaves open: `throws` is inferred, so a
+// `toString` that throws without writing a clause never meets the
+// declaration-site check. Every rendering path stays reachable from it —
+// here through `Vector.join`, whose caller can still claim
+// `throws never` because the collector treats rendering as clean.
+errorset_error_test!(
+    e007_to_string_throws_without_declaring_it,
+    r#"
+struct Boom
+end
+
+struct Loud
+  def toString(self): string
+    throw Boom {}
+  end
+end
+
+def viaContainer(): string throws never
+  [Loud {}].join(",")
+end
+"#
+);
+
+// An open set is a rejection, not a pass: "cannot throw" is exactly the
+// claim openness leaves unproven, the same call E003/E004/E005 make.
+errorset_error_test!(
+    e007_to_string_with_an_open_set_is_unverifiable,
+    r##"
+struct Boxed
+  n: int
+
+  def toString(self): string
+    apply(|x: int| "n=#{x}", self.n)
+  end
+end
+
+def apply<T, R>(f: (T) -> R, x: T): R
+  f(x)
+end
+"##
+);
+
+// A `toString` reaching its own through recursion: the fixpoint has to
+// converge on {Boom} rather than iterate, and report once.
+errorset_error_test!(
+    e007_to_string_that_throws_through_its_own_recursion,
+    r#"
+struct Boom
+end
+
+struct Chain
+  n: int
+
+  def toString(self): string
+    if self.n == 0
+      throw Boom {}
+    end
+    Chain { n: self.n - 1 }.toString()
+  end
+end
+"#
+);
+
+// The same recursion with nothing thrown must stay clean, and so must a
+// struct that declares no `toString` at all: the derived one throws
+// nothing, and rendering it through interpolation or a container adds no
+// tag.
+errorset_test!(
+    a_recursive_to_string_that_throws_nothing_stays_clean,
+    r##"
+struct Node
+  label: string
+  kids: Vector<Node>
+
+  def toString(self): string
+    let mut out = self.label
+    for kid in self.kids
+      out = out + kid.toString()
+    end
+    out
+  end
+end
+
+struct Plain
+  n: int
+end
+
+def show(node: Node, plain: Plain): string
+  "#{node} #{plain} #{[plain]}"
+end
+"##
+);
+
+// The first of the two repairs the diagnostic points at: handle the
+// failure inside `toString` and render a fallback. The `catch` subtracts
+// the tag, so the converged set is empty and nothing is reported.
+errorset_test!(
+    a_to_string_that_catches_internally_stays_clean,
+    r##"
+struct Boom
+end
+
+def risky(n: int): int
+  if n == 0
+    throw Boom {}
+  end
+  n
+end
+
+struct Guarded
+  n: int
+
+  def toString(self): string
+    "n=#{risky(self.n)}" catch (e)
+      Boom => "n=?"
+    end
+  end
+end
+"##
+);

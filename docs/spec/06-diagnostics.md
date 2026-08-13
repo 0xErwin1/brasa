@@ -87,7 +87,11 @@ Rules:
   which is about one written name rather than the contract as a whole,
   points at that name. `T034` points at the `throws` clause itself: the
   method is legitimate and only its contract is not, so the span covers
-  exactly what has to be deleted.)
+  exactly what has to be deleted. `E007` has no clause to point at — it
+  fires precisely when none was written — and points at the method's
+  name like `E004`/`E005`: renaming the method is one of the two
+  repairs, and a set inherited from a callee has no throwing expression
+  in the method's own body to point at.)
 
 ## Code registry
 
@@ -317,7 +321,9 @@ Notes on kind boundaries:
   declares that anything can be thrown. It is a `T`, not an `E`: nothing
   about the body's inferred error-set is being judged, only the
   contract's shape, and the rule holds even for a `toString` no call site
-  reaches. A throwing `cmp` is the sibling rule but reuses `T027`, not a
+  reaches. The inferred set is `E007`'s subject, and the two together are
+  one rule — a `toString` cannot throw, whether or not it says so. A
+  throwing `cmp` is the sibling rule but reuses `T027`, not a
   code of its own: there the method is fine in isolation and only fails
   a constraint, so the report belongs where conformance is decided. Its
   note says the member exists and throws — reporting a missing `cmp` on a
@@ -333,6 +339,7 @@ Notes on kind boundaries:
 | `E004` | undeclared or unverifiable throw | `` `fetch` throws `DnsError` but does not declare it`` |
 | `E005` | `throws never` violated | `` `boom` declares `throws never` but can throw `BoomError` `` |
 | `E006` | panic named in `throws` | ``` `throws` cannot name a panic: `panics.DivisionByZero` ``` |
+| `E007` | `toString` can throw | ``` `Loud.toString` can throw `Boom`: rendering has to be infallible ``` |
 
 Notes on kind boundaries:
 
@@ -378,6 +385,21 @@ Notes on kind boundaries:
   points at the name, not at the declaring function, because the name is
   what has to go. A stdlib-native error in the same position is
   legitimate and gets no diagnostic: it IS an error.
+- `E007` is the inferred half of `T034`'s rule (`04-errors.md`, the
+  rendering contract): a `toString` override's error-set must be empty.
+  It is an `E` and not a second `T` because it judges the inferred set,
+  which the type checker does not have; two codes for one rule is the
+  same shape `E004` and `E005` already have. It backs two wordings under
+  one kind, like both of those: a concrete violation (a non-empty set)
+  and the unverifiable case (an open set, which leaves emptiness
+  unproven). Neither wording suggests declaring the throw — `T034`
+  forbids exactly that — so both point at the two real exits instead.
+  `E007` and `E005` can fire on the same method, when a `toString`
+  declares `throws never` and throws anyway: one judges the written
+  contract, the other the method's identity, and suppressing `E007` on
+  the strength of a declaration would put declarations back in charge of
+  a rule that exists because they are optional. Only struct methods are
+  checked; a free function named `toString` is not an override.
 
 ### Code generation (`C`)
 

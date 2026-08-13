@@ -2090,6 +2090,43 @@ puts([p])
     );
 }
 
+/// The repair `E007` points at: a `toString` whose work can fail keeps
+/// the `catch` inside itself and renders a fallback, so its inferred
+/// error-set is empty and every rendering path stays infallible. The
+/// throwing branch has to reach the fallback through `puts`,
+/// interpolation and a container alike.
+#[test]
+fn a_to_string_that_catches_internally_renders_its_fallback() {
+    assert_success(
+        r##"
+struct Boom
+end
+
+def widthOf(n: int): int
+  if n < 0
+    throw Boom {}
+  end
+  n
+end
+
+struct Cell
+  n: int
+
+  def toString(self): string
+    "w#{widthOf(self.n)}" catch (e)
+      Boom => "w?"
+    end
+  end
+end
+
+puts Cell { n: 3 }
+puts "#{Cell { n: -1 }}"
+puts([Cell { n: 3 }, Cell { n: -1 }])
+"##,
+        "w3\nw?\n[w3, w?]\n",
+    );
+}
+
 #[test]
 fn derived_to_string_rendering() {
     assert_success(

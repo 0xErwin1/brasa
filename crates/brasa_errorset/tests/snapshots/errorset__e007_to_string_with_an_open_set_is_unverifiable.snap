@@ -1,0 +1,17 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E007] Error: cannot verify that `Boxed.toString` is infallible: its error-set is open
+   ╭─[ e007_to_string_with_an_open_set_is_unverifiable.bras:5:7 ]
+   │
+ 5 │   def toString(self): string
+   │       ────┬───  
+   │           ╰───── the error-set of this method is open
+   │ 
+   │ Note 1: an indirect call or a throw of unknown type makes the set open
+   │ 
+   │ Note 2: `toString` is reached from `puts`, string interpolation, and every container, `Option`, tuple, and enum that renders its elements, as well as from error reporting itself — a failure there has nowhere left to be reported
+   │ 
+   │ Note 3: handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name
+───╯

@@ -101,9 +101,50 @@ never has to be inferred out of a call the user did not write:
   every container that renders its elements — and from error reporting
   itself, which is why `assert`/`assertEq` deliberately do not render
   their operands. `throws never` stays legal; it declares nothing thrown.
+  A declaration-site rule alone would not be enough, since `throws` is
+  inferred: see the rendering contract below.
 - **A `cmp` that declares `throws` does not satisfy `Comparable`**
   (`T027`, `03-types.md`). `<`/`>`/`<=`/`>=` on a constrained parameter
   compile to a `cmp` call, and an operator cannot report a failure.
+
+### The rendering contract
+
+`toString` is the half of that pair the declaration site cannot finish.
+`throws` is inferred, not required, so a `toString` that throws without
+writing a clause never meets `T034`:
+
+```ruby
+struct Loud
+  def toString(self): string      # no clause, so T034 has nothing to see
+    throw Boom {}
+  end
+end
+```
+
+The rule `T034` approximates is therefore stated over the inferred set:
+**a `toString` override's error-set must be empty** (`E007`, checked
+where the sets are computed, since the type checker runs before them).
+It applies to struct methods named `toString` and to nothing else — a
+free function by that name is not an override and no rendering path
+reaches it.
+
+- An **open** set is a violation too, in its own wording: openness is
+  exactly what leaves "cannot throw" unproven, the same call `catch!`
+  exhaustiveness and `throws`/`throws never` verification already make.
+  It also keeps the method consistent with itself, since an open
+  `toString` could not have declared `throws never` either.
+- The two enforcement points are one rule at two moments and stay
+  separate on purpose: `T034` fires first, points at the clause, and
+  asks for it to be deleted; `E007` is the case where nothing was
+  written down and so points at the method's name. Neither repair is
+  "declare it" — `T034` forbids that — so both name the same two exits:
+  a `catch` inside `toString` that renders a fallback, or a
+  differently-named method for the fallible work.
+- Two rendering paths depend on this rule for their soundness rather
+  than the other way round: string interpolation (which never descends
+  into the receiver's override when collecting the set) and the derived
+  `toString` of a struct that declares none. Both contribute nothing to
+  an error-set, which is correct only because no override can throw.
 
 ## Catching: `catch` as a match
 

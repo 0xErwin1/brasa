@@ -1,7 +1,8 @@
 //! The BRS-23 checks that consume the inferred sets: unreachable
-//! `catch` arms (E001), `catch!` exhaustiveness (E002/E003), and
-//! `throws` contract verification (E004/E005/E006). Wording and kind
-//! boundaries follow `docs/spec/06-diagnostics.md`.
+//! `catch` arms (E001), `catch!` exhaustiveness (E002/E003), `throws`
+//! contract verification (E004/E005/E006), and the rendering contract
+//! (E007). Wording and kind boundaries follow
+//! `docs/spec/06-diagnostics.md`.
 //!
 //! Precision rules on open sets (`docs/spec/04-errors.md`): the tags of
 //! an open set are a sound lower bound, so openness never suppresses a
@@ -43,7 +44,18 @@
 //!   member declares — needs interface-satisfaction integration
 //!   (typeck would have to record which method satisfied which
 //!   member), deferred to M3+.
-//! - E004/E005 point at the declaring function's name
+//! - A `toString` whose inferred set is open is E007, not a pass. The
+//!   rule is a "cannot throw" claim, and every other check here refuses
+//!   to grant one over an incomplete list (E003, E004, E005). It also
+//!   keeps the method consistent with itself: an open `toString` could
+//!   not have declared `throws never` either.
+//! - E007 and E005 both fire on a `toString` that declares
+//!   `throws never` and throws anyway. They judge different things —
+//!   one the written contract, the other the method's identity — and
+//!   suppressing E007 on the strength of a declaration would put the
+//!   declaration back in charge of a rule that exists precisely because
+//!   declarations are optional.
+//! - E004/E005/E007 point at the declaring function's name
 //!   (`docs/spec/06-diagnostics.md`, span rules).
 
 use std::collections::{BTreeSet, HashMap};
@@ -60,6 +72,17 @@ use crate::{ErrorSet, ErrorTag};
 /// What every "cannot be verified" diagnostic tells the reader, since
 /// openness is a property of the analysis rather than of any one line.
 const OPEN_SET_NOTE: &str = "an indirect call or a throw of unknown type makes the set open";
+
+/// Why rendering has to be infallible. Worded exactly as `T034`'s first
+/// note: the two codes are one rule caught at two moments, so they
+/// explain themselves the same way.
+const RENDER_REACH_NOTE: &str = "`toString` is reached from `puts`, string interpolation, and every container, `Option`, tuple, and enum that renders its elements, as well as from error reporting itself — a failure there has nowhere left to be reported";
+
+/// The two exits, worded exactly as `T034`'s second note. Declaring the
+/// throw is deliberately not among them: `T034` rejects a `throws`
+/// clause on `toString` outright, so pointing there would send the
+/// reader into the sibling diagnostic.
+const RENDER_REPAIR_NOTE: &str = "handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name";
 
 fn err(code: &'static str, span: Span, message: String, label: &str) -> Diagnostic {
     Diagnostic::new(Severity::Error, message, code.to_string(), span)
@@ -273,6 +296,83 @@ pub(crate) fn throws_contract(
             }
         }
     }
+}
+
+/// E007: a `toString` override whose inferred error-set is not provably
+/// empty.
+///
+/// `T034` states this rule where the contract is written, but `throws`
+/// is inferred (`docs/spec/04-errors.md`), so a `toString` that throws
+/// without writing a clause slips past a declaration-site check
+/// entirely. The set the fixpoint derives is the real subject of the
+/// rule, and it must be empty: rendering is reached from `puts`, string
+/// interpolation, `Vector.join`, every container, `Option`, tuple and
+/// enum that renders its elements, and from error reporting itself, so
+/// a throw there has no channel left to travel on. The two rendering
+/// paths the collector deliberately treats as clean — `Expr::ToString`,
+/// which never descends into the receiver's override, and the derived
+/// `toString` of a struct that declares none — are sound exactly
+/// because of this check.
+///
+/// The span is the method's name, like E004/E005, rather than a
+/// throwing expression. Renaming the method is one of the two repairs,
+/// so the name is what the diagnostic is about; and a set inherited
+/// from a callee has no throwing expression in this body to point at,
+/// so the name is also the only span that always exists.
+///
+/// Only struct methods are checked. A free function named `toString` is
+/// not an override and no rendering path reaches it.
+pub(crate) fn render_contract(
+    hir: &Hir,
+    sets: &HashMap<DefRef, ErrorSet>,
+    def: DefRef,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if !matches!(def, DefRef::Method { .. }) {
+        return;
+    }
+
+    let Some(func) = func_of(hir, def) else {
+        return;
+    };
+    if func.name != "toString" {
+        return;
+    }
+
+    let Some(set) = sets.get(&def) else {
+        return;
+    };
+
+    let span = func.name_span;
+    let name = def_ref_name(hir, def);
+
+    let diagnostic = if !set.tags.is_empty() {
+        err(
+            codes::E_TO_STRING_CAN_THROW,
+            span,
+            format!(
+                "`{name}` can throw {}: rendering has to be infallible",
+                tag_list(hir, &set.tags)
+            ),
+            "this method can throw",
+        )
+    } else if set.open {
+        err(
+            codes::E_TO_STRING_CAN_THROW,
+            span,
+            format!("cannot verify that `{name}` is infallible: its error-set is open"),
+            "the error-set of this method is open",
+        )
+        .with_note(OPEN_SET_NOTE.to_string())
+    } else {
+        return;
+    };
+
+    diagnostics.push(
+        diagnostic
+            .with_note(RENDER_REACH_NOTE.to_string())
+            .with_note(RENDER_REPAIR_NOTE.to_string()),
+    );
 }
 
 /// E006: a `throws` list naming a member of the `panics.` union.

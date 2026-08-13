@@ -11,8 +11,9 @@
 //! The crate COMPUTES the sets, exposes them as side tables
 //! (`docs/spec/00-vision.md`, the `error_sets: Map<FuncId, ErrorSet>`
 //! row), and then runs the checks that consume them (BRS-23):
-//! unreachable arms, `catch!` exhaustiveness, and `throws`
-//! verification — see [`check`] for the rules and recorded decisions.
+//! unreachable arms, `catch!` exhaustiveness, `throws` verification,
+//! and the rendering contract (a `toString` override's set must be
+//! empty) — see [`check`] for the rules and recorded decisions.
 //! The pass runs after type checking because tagging a thrown value
 //! needs its type.
 //!
@@ -167,8 +168,9 @@ pub struct ErrorSetResult {
 /// After convergence one extra checking pass recollects every body
 /// against the final sets (its output is identical by fixpoint) with
 /// diagnostics enabled: each `catch` is checked against its subject's
-/// transient contribution set, and each definition's declared `throws`
-/// contract against its converged set.
+/// transient contribution set, each definition's declared `throws`
+/// contract against its converged set, and each `toString` override
+/// against the requirement that its converged set be empty.
 pub fn infer(
     hir: &Hir,
     roots: &[ItemId],
@@ -220,6 +222,7 @@ pub fn infer(
         collector.block(body);
 
         check::throws_contract(hir, resolutions, &sets, def, &mut diagnostics);
+        check::render_contract(hir, &sets, def, &mut diagnostics);
     }
 
     // The top-level pseudo-body runs only here, after convergence: no

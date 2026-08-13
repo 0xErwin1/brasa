@@ -102,10 +102,13 @@ end
   `cmp` method to find.
 - `Printable` needs no conformance check of its own, and satisfying it
   unconditionally stays correct: every type has a `toString` (derived, or
-  an override that cannot declare `throws` — see below), so the member
-  `Printable` requires is always present and always infallible. It has no
-  counterpart to `Comparable`'s throwing-`cmp` rule because the
-  declaration site already settled the question.
+  an override that cannot throw — see below), so the member `Printable`
+  requires is always present and always infallible. It has no counterpart
+  to `Comparable`'s throwing-`cmp` rule because the question is settled
+  before conformance is ever asked, on the override itself: `T034`
+  rejects the declared clause and `E007` rejects a non-empty inferred
+  error-set, so there is no throwing `toString` left for a conformance
+  check to find.
 - **`Comparable` is otherwise structural, like any interface**: a type
   with `cmp(self, other: Self): int` satisfies it, so
   `max<T: Comparable>(a, b)` works on a user struct. The ordering
@@ -175,16 +178,22 @@ the read and the write separately.
   `Printable`. Defining a custom `toString` on a struct replaces it. Floats
   always show the decimal point (`1.0`, never `1`) — the int/float
   separation stays visible.
-- **A `toString` override cannot declare `throws`** (`T034`). Rendering
-  has to be infallible. `toString` is not only called where the author
-  wrote it: `puts`, string interpolation, `Vector.join`, and every
-  container, `Option`, tuple, and enum that renders its elements reach
-  it, and so does the runtime while it is already reporting a failure —
-  an uncaught error, a stack trace, a failing assertion. A throw from
-  there has nowhere left to be reported. `throws never` and an absent
-  clause are both accepted: neither declares that anything can be thrown.
-  The repair is a `catch` inside `toString` that renders a fallback, or a
-  differently-named method for the fallible work.
+- **A `toString` override cannot throw** (`T034`, `E007`). Rendering has
+  to be infallible. `toString` is not only called where the author wrote
+  it: `puts`, string interpolation, `Vector.join`, and every container,
+  `Option`, tuple, and enum that renders its elements reach it, and so
+  does the runtime while it is already reporting a failure — an uncaught
+  error, a stack trace, a failing assertion. A throw from there has
+  nowhere left to be reported. The rule is enforced twice, because
+  `throws` is inferred rather than required
+  ([04-errors.md](04-errors.md)): the declared clause is rejected at the
+  declaration site (`T034`), and the method's INFERRED error-set must be
+  empty (`E007`), which is what catches a `toString` that throws without
+  writing anything down. `throws never` and an absent clause are both
+  accepted as declarations: neither says anything is thrown, and the
+  inferred set still has to back them up. The repair is a `catch` inside
+  `toString` that renders a fallback, or a differently-named method for
+  the fallible work.
 
 ## Cyclic values
 

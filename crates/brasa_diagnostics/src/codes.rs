@@ -222,6 +222,11 @@ pub const E_THROWS_NEVER_VIOLATED: &str = "E005";
 /// not an error: it never enters an error-set, so no body can ever
 /// honor such a declaration.
 pub const E_PANIC_IN_THROWS: &str = "E006";
+/// A `toString` whose INFERRED error-set is not provably empty:
+/// non-empty, or open. `T034` states the same rule over the written
+/// clause; `throws` is inferred, so this is the half a declaration-site
+/// check cannot see.
+pub const E_TO_STRING_CAN_THROW: &str = "E007";
 
 // --- code generation (C) ---
 
@@ -321,6 +326,7 @@ mod tests {
         super::E_UNDECLARED_THROW,
         super::E_THROWS_NEVER_VIOLATED,
         super::E_PANIC_IN_THROWS,
+        super::E_TO_STRING_CAN_THROW,
         super::C_TOO_MANY_ARGUMENTS,
         super::C_TOO_MANY_PARAMETERS,
         super::C_TOO_MANY_ELEMENTS,

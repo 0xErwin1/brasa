@@ -1,0 +1,15 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E007] Error: `Chain.toString` can throw `Boom`: rendering has to be infallible
+   ╭─[ e007_to_string_that_throws_through_its_own_recursion.bras:8:7 ]
+   │
+ 8 │   def toString(self): string
+   │       ────┬───  
+   │           ╰───── this method can throw
+   │ 
+   │ Note 1: `toString` is reached from `puts`, string interpolation, and every container, `Option`, tuple, and enum that renders its elements, as well as from error reporting itself — a failure there has nowhere left to be reported
+   │ 
+   │ Note 2: handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name
+───╯

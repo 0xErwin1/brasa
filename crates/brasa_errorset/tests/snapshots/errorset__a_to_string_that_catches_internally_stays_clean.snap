@@ -1,0 +1,7 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  risky -> {Boom}
+  Guarded.toString -> {}
