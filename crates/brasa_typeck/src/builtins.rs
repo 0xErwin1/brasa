@@ -264,6 +264,59 @@ pub struct ModuleSig {
     pub ret: Type,
 }
 
+/// The stdlib-native errors a std module member raises, by canonical
+/// qualified name (`docs/spec/05-stdlib.md`).
+///
+/// This lives beside the signature table on purpose. Before BRS-96 the
+/// error-set pass carried its own copy of this knowledge, and adding a
+/// throwing member here without remembering to add it there made the
+/// contract silently unverifiable: a caller could declare
+/// `throws never` over a body that throws and the checker would agree.
+/// That is not hypothetical — `cli.parse` shipped that way for exactly
+/// one commit.
+///
+/// Covers polymorphic members and constants too, which is why it is a
+/// function rather than a field on [`ModuleSig`].
+pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
+    use brasa_resolver::{
+        CLI_USAGE_ERROR, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR,
+        JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
+    };
+
+    /// The three `fs` errors, raised together by every member that
+    /// touches the filesystem (BRS-33).
+    const FS_ALL: &[&str] = &[FS_NOT_FOUND, FS_DENIED, FS_IO_ERROR];
+
+    match (module, name) {
+        // BRS-32: the runners raise `NonZeroExit` on a non-zero exit and
+        // `SpawnError` when the child cannot start. The tolerant forms
+        // keep only the second — a non-zero exit is their result.
+        ("proc", "run" | "shell") => &[PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR],
+        ("proc", "tryRun" | "tryRunAll") => &[PROC_SPAWN_ERROR],
+        // BRS-113: a non-2xx status is an answer, so only a request that
+        // never produced a response throws.
+        ("http", "get" | "post") => &[HTTP_REQUEST_ERROR],
+        // BRS-112: `help` renders a declaration and cannot fail; only
+        // `parse` sees a command line.
+        ("cli", "parse") => &[CLI_USAGE_ERROR],
+        // BRS-33. `tryWalk` tolerates every failure BELOW the root but
+        // still throws for the root itself, so it raises the same three.
+        (
+            "fs",
+            "read" | "write" | "append" | "ls" | "glob" | "walk" | "tryWalk" | "mkdir" | "mkdirAll"
+            | "rm" | "rmAll" | "cp" | "mv" | "resolve",
+        )
+        | ("env", "cd") => FS_ALL,
+        // An unreadable current directory is the only way these fail.
+        ("fs", "abs") | ("env", "cwd") => &[FS_IO_ERROR],
+        ("json", "parse") => &[JSON_PARSE_ERROR],
+        // The `fs` predicates and pure path helpers, every `io`,
+        // `math`, `time` and `rand` member, and `json.stringify` never
+        // throw (BRS-33/34/35).
+        _ => &[],
+    }
+}
+
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
 /// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
@@ -641,5 +694,166 @@ mod tests {
         assert!(module_member("time", "iso").is_some());
         assert!(module_member("rand", "int").is_some());
         assert!(module_member("math", "sqrt").is_some());
+    }
+}
+
+#[cfg(test)]
+mod stdlib_declaration_tests {
+    use super::*;
+
+    /// BRS-96: every error a std module member declares must be one the
+    /// resolver knows, or a `catch` arm naming it would be rejected as
+    /// unknown while the error-set says the member throws it — the two
+    /// halves of the language disagreeing about the same name.
+    #[test]
+    fn every_declared_throw_is_a_known_native_error() {
+        for module in brasa_resolver::STD_MODULES {
+            for name in MEMBERS_THAT_THROW {
+                for thrown in module_throws(module, name) {
+                    assert!(
+                        brasa_resolver::NATIVE_ERRORS.contains(thrown),
+                        "`{module}.{name}` declares `{thrown}`, which is not in NATIVE_ERRORS"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every member `module_throws` answers non-empty for. Written out
+    /// rather than derived, so adding a throwing member without adding
+    /// it here leaves the test above unable to see it — and the
+    /// coverage check below is what catches that.
+    const MEMBERS_THAT_THROW: &[&str] = &[
+        "run",
+        "shell",
+        "tryRun",
+        "tryRunAll",
+        "get",
+        "post",
+        "parse",
+        "read",
+        "write",
+        "append",
+        "ls",
+        "glob",
+        "walk",
+        "tryWalk",
+        "mkdir",
+        "mkdirAll",
+        "rm",
+        "rmAll",
+        "cp",
+        "mv",
+        "resolve",
+        "cd",
+        "abs",
+        "cwd",
+    ];
+
+    /// The list above must name every throwing member, so the check
+    /// cannot silently stop covering one.
+    #[test]
+    fn the_throwing_member_list_is_complete() {
+        // Every member name the fixed-signature table knows, per module.
+        const CANDIDATES: &[&str] = &[
+            "run",
+            "tryRun",
+            "tryRunAll",
+            "shell",
+            "get",
+            "set",
+            "vars",
+            "args",
+            "cwd",
+            "exit",
+            "cd",
+            "read",
+            "write",
+            "append",
+            "exists?",
+            "isFile?",
+            "isDir?",
+            "isSymlink?",
+            "ls",
+            "glob",
+            "walk",
+            "tryWalk",
+            "mkdir",
+            "mkdirAll",
+            "rm",
+            "rmAll",
+            "cp",
+            "mv",
+            "abs",
+            "resolve",
+            "join",
+            "dir",
+            "base",
+            "ext",
+            "parse",
+            "stringify",
+            "puts",
+            "print",
+            "eprint",
+            "readLine",
+            "readAll",
+            "sqrt",
+            "floor",
+            "ceil",
+            "round",
+            "pow",
+            "min",
+            "max",
+            "now",
+            "nowMillis",
+            "iso",
+            "sleep",
+            "seed",
+            "int",
+            "float",
+            "choice",
+            "shuffle",
+            "post",
+            "help",
+        ];
+
+        for module in brasa_resolver::STD_MODULES {
+            for name in CANDIDATES {
+                if module_throws(module, name).is_empty() {
+                    continue;
+                }
+
+                assert!(
+                    MEMBERS_THAT_THROW.contains(name),
+                    "`{module}.{name}` throws but is missing from MEMBERS_THAT_THROW"
+                );
+            }
+        }
+    }
+
+    /// The tolerant/strict pairing the spec draws: `tryRun` keeps the
+    /// spawn failure and drops the non-zero exit, because a non-zero
+    /// exit is its result.
+    #[test]
+    fn the_tolerant_runners_drop_only_the_non_zero_exit() {
+        let strict = module_throws("proc", "run");
+        let tolerant = module_throws("proc", "tryRun");
+
+        assert!(strict.contains(&brasa_resolver::PROC_NON_ZERO_EXIT));
+        assert!(!tolerant.contains(&brasa_resolver::PROC_NON_ZERO_EXIT));
+        assert_eq!(
+            module_throws("proc", "tryRunAll"),
+            tolerant,
+            "the parallel form is the tolerant one"
+        );
+    }
+
+    #[test]
+    fn a_member_that_cannot_fail_declares_nothing() {
+        assert!(module_throws("json", "stringify").is_empty());
+        assert!(module_throws("fs", "exists?").is_empty());
+        assert!(module_throws("fs", "join").is_empty());
+        assert!(module_throws("cli", "help").is_empty());
+        assert!(module_throws("math", "sqrt").is_empty());
     }
 }

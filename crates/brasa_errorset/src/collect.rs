@@ -10,15 +10,7 @@
 //! | direct `FuncDef` item | that item's current set |
 //! | declared struct method | that method's current set |
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
-//! | `proc.run` / `proc.shell` | the `Opaque("proc.NonZeroExit")` and `Opaque("proc.SpawnError")` tags (BRS-32) |
-//! | `proc.tryRun` / `proc.tryRunAll` | the `Opaque("proc.SpawnError")` tag only — neither throws `NonZeroExit` |
-//! | the throwing `fs` members and `env.cd` | all three `fs` tags (`fs.NotFound`, `fs.Denied`, `fs.IoError`) — BRS-33 |
-//! | `fs.abs` / `env.cwd` | the `Opaque("fs.IoError")` tag only (an unreadable current directory) |
-//! | the `fs` predicates and pure path helpers | nothing — they never throw |
-//! | `json.parse` | the `Opaque("json.ParseError")` tag (BRS-34) |
-//! | `http.get` / `http.post` | the `Opaque("http.RequestError")` tag (BRS-113) — a non-2xx status is an answer, not a throw |
-//! | `json.stringify` and every `io` member | nothing — they never throw (BRS-34) |
-//! | every `math`/`time`/`rand` member | nothing — they never throw (BRS-35: empty-range/vector picks and negative sleeps are panics, and panics are not in error-sets) |
+//! | any `std::` module member | whatever `brasa_typeck::builtins::module_throws` says it raises — declared once, beside the member's signature (BRS-96) |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
 //! | `string.match?` / `captures` / `replaceRe` / `scan` | the `Opaque("string.RegexError")` tag (BRS-31: an invalid pattern throws) |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
@@ -40,9 +32,7 @@ use brasa_hir::{
     StmtId,
 };
 use brasa_resolver::{
-    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR,
-    JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR,
-    STRING_REGEX_ERROR, TypeRes,
+    BuiltinType, DefRef, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TypeRes,
 };
 use brasa_typeck::{Type, TypeTables};
 
@@ -337,39 +327,10 @@ impl<'a> Collector<'a> {
             // their signatures close during M4.
             let mut set = self.args(args);
 
-            match (self.std_module_of(recv).as_deref(), name) {
-                (Some("proc"), "run" | "shell") => {
-                    set.tags.insert(ErrorTag::Opaque(PROC_NON_ZERO_EXIT));
-                    set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
+            if let Some(module) = self.std_module_of(recv) {
+                for name in brasa_typeck::builtins::module_throws(&module, name) {
+                    set.tags.insert(ErrorTag::Opaque(name));
                 }
-                (Some("proc"), "tryRun" | "tryRunAll") => {
-                    set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
-                }
-                // A non-2xx status is an answer, so only a request that
-                // never produced a response throws (BRS-113).
-                (Some("http"), "get" | "post") => {
-                    set.tags.insert(ErrorTag::Opaque(HTTP_REQUEST_ERROR));
-                }
-                (
-                    Some("fs"),
-                    // `tryWalk` tolerates every failure BELOW the root
-                    // but still throws for the root itself, so it
-                    // raises the same three (BRS-66).
-                    "read" | "write" | "append" | "ls" | "glob" | "walk" | "tryWalk" | "mkdir"
-                    | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "resolve",
-                )
-                | (Some("env"), "cd") => {
-                    set.tags.insert(ErrorTag::Opaque(FS_NOT_FOUND));
-                    set.tags.insert(ErrorTag::Opaque(FS_DENIED));
-                    set.tags.insert(ErrorTag::Opaque(FS_IO_ERROR));
-                }
-                (Some("fs"), "abs") | (Some("env"), "cwd") => {
-                    set.tags.insert(ErrorTag::Opaque(FS_IO_ERROR));
-                }
-                (Some("json"), "parse") => {
-                    set.tags.insert(ErrorTag::Opaque(JSON_PARSE_ERROR));
-                }
-                _ => {}
             }
 
             return set;

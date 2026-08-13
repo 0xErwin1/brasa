@@ -201,6 +201,12 @@ pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 /// answer, not an error, so it is not here.
 pub const HTTP_REQUEST_ERROR: &str = "http.RequestError";
 
+/// The canonical qualified name of the native `cli` usage error
+/// (`docs/spec/05-stdlib.md`, BRS-112): a command line the declaration
+/// does not accept. Catchable rather than a panic, because the script
+/// decides its own exit status.
+pub const CLI_USAGE_ERROR: &str = "cli.UsageError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
@@ -221,6 +227,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     FS_IO_ERROR,
     JSON_PARSE_ERROR,
     HTTP_REQUEST_ERROR,
+    CLI_USAGE_ERROR,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace
