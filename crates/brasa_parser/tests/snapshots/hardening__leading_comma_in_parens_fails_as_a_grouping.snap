@@ -4,5 +4,4 @@ expression: messages(&result)
 ---
 [
     "expected an expression, found `,`",
-    "expected ')' to close the parenthesized expression, found end of file",
 ]

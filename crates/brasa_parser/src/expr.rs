@@ -112,6 +112,23 @@ pub(crate) fn starts_command_call_arg(kind: TokenKind) -> bool {
     )
 }
 
+/// The note explaining why a `[` right after `callee` opened an index,
+/// or `None` when the vector-literal reading was never on the table.
+///
+/// `docs/spec/02-grammar.md`'s ambiguity table rules that a `[` after a
+/// callee binds as postfix indexing rather than as a vector-literal first
+/// argument, so `puts [1, 2]` is `puts[1, 2]`. That ruling is invisible in
+/// the bare "expected an expression"/"expected `]`" wording, which sends a
+/// reader looking for a missing bracket in an index they never wrote; the
+/// note states the ruling and the spelling that sidesteps it.
+fn index_ruling_note(command_callee: Option<&str>) -> Option<String> {
+    let callee = command_callee?;
+
+    Some(format!(
+        "`{callee} [...]` parses as `{callee}[...]`: brackets right after a callee are indexing, not a vector-literal argument. Write `{callee}([...])`, or bind the vector first"
+    ))
+}
+
 impl<'a> Parser<'a> {
     /// `expr = pipe_expr`. The full entry point used everywhere an
     /// expression is expected, including inside string interpolation.
@@ -269,8 +286,8 @@ impl<'a> Parser<'a> {
                     let command_callee = self.command_call_slot_callee(expr, start);
 
                     self.bump();
-                    let index = self.parse_expr();
-                    self.expect_index_close(command_callee);
+                    let index = self.parse_index_operand(command_callee.as_deref());
+                    self.expect_index_close(command_callee.as_deref());
                     let end = self.prev_span();
                     expr = self
                         .ast
@@ -575,7 +592,7 @@ impl<'a> Parser<'a> {
             TokenKind::Match => self.parse_match(),
             _ => {
                 self.error_expected("an expression");
-                self.synchronize_stmt();
+                self.synchronize_expr();
                 self.ast.alloc_expr(Expr::Unit, start)
             }
         }
@@ -616,27 +633,38 @@ impl<'a> Parser<'a> {
         Some(self.ident_text(recv))
     }
 
+    /// The expression between `[` and `]`, with the `[` already consumed.
+    ///
+    /// An immediately closing `]` is diagnosed here instead of being left
+    /// to [`Parser::parse_primary`]'s generic failure path, for two
+    /// reasons: an empty bracket pair is never a valid index, so the
+    /// command-call ambiguity note applies to it as squarely as it does to
+    /// a missing `]`, and reporting it in place leaves the cursor on the
+    /// `]` for [`Parser::expect_index_close`] to consume, so `puts []`
+    /// stays one diagnostic rather than growing a second one about a
+    /// bracket that is right there.
+    fn parse_index_operand(&mut self, command_callee: Option<&str>) -> ExprId {
+        if !self.at(TokenKind::RBracket) {
+            return self.parse_expr();
+        }
+
+        let span = self.span();
+        self.error_expected_with_note("an expression", index_ruling_note(command_callee));
+
+        self.ast.alloc_expr(Expr::Unit, span)
+    }
+
     /// Closes an index expression, adding the command-call ambiguity note
     /// when `command_callee` names a possible command-call callee.
-    ///
-    /// `docs/spec/02-grammar.md`'s ambiguity table rules that a `[` after
-    /// a callee binds as postfix indexing rather than as a vector-literal
-    /// first argument, so `puts [1, 2]` is `puts[1, 2]`. That ruling is
-    /// invisible in the bare "expected `]`" wording, which sends a reader
-    /// looking for a missing bracket in an index they never wrote; the
-    /// note states the ruling and the spelling that sidesteps it.
-    fn expect_index_close(&mut self, command_callee: Option<String>) {
+    fn expect_index_close(&mut self, command_callee: Option<&str>) {
         if self.eat(TokenKind::RBracket).is_some() {
             return;
         }
 
-        let note = command_callee.map(|callee| {
-            format!(
-                "`{callee} [...]` parses as `{callee}[...]`: brackets right after a callee are indexing, not a vector-literal argument. Write `{callee}([...])`, or bind the vector first"
-            )
-        });
-
-        self.error_expected_with_note("']' to close the index expression", note);
+        self.error_expected_with_note(
+            "']' to close the index expression",
+            index_ruling_note(command_callee),
+        );
     }
 
     /// A constructor or struct literal. `module` is the stem of a

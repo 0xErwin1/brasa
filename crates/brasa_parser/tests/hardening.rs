@@ -1,8 +1,9 @@
 //! Regression tests for the review-findings hardening pass: `unit` as a
 //! type, a parser recursion-depth guard, unknown-escape errors, duplicate
 //! struct-literal fields, diagnostic-cascade dedup, a leading UTF-8 BOM,
-//! `0x_`/`0b_` vs genuine overflow, non-empty enum/interface bodies, and
-//! error recovery inside parenthesized/tuple expressions.
+//! `0x_`/`0b_` vs genuine overflow, non-empty enum/interface bodies,
+//! error recovery inside parenthesized/tuple expressions, and recovery
+//! that stays inside the bracket it started in.
 
 use brasa_source::SourceMap;
 
@@ -433,18 +434,20 @@ fn repeated_missing_tuple_elements_stay_bounded() {
 }
 
 /// The tuple path and the vector path are the same recovery shape: the
-/// same "expected an expression" for a missing element, and the same
-/// "expected <closer> to close the ..." for the unterminated form. Only
-/// the delimiter description may differ.
+/// same single "expected an expression" for a missing element, and the
+/// same "expected <closer> to close the ..." for the unterminated form.
+/// Only the delimiter description may differ.
 #[test]
 fn tuple_recovery_matches_vector_recovery_in_shape() {
     let tuple_missing = messages(&parse("let p = (1,,2)\n"));
     let vector_missing = messages(&parse("let v = [1,,2]\n"));
 
-    assert_eq!(tuple_missing.len(), vector_missing.len());
-    assert_eq!(tuple_missing[0], vector_missing[0]);
-    assert!(tuple_missing[1].contains("to close the tuple"));
-    assert!(vector_missing[1].contains("to close the vector literal"));
+    assert_eq!(tuple_missing, vector_missing);
+    assert_eq!(
+        tuple_missing.len(),
+        1,
+        "a delimiter that is present must not also be reported missing, got: {tuple_missing:#?}"
+    );
 
     let tuple_unterminated = messages(&parse("let p = (1, 2"));
     let vector_unterminated = messages(&parse("let v = [1, 2"));
@@ -467,4 +470,64 @@ fn tuple_recovery_matches_vector_recovery_in_shape() {
 fn lenient_underscore_placement_still_accepted() {
     assert_clean("1_\n");
     assert_clean("1__000\n");
+}
+
+// -- (10) recovery inside an unfinished bracket ------------------------------
+// A failed expression inside `(`, `[` or `{` must not skip past the closer
+// its opener still has to consume: doing so turns one mistake into a
+// second, far-reaching "expected <closer>" report against a delimiter that
+// is sitting right there.
+
+#[test]
+fn an_empty_index_reports_exactly_one_diagnostic() {
+    for source in ["puts []\n", "v[]\n", "puts []\nlet b = 2\nlet c = 3\n"] {
+        let result = parse(source);
+
+        assert_eq!(
+            result.diagnostics.len(),
+            1,
+            "expected exactly one diagnostic for {source:?}, got: {:#?}",
+            result.diagnostics
+        );
+        assert_eq!(
+            result.diagnostics[0].message,
+            "expected an expression, found `]`"
+        );
+    }
+}
+
+/// The empty index is diagnosed at the brackets themselves, not at
+/// whatever follows them: a span reaching to the end of a long file points
+/// the reader nowhere near the mistake.
+#[test]
+fn an_empty_index_is_reported_at_the_brackets() {
+    let source = "puts []\nlet b = 2\nlet c = 3\n";
+    let result = parse(source);
+    let span = result.diagnostics[0].primary_span;
+
+    assert_eq!(&source[span.start.0 as usize..span.end.0 as usize], "]");
+}
+
+/// Newlines are insignificant inside brackets, so recovery must not treat
+/// the end of a line as a boundary: an index spanning lines is well-formed.
+#[test]
+fn a_multi_line_index_still_parses_clean() {
+    assert_clean("let a = v[\n  someLongExpression\n]\n");
+    assert_clean("let a = v[\n  1 + 2\n]\n");
+}
+
+/// The same gap in the other bracketing constructs: an argument list and a
+/// grouping recover in place too, across lines as well as within one.
+#[test]
+fn a_failed_expression_inside_other_brackets_reports_exactly_one_diagnostic() {
+    for source in ["f(,)\n", "v[(1 + ]\n", "let a = f(\n  ,\n  2\n)\n"] {
+        let result = parse(source);
+
+        assert_eq!(
+            result.diagnostics.len(),
+            1,
+            "expected exactly one diagnostic for {source:?}, got: {:#?}",
+            result.diagnostics
+        );
+    }
 }

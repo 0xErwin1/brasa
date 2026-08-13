@@ -539,6 +539,42 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Recovery for an expression that could not be parsed at all.
+    ///
+    /// Inside brackets this stops in front of the first closing delimiter
+    /// instead of running to the end of the statement, which is what keeps
+    /// one mistake to one diagnostic: the construct that opened the bracket
+    /// still has to consume its own closer, and a recovery that skips past
+    /// it leaves that construct hunting for a terminator that no longer
+    /// exists — `puts []` used to report the missing `]` at end of file.
+    /// Stopping in front of the closer lets the opener finish in place.
+    ///
+    /// A newline is not a stop point and cannot become one inside
+    /// brackets: [`Parser::normalize`] has already skipped it, which is
+    /// exactly what lets an index or an argument list span lines. Treating
+    /// the end of a line as a boundary here would cut a well-formed
+    /// multi-line expression in half. At depth zero there is no bracket to
+    /// protect and ordinary statement synchronization applies.
+    fn synchronize_expr(&mut self) {
+        if self.depth == 0 {
+            self.synchronize_stmt();
+            return;
+        }
+
+        while !self.at(TokenKind::Eof) && !self.at_close_delimiter() {
+            self.bump();
+        }
+    }
+
+    /// Whether the cursor sits on a `)`, `]` or `}` — the closers the
+    /// [`Parser::depth`] counter tracks.
+    fn at_close_delimiter(&self) -> bool {
+        matches!(
+            self.kind(),
+            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+        )
+    }
+
     /// Scans forward from the cursor to the end of the current logical
     /// line (the next depth-zero newline, or EOF), reporting whether a
     /// `=>` appears at depth zero along the way.

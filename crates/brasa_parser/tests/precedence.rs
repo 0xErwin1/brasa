@@ -273,6 +273,9 @@ fn brackets_after_a_command_position_callee_explain_the_index_ruling() {
         "puts [1, 2, 3].join(\",\")",
         "puts [1, 2, 3]",
         "match x\n  _ => puts [1, 2]\nend",
+        // An empty pair is never a valid index either, so the ruling is
+        // exactly as relevant here as it is to a missing `]`.
+        "puts []",
     ] {
         let notes = diagnostic_notes(source);
 
