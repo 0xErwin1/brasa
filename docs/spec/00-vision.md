@@ -97,11 +97,17 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
    (BRS-114): the analysis phases produce usable types, locals and
    error-sets over the incomplete tree an editor holds, and the whole
    pipeline runs in 1.4ms over the largest bundled script — so a query
-   system for incrementality is a non-goal, not a deferral. The REPL is
-   deferred behind the LSP: with immutable `let` and module-level
-   typing, hover over inferred types and error-sets answers more, in
-   the file the user is already editing, than a persistent environment
-   does.
+   system for incrementality is a non-goal, not a deferral. Debugging
+   tooling joins this milestone behind the LSP: a VM debug substrate
+   (BRS-117) with breakpoints, stepping and frame inspection, then a
+   non-interactive `brasa debug` (BRS-118), a DAP adapter (BRS-119),
+   and a TUI narrowed to heap inspection (BRS-120) — the one view an
+   editor's debug panels have no vocabulary for. A sampling profiler
+   (BRS-121) is adjacent and mechanically separate: sampling a
+   distribution is not stopping at a state. The REPL is deferred behind
+   all of it: with immutable `let` and module-level typing, hover over
+   inferred types and error-sets answers more, in the file the user is
+   already editing, than a persistent environment does.
 7. **M6** — from toy to tool. Landed: multi-file programs and `::`
    imports on a search path (BRS-97/102/115), the `test` item and
    `brasa test` (BRS-110), a byte-budgeted collector (BRS-100/101),
