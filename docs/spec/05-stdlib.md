@@ -18,6 +18,8 @@ signatures are closed module by module during M4.
   **prelude**: `puts`, `print`, `assert`, `assertEq`,
   `Option`/`Some`/`None`, `Vector`, `Map`,
   `Set`, ranges, and primitive type methods are always available.
+- Names in `camelCase` (functions, methods, variables); types in
+  `PascalCase`; predicates with `?` (`file.exists?`, `isDir?`).
 
 ## `cli` (`import std::cli`)
 
@@ -119,8 +121,6 @@ assertEq slugify("Hola Mundo"), "hola-mundo"
   mean calling `toString` on the failure path, and a failing assertion is
   exactly where an unreliable `toString` must not run — the stack trace
   locates it.
-- Names in `camelCase` (functions, methods, variables); types in
-  `PascalCase`; predicates with `?` (`file.exists?`, `isDir?`).
 
 ## `string` (type methods, no import needed)
 
