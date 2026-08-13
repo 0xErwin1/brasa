@@ -51,7 +51,7 @@ Format: `<PhaseLetter><3 digits>` — e.g. `P001`, `R004`, `T012`.
 | `T` | type checker |
 | `E` | error-sets |
 | `C` | code generation |
-| `X` | execution/VM (reserved, M3+) |
+| `X` | execution/VM (reserved) |
 
 Rules:
 
@@ -222,10 +222,10 @@ Notes on kind boundaries:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
   stdlib-error names (`string.ParseError`, `string.RegexError`,
   `proc.NonZeroExit`, `proc.SpawnError`, `fs.NotFound`, `fs.Denied`,
-  `fs.IoError`, `json.ParseError`, `05-stdlib.md`) — both builtin, no
-  import needed. With `json.ParseError` landed (BRS-34), every error
-  namespace the stdlib sketch promises for v1 is checked; dotted arm
-  names in other roots stay unchecked until a future module lands one.
+  `fs.IoError`, `json.ParseError`, `http.RequestError`,
+  `cli.UsageError`, `05-stdlib.md`) — both builtin, no import needed.
+  Dotted arm names in other roots stay unchecked until a future module
+  lands one.
 
 ### Type checker (`T`)
 
@@ -238,7 +238,7 @@ Notes on kind boundaries:
 | `T005` | wrong number of arguments | `wrong number of arguments: expected 2, found 1` |
 | `T006` | not callable | ``cannot call a value of type `int` `` |
 | `T007` | unknown member | ``no method `bogus` on `int` `` |
-| `T008` | `join` requires `Vector<string>` | `` `join` requires `Vector<string>`, found `Vector<int>` `` |
+| `T008` | *(retired)* `join` requires `Vector<string>` | — |
 | `T009` | cannot assign | ``cannot assign to immutable binding `x` `` |
 | `T010` | invalid assignment target | `invalid assignment target` |
 | `T011` | strings are not indexable | `strings are not indexable` |
@@ -276,8 +276,9 @@ Notes on kind boundaries:
   pattern position — a constructor pattern mirrors the constructor
   call's arity.
 - `T007` covers every receiver kind (struct, builtin, generic); the
-  message names the receiver. `T008` stays separate: the member exists,
-  only the element type is wrong.
+  message names the receiver. `T008` is retired: `Vector<T>.join`
+  accepts every element type and renders each element through
+  `toString` (BRS-53). Codes are append-only, so the number stays spent.
 - `T014` covers empty vector and empty map literals. It never fires for
   a tuple expression: tuples have no empty form and every element
   carries its own type.
@@ -370,9 +371,10 @@ Notes on kind boundaries:
   causes the other, and they ask for different repairs. Over-declaration
   (declaring a type the body never throws) gets no diagnostic:
   a wider contract is harmless. Interface-member `throws` names are
-  validated at resolution (`R003` on an unknown name), but the
-  contracts themselves are not enforced yet (deferred with interface
-  satisfaction, M3+).
+  validated at resolution (`R003` on an unknown name), but compatibility
+  between a member's declared contract and the method satisfying it is
+  not enforced yet. That implementation gap does not weaken the
+  normative interface contract in `04-errors.md`.
 - `E005` backs two wordings under one kind: a concrete violation
   (`throws never` with a non-empty set) and the unverifiable case
   (`throws never` with an open set).

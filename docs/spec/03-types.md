@@ -16,7 +16,9 @@ to `float` on its own, nothing is "truthy".
 
 Value vs reference:
 
-- Primitives and tuples: by value.
+- Primitives have value semantics. Tuples are immutable structural values;
+  their VM storage is an implementation detail described in
+  [07-bytecode.md](07-bytecode.md).
 - Structs, enums with a payload, collections, strings, closures: references
   to the GC heap. `==` is ALWAYS structural (compares content, not
   identity); there is no identity operator in v1.
@@ -204,7 +206,7 @@ the read and the write separately.
 
 Reference cycles ARE constructible (recursive struct types plus shared
 mutable containers: `s.v.push(s)`), so every structural operation has to
-define what it does on one. The rules, in both backends:
+define what it does on one. The VM follows these rules:
 
 - **`==` is coinductive.** Two values are equal when assuming their
   cycle-capable cells (Vector, Map, Set, Struct) equal derives no

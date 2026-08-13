@@ -168,7 +168,7 @@ struct_lit  = ctor_path "{" ( IDENT ":" expr ( "," IDENT ":" expr )* )? "}"
 ctor_path   = ( IDENT "." )? TYPE_IDENT   # qualified: utils.Point, utils.Red
 
 lambda      = "|" lparams? "|" expr
-            | "do" "|" lparams? "|" NL block "end"
+            | "do" ( "|" lparams? "|" )? NL block "end"
 lparams     = lparam ( "," lparam )*
 lparam      = ( IDENT | "_" | tuple_pat ) ( ":" type )?
 tuple_pat   = "(" pattern ( "," pattern )* ")"   # destructures the argument
@@ -243,7 +243,7 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | escapes in RAWSTRING | raw strings are truly raw: they do NOT process escapes (`\n` is a literal backslash+n); only `#{` and the closing `"""` are special. Consequence: a literal `#{` cannot appear in a raw string — use a normal string with `\#{` |
 
 | line continuation | a newline run whose next token is `\|>`, `.`, or `?.` continues the current expression instead of terminating the statement (Ruby-style leading-dot chains): `repos NL .filter(...)` is one expression |
-| trailing `do`-block | the ONE exception to mandatory call parentheses: a `do \|params\| ... end` block directly after a call or method name appends the lambda as the last argument. `f(a) do \|x\| ... end` ≡ `f(a, lambda)`; `recv.each do \|x\| ... end` ≡ `recv.each(lambda)` |
+| trailing `do`-block | the ONE exception to mandatory call parentheses: a `do \|params\| ... end` block directly after a call or method name appends the lambda as the last argument. The delimiters are optional only for a parameterless block: `f() do ... end`. `f(a) do \|x\| ... end` ≡ `f(a, lambda)`; `recv.each do \|x\| ... end` ≡ `recv.each(lambda)` |
 
 Cross-cutting notes:
 

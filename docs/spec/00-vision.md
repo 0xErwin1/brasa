@@ -114,8 +114,10 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
    bounded parallel subprocesses (BRS-104), single-artifact
    distribution (BRS-111), and the dispatch path (BRS-98), which took
    recursive calls from 2.9x CPython to 1.5x while leaving cold start
-   untouched. Remaining: one declarative stdlib registry (BRS-96) and
-   the stdlib gaps dogfooding surfaced — argument parsing (BRS-112) and
-   HTTP (BRS-113).
+   untouched. Argument parsing (BRS-112) and blocking HTTP (BRS-113)
+   have also landed. BRS-96 is in progress rather than wholly remaining:
+   `Vector` receiver methods and the `fs` module use declarative tables,
+   while the rest of the stdlib still declares its
+   signatures, error contributions, and VM implementations separately.
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

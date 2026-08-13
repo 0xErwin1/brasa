@@ -6,27 +6,26 @@ What the whole language looks like. The formal grammar is in
 ## A program
 
 ```ruby
-import std::fs
-import std::json
-
 struct Repo
   name: string
   stars: int
 end
 
-def topRepos(path: string, min: int): Vector<Repo>
-  let data = json.parse(fs.read(path))
-  data.repos
+def topNames(repos: Vector<Repo>, min: int): Vector<string>
+  repos
     .filter(|r| r.stars >= min)
     .sortBy(|r| -r.stars)
+    .map(|r| r.name)
 end
 
-let repos = topRepos("repos.json", 100) catch (e)
-  fs.NotFound => []
-end
+let repos = [
+  Repo { name: "brasa", stars: 1 },
+  Repo { name: "ignis", stars: 120 },
+  Repo { name: "dbflux", stars: 48 },
+]
 
-for repo in repos
-  puts "#{repo.name}: #{repo.stars}"
+for name in repos |> topNames(10)
+  puts name
 end
 ```
 
@@ -275,7 +274,7 @@ unions (`<T: int | string>` does not exist; use an enum).
 
 ```ruby
 lines
-  .filter(|l| !l.startsWith("#"))
+  .filter(|l| !l.startsWith?("#"))
   .map(|l| l.trim())
   .join("\n")
 

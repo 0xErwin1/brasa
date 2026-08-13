@@ -5,32 +5,31 @@ replace Python and bash for ~90% of everyday scripting: text manipulation,
 running commands, files, JSON, automation. Implemented in Rust with a
 bytecode VM and GC.
 
-> **Status: early development.** The language specification is complete;
-> the compiler frontend is being built (lexer done, parser in progress).
-> Nothing is runnable yet.
+> **Status:** Brasa runs scripts on its bytecode VM, checks them statically,
+> formats source, runs `test` items, and bundles multi-file programs. The
+> language and tooling are still evolving toward v1; see the roadmap below.
 
 ```ruby
-import std::fs
-import std::json
-
 struct Repo
   name: string
   stars: int
 end
 
-def topRepos(path: string, min: int): Vector<Repo>
-  let data = json.parse(fs.read(path))
-  data.repos
+def topNames(repos: Vector<Repo>, min: int): Vector<string>
+  repos
     .filter(|r| r.stars >= min)
     .sortBy(|r| -r.stars)
+    .map(|r| r.name)
 end
 
-let repos = topRepos("repos.json", 100) catch (e)
-  fs.NotFound => []
-end
+let repos = [
+  Repo { name: "brasa", stars: 1 },
+  Repo { name: "ignis", stars: 120 },
+  Repo { name: "dbflux", stars: 48 },
+]
 
-for repo in repos
-  puts "#{repo.name}: #{repo.stars}"
+for name in repos |> topNames(10)
+  puts name
 end
 ```
 
@@ -80,7 +79,7 @@ One crate per compiler phase under [`crates/`](crates/). Index arenas with
 typed IDs for the AST, side tables per phase, no MIR — HIR lowers directly
 to bytecode. See [`AGENTS.md`](AGENTS.md) for the crate map and invariants.
 
-## Building
+## Quick start
 
 Requires [Nix](https://nixos.org) (with flakes) and optionally
 [direnv](https://direnv.net):
@@ -88,19 +87,27 @@ Requires [Nix](https://nixos.org) (with flakes) and optionally
 ```sh
 direnv allow            # or: nix develop --impure
 cargo build
-cargo test
+target/debug/brasa examples/hello.bras
+target/debug/brasa --check examples/pipeline.bras
+target/debug/brasa fmt --check examples
 ```
+
+Run a script as `brasa script.bras [args...]`. The CLI also provides
+`brasa test script.bras`, `brasa fmt [paths...]`, and
+`brasa bundle script.bras -o tool`; use `brasa --help` for diagnostic
+dump options.
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
-| M0 | Lexer, parser, AST, diagnostics | in progress |
-| M1 | Type checker + reference tree-walking interpreter (retired in M6) | — |
-| M2 | Error system (inferred error sets, `catch`) | — |
-| M3 | Bytecode VM + GC | — |
-| M4 | Scripting stdlib (strings, proc, fs, json, regex) | — |
-| M5 | REPL, formatter, LSP | — |
+| M0 | Lexer, parser, AST, diagnostics | delivered |
+| M1 | Type checker + provisional tree walker | delivered; walker retired in M6 |
+| M2 | Error system (inferred error sets, `catch`) | delivered |
+| M3 | Bytecode VM + GC | delivered |
+| M4 | Scripting stdlib | delivered core surface |
+| M5 | Formatter, editor support, LSP and debugging tools | partial: formatter and editor grammar delivered |
+| M6 | Multi-file programs, tests, bundling, CLI/HTTP stdlib, performance and hardening | in progress; major runtime and tooling units delivered |
 
 ## License
 

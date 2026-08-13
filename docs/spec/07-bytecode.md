@@ -1,12 +1,12 @@
 # Brasa — bytecode design
 
-> Status: draft for review (M3, unit BRS-26). The reference semantics
-> are the conformance corpus (`crates/brasa_vm/tests/conformance.rs`):
-> where this document and a pinned expectation there disagree, the
-> corpus wins and this document has a bug. That authority was the M1/M2
-> tree-walker until BRS-108; retiring it meant every expectation that
-> rested on the two backends agreeing became one written in the corpus,
-> recorded from the walker before it went. HIR→bytecode compilation
+> Status: normative. This document defines the bytecode and VM contract;
+> the conformance corpus (`crates/brasa_vm/tests/conformance.rs`) checks
+> the implementation against it. A disagreement is a test or
+> implementation bug, not authority to override this specification.
+> Before BRS-108, the M1/M2 tree walker served as the behavior oracle;
+> its expectations were recorded in the corpus when it was retired.
+> HIR→bytecode compilation
 > (BRS-27), the VM loop (BRS-28), and GC plus string interning (BRS-29)
 > build on this design; the container types live in
 > `crates/brasa_bytecode`.
@@ -37,7 +37,7 @@ an `argc`/`arity` operand caps a call and a parameter list at 255, and
 the `u16` operands cap literal element counts, struct fields, enum
 variants, local slots, globals, and captures at 65535 each. A program
 that does not fit is rejected at compile time with a `C` diagnostic
-(`06-diagnostics.md`), on both backends, never truncated and never run.
+(`06-diagnostics.md`), never truncated and never run.
 
 ### Module execution
 
@@ -59,7 +59,7 @@ concept and no loader. Entry convention:
   imported module may define its own `main`, and only the executed
   file's is an entry point.
 - Global slots start **unset**. Loading an unset global is a fatal
-  runtime error ("used before initialization"), exactly like the walker
+  runtime error ("used before initialization")
   — this can only happen when a function called from a top-level
   statement reads a top-`let` declared further down.
 
@@ -134,10 +134,10 @@ at most one candidate. Each op still mirrors its non-generic counterpart
 — `call_method_dyn` inspects methods before fields and `bind_method_dyn`
 fields before methods — but with the collision illegal that order is not
 observable: a call and a bare read of the same member always reach the
-same target, on both backends. A callable field with no same-named
-method satisfies a constraint method structurally, on both paths —
+same target. A callable field with no same-named method satisfies a
+constraint method structurally, on both paths —
 pinned by `generic_receivers_reach_struct_fields_holding_callables` in
-`crates/brasa_vm/tests/parity.rs`.
+`crates/brasa_vm/tests/conformance.rs`.
 
 A missing member on a struct receiver is fatal (`unknown member`); on
 any other receiver the builtin table's own `unknown builtin method` is.
@@ -261,8 +261,7 @@ caught-signal value at the top of the stack:
 | Rust `enum Value` with inline scalars + typed GC handles for heap kinds | **Chosen for v1.** 24 bytes per value, exhaustive matches, no `unsafe` in the representation, GC tracing is a `match`. Payloads wider than a `Range` are boxed rather than inlined (BRS-98), because every operand-stack slot pays for the widest variant. The walker→VM criterion win came from eliminating tree dispatch, `HashMap` frames, and `Rc` traffic — not from packing values into 8 bytes |
 | NaN-boxing / pointer tagging | Explicit non-goal for v1 (below). It is an *optimization of* the enum representation, invisible to bytecode and to this document's semantics, so it can land later without respeccing anything |
 
-The VM `Value` mirrors the walker's kinds with `Rc<RefCell<…>>` replaced
-by GC-managed heap objects:
+The VM represents language and native-stdlib values as follows:
 
 | Kind | Representation | Heap / GC | Mutable |
 |------|----------------|-----------|---------|
@@ -280,6 +279,11 @@ by GC-managed heap objects:
 | Closure | Heap object: `FuncId` + captured bindings | yes | no (the capture list is fixed at creation; a shared binding changes inside its own cell) |
 | Bound method / bound builtin | Heap object: receiver + target | yes | no |
 | Native error | Heap object: static name + message string | yes | no |
+| `Value::ProcOutput` (`proc.Output`) | Shared immutable record: stdout, stderr, exit code | yes | no |
+| `Value::Walk` (`fs.Walk`) | Shared record containing `paths` and `unreadable` vectors | yes; traces both vectors | no |
+| `Value::Json` (`Json`) | Shared immutable JSON tree | yes | no |
+| `Value::CliArgs` (`cli.Args`) | Shared immutable record: flags, options, positional arguments | yes | no |
+| `Value::HttpResponse` (`http.Response`) | Shared immutable record: status, body, header pairs | yes | no |
 
 Three **internal** value kinds exist on the operand stack but are never
 observable in the language: the caught-signal value (class, tag,
@@ -290,9 +294,8 @@ no language value is ever a cell. All three are GC-scanned like any
 stack slot.
 
 Equality is structural (`==` has no identity form), ordering covers the
-four comparable primitives, and derived `toString` all behave exactly as
-the walker's `value_eq` / `value_cmp` / `display`; the VM reuses the same
-rules over the new representation.
+four comparable primitives, and derived `toString` follows the language
+rules over this representation.
 
 Both traversals are cycle-safe, and observably so
 (`docs/spec/03-types.md`, cyclic values). Equality is coinductive: past a
@@ -547,6 +550,10 @@ module's constants.
   in declaration order.
 - `globals`: one named slot per top-`let` item, indexed by
   `store_global`/`load_global`.
+- `tests`: `Vec<TestEntry>` in source order when compiled for
+  `brasa test`; each entry stores the test's display `name` and its
+  compiled `func`. Normal runs leave this vector empty and do not compile
+  test bodies.
 
 ## Non-goals (v1) and the benchmark contract
 

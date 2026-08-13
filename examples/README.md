@@ -1,20 +1,25 @@
 # Brasa examples
 
 Programs written to the language as specified in `docs/spec/`. They are
-a human-readable tour, and they are also test material: every file here
-is exercised twice, and neither list is allowed to drift.
+a human-readable tour and test material: every file here is parsed,
+formatted, statically checked, and pinned to an execution expectation.
 
 - `crates/brasa_parser/tests/examples.rs` parses each one with zero
   diagnostics and snapshots the tree, so a grammar change that silently
   reshapes it is caught.
-- `crates/brasa/tests/programs.rs` runs each one on both backends
+- `crates/brasa_fmt/tests/examples.rs` requires every example to remain
+  formatter-stable.
+- `crates/brasa/tests/programs.rs` runs each one on the bytecode VM
   against a pinned expectation.
+- `crates/brasa_vm/tests/conformance.rs` runs its language programs at
+  both the default and a tiny heap budget, pinning VM behavior under
+  hot-GC pressure; `crates/brasa_vm/tests/gc.rs` adds focused collector
+  stress cases.
 
-Both files carry a test that walks this directory and fails if a `.bras`
-is not exercised, and neither can be satisfied by writing the name down
-somewhere. The behavior guard reads the exercised set out of its own
-source, so the name has to appear in code. The parser guard compares the
-walk against a list, but that list is generated from the same
+The parser and behavior suites carry guards that walk this directory and
+fail if a `.bras` is not exercised. The behavior guard reads the
+exercised set out of its own source, so the name has to appear in code.
+The parser guard compares the walk against a list generated from the same
 declarations that emit the tests, so a name cannot be added without a
 test coming with it. That guard exists because `stars.bras` spent a
 whole milestone here without compiling: it previewed a stdlib API before
@@ -32,7 +37,8 @@ does.
 | `errors.bras` | throw, catch, catch!, panics, throws clause |
 | `pipeline.bras` | vectors, maps, lambdas, pipe operator |
 | `strings.bras` | string methods, raw strings, chars |
-| `modules/` | file imports, `pub`, `def main()` entry point — see below |
+| `modules/main.bras` | relative file import, exported calls, top-level initialization, `def main()` entry point |
+| `modules/utils.bras` | exported and private module members; declaration-only modules run silently |
 | `stars.bras` | `std::fs`, `std::json` total indexing, `std::proc` with stdin, `std::env` args, uncaught errors |
 
 Run `stars.bras` against its committed fixture:
@@ -53,10 +59,14 @@ lookup has the same two failure modes, one fixture each:
 `data/no-repos.json` has no `repos` key, and `data/repos-scalar.json`
 has one that is not an array.
 
-`modules/main.bras` does not run: importing from another file is not
-implemented, so it exits 70 with that message. It is pinned as exactly
-that failure, so it cannot sit here looking like working code, and so
-the pin fails and asks to be replaced on the day imports land.
+Run the multi-file example from its entry module:
+
+```sh
+brasa examples/modules/main.bras
+```
+
+`modules/utils.bras` is also checked and runnable on its own; it only
+declares members, so it produces no output.
 
 ## `real/`
 
@@ -68,6 +78,7 @@ measure the M4 stdlib against real work rather than to tour a feature.
 | `real/logstat.bras` | an awk/Python access-log summary | regex captures, `Map` aggregation, `sortBy`, `std::io`, `std::fs` |
 | `real/gitreport.bras` | a bash release-readiness script | `std::proc` (`run`/`tryRun`), `proc.NonZeroExit`, `proc.SpawnError`, `std::env` |
 | `real/lockaudit.bras` | a Python `flake.lock` auditor | `std::fs` walking and path helpers, `std::json`, `std::time` |
+| `real/tally.bras` | helper module imported by the report scripts | exported struct and shared `Map` counting/ranking helpers |
 
 Run them as:
 
@@ -78,7 +89,9 @@ brasa examples/real/lockaudit.bras .
 brasa examples/real/lockaudit.bras examples/real/data/lockfixture
 ```
 
-`logstat.bras` and `lockaudit.bras` are pinned byte-for-byte in
+`tally.bras` is a declaration-only helper and is pinned to load and run
+silently on its own. `logstat.bras` and `lockaudit.bras` are pinned
+byte-for-byte in
 `crates/brasa/tests/programs.rs`, each against a committed fixture under
 `real/data/` so the expectation never moves with unrelated repository
 changes. `gitreport.bras` reads the live repository, so only its shape is

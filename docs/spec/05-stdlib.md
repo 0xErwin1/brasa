@@ -581,8 +581,8 @@ Signatures closed in M4 (BRS-34):
   source document's member order is not preserved.
 - `Json` is immutable after `parse`: assigning through an index
   (`data["a"] = x`) is a compile error.
-- Representation note (non-normative): both backends share one
-  immutable serde_json tree behind `Rc`; indexing hands out subtree
+- Representation note (non-normative): the VM holds one immutable
+  serde_json tree behind a shared handle; indexing hands out subtree
   copies, which is unobservable for an immutable value.
 
 ## `std::io`
@@ -611,9 +611,9 @@ Signatures closed in M4 (BRS-34):
   output stream (`EPIPE`) is a silent successful exit, like the
   prelude printers.
 - Testing note: a run is wired to three streams rather than reaching
-  for the process handles directly, so the library-level parity harness
-  injects stdin and captures stderr, and pins `eprint` and the readers
-  on every backend leg. CLI-level tests keep pinning the wiring itself —
+  for the process handles directly, so the VM conformance harness
+  injects stdin and captures stderr, and pins `eprint` and the readers.
+  CLI-level tests keep pinning the wiring itself —
   that `brasa` hands the REAL process streams to the run.
 
 ## `std::math`, `std::time`, `std::rand`
@@ -644,8 +644,8 @@ Signatures closed in M4 (BRS-35):
   `now`/`nowMillis` read the wall clock (no monotonicity guarantee
   beyond the clock's own).
 - **`rand`** — a per-run deterministic PRNG (xoshiro256\*\*, seeded
-  through SplitMix64; documented, not cryptographic) shared by both
-  backends, so a seeded sequence is reproducible everywhere.
+  through SplitMix64; documented, not cryptographic), so a seeded
+  sequence is reproducible across runs.
   `seed(n: int)` resets the state deterministically; an unseeded run
   starts from clock entropy. `int(r: Range): int` is uniform over the
   range's values (`0..10` and `0..=10` both work); an empty range
@@ -710,10 +710,11 @@ their order, and the receiver is never read again after the snapshot.
   error-set HOF transparency: a literal lambda argument contributes
   its own error-set (`docs/spec/04-errors.md`), like `map`/`filter`.
 - **Prelude (verified complete)** — always available without imports:
-  `puts`, `print`, `Option`/`Some`/`None`, the `Vector`/`Map`/`Set`
-  types with the `Set(...)` constructor, ranges, every primitive and
-  collection method above, and the predeclared `Json` type name
-  (BRS-34; the `json` module members still need `import std::json`).
+  `puts`, `print`, `assert`, `assertEq`, `Option`/`Some`/`None`, the
+  `Vector`/`Map`/`Set` types with the `Set(...)` constructor, ranges,
+  every primitive and collection method above, and the predeclared
+  `Json` type name (BRS-34; the `json` module members still need
+  `import std::json`).
 
 Signatures closed in BRS-53:
 
@@ -745,8 +746,8 @@ Also `std::re`. Regex is a string feature here — `match?`, `captures`,
 `replaceRe`, and `scan` above — and patterns are already compiled once
 and cached per run, so a `Regex` value would buy no reuse that the
 string methods do not already get. It would cost a compiler-known type:
-a `BuiltinType`, a resolver entry, a member table, a value
-representation, `toString`, `==`, and an implementation in both
-backends. Revisit if something needs a pattern as a first-class value.
+a `BuiltinType`, a resolver entry, a member table, a value representation,
+`toString`, `==`, and a VM implementation. Revisit if something needs a
+pattern as a first-class value.
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.
