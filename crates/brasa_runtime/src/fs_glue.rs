@@ -49,6 +49,7 @@
 //!   all follow). Acceptable single-threaded scripting semantics; an
 //!   overlay cwd was rejected as complexity without a consumer.
 
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use brasa_resolver::{FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND};
@@ -265,14 +266,7 @@ pub fn try_walk(path: &str, prune: &[String]) -> FsResult<(Vec<String>, Vec<Stri
     // directories whose names differ only in bytes that are not valid
     // UTF-8 render the same and would collapse into one, undercounting
     // the very thing this field is for.
-    unreadable.sort_by(by_bytes);
-
-    // Deduplicated by the same relation it was sorted by. `PathBuf`'s
-    // own `PartialEq` compares components, so `a//b` equals `a/b` while
-    // sorting apart — `dedup` needs equal elements adjacent, and only
-    // matching the two keeps that true if a path ever arrives
-    // unnormalized.
-    unreadable.dedup_by(|a, b| a.as_os_str() == b.as_os_str());
+    collapse_unreadable(&mut unreadable);
 
     let rendered = |paths: Vec<PathBuf>| paths.iter().map(|path| lossy(path)).collect();
 
@@ -297,6 +291,90 @@ fn try_walk_into(
     try_walk_entries(entries, dir, prune, paths, unreadable);
 }
 
+/// Sorts the skipped-place list and collapses repeats.
+///
+/// A directory names its whole skipped subtree, so it is worth saying
+/// once. Without this, one whose entries individually failed to
+/// enumerate would appear once per failure, and a caller counting
+/// `unreadable.len()` as "places I could not reach" would be wrong.
+///
+/// Sorted and deduplicated as raw bytes rather than as rendered
+/// strings: two directories whose names differ only in bytes that are
+/// not valid UTF-8 render the same and would collapse into one,
+/// undercounting the very thing this field is for. The two relations
+/// have to match, because `dedup` only removes ADJACENT equals, and
+/// `PathBuf`'s own `PartialEq` compares components — so `a//b` equals
+/// `a/b` while sorting apart.
+fn collapse_unreadable(unreadable: &mut Vec<PathBuf>) {
+    unreadable.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    unreadable.dedup_by(|a, b| a.as_os_str() == b.as_os_str());
+}
+
+/// What one directory entry turned out to be, once both reads that can
+/// fail have been attempted.
+///
+/// Named as data so [`place_entry`] can decide without touching the
+/// filesystem: the two failure cases are produced by no fixture on any
+/// platform, and separating the decision from the I/O is the only way
+/// they are reachable from a test at all.
+#[derive(Debug)]
+enum Classified {
+    /// The entry itself could not be read. It carries no path of its
+    /// own, so the directory holding it is what gets named.
+    Unreadable,
+    /// The entry exists but its kind could not be read.
+    Untypable(PathBuf),
+    Dir {
+        name: OsString,
+        path: PathBuf,
+    },
+    File(PathBuf),
+}
+
+/// What the caller must do after an entry has been placed.
+#[derive(Debug, PartialEq, Eq)]
+enum Placement {
+    Done,
+    Descend(PathBuf),
+}
+
+/// Records one classified entry, and reports whether the walk has to
+/// descend into it.
+fn place_entry(
+    entry: Classified,
+    dir: &Path,
+    prune: &[String],
+    paths: &mut Vec<PathBuf>,
+    unreadable: &mut Vec<PathBuf>,
+) -> Placement {
+    match entry {
+        Classified::Unreadable => {
+            unreadable.push(dir.to_path_buf());
+            Placement::Done
+        }
+        // Recorded before the prune list is consulted, and it has to
+        // be: pruning applies to directories, and an entry whose kind
+        // cannot be read is not known to be one. Reporting a pruned
+        // name that failed to stat is the lesser wrong — the caller
+        // learns something it can check, rather than having a failure
+        // hidden under a rule that may not even apply.
+        Classified::Untypable(path) => {
+            unreadable.push(path);
+            Placement::Done
+        }
+        Classified::Dir { name, path } => {
+            if prune.iter().any(|skip| skip.as_str() == name) {
+                return Placement::Done;
+            }
+            Placement::Descend(path)
+        }
+        Classified::File(path) => {
+            paths.push(path);
+            Placement::Done
+        }
+    }
+}
+
 /// The loop body, split out so the root can be walked from an iterator
 /// its caller already opened (see [`try_walk`]).
 fn try_walk_entries(
@@ -307,32 +385,20 @@ fn try_walk_entries(
     unreadable: &mut Vec<PathBuf>,
 ) {
     for entry in entries {
-        // A failed entry carries no path of its own, so the directory
-        // holding it is what gets named. `try_walk` deduplicates, so a
-        // directory with several such entries is still one report.
-        let Ok(entry) = entry else {
-            unreadable.push(dir.to_path_buf());
-            continue;
-        };
-        // Recorded before the prune list is consulted, and it has to
-        // be: pruning applies to directories, and an entry whose kind
-        // cannot be read is not known to be one. Reporting a pruned
-        // name that failed to stat is the lesser wrong — the caller
-        // learns something it can check, rather than having a failure
-        // hidden under a rule that may not even apply.
-        let Ok(file_type) = entry.file_type() else {
-            unreadable.push(entry.path());
-            continue;
+        let classified = match entry {
+            Err(_) => Classified::Unreadable,
+            Ok(entry) => match entry.file_type() {
+                Err(_) => Classified::Untypable(entry.path()),
+                Ok(file_type) if file_type.is_dir() => Classified::Dir {
+                    name: entry.file_name(),
+                    path: entry.path(),
+                },
+                Ok(_) => Classified::File(entry.path()),
+            },
         };
 
-        if file_type.is_dir() {
-            let name = entry.file_name();
-            if prune.iter().any(|skip| skip.as_str() == name) {
-                continue;
-            }
-            try_walk_into(&entry.path(), prune, paths, unreadable);
-        } else {
-            paths.push(entry.path());
+        if let Placement::Descend(path) = place_entry(classified, dir, prune, paths, unreadable) {
+            try_walk_into(&path, prune, paths, unreadable);
         }
     }
 }
@@ -473,4 +539,163 @@ fn current_dir() -> FsResult<PathBuf> {
 
 pub fn cd(path: &str) -> FsResult<()> {
     std::env::set_current_dir(path).map_err(|err| fs_err("cd to", path, err))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BRS-107: the two failure arms of entry classification are
+    /// produced by no filesystem fixture on any platform — a `DirEntry`
+    /// that fails to iterate and a `file_type()` that fails need the OS
+    /// to fail mid-enumeration. Separating the decision from the I/O is
+    /// what makes them reachable at all, and these are the tests that
+    /// separation exists for.
+    fn place(
+        entry: Classified,
+        dir: &str,
+        prune: &[String],
+    ) -> (Vec<PathBuf>, Vec<PathBuf>, Placement) {
+        let mut paths = Vec::new();
+        let mut unreadable = Vec::new();
+        let placement = place_entry(entry, Path::new(dir), prune, &mut paths, &mut unreadable);
+
+        (paths, unreadable, placement)
+    }
+
+    #[test]
+    fn an_entry_that_cannot_be_read_names_the_directory_holding_it() {
+        let (paths, unreadable, placement) = place(Classified::Unreadable, "/tree/sub", &[]);
+
+        assert!(paths.is_empty());
+        assert_eq!(unreadable, vec![PathBuf::from("/tree/sub")]);
+        assert_eq!(placement, Placement::Done);
+    }
+
+    #[test]
+    fn an_entry_whose_kind_cannot_be_read_names_itself() {
+        let (paths, unreadable, placement) = place(
+            Classified::Untypable(PathBuf::from("/tree/sub/odd")),
+            "/tree/sub",
+            &[],
+        );
+
+        assert!(paths.is_empty());
+        assert_eq!(
+            unreadable,
+            vec![PathBuf::from("/tree/sub/odd")],
+            "the entry names itself, not its parent: it has a path of its own"
+        );
+        assert_eq!(placement, Placement::Done);
+    }
+
+    /// The deliberate ordering the code documents: an entry whose kind
+    /// cannot be read is recorded BEFORE the prune list is consulted,
+    /// because pruning applies to directories and such an entry is not
+    /// known to be one. A refactor could silently invert this.
+    #[test]
+    fn an_untypable_entry_is_recorded_even_when_its_name_is_pruned() {
+        let prune = vec!["target".to_string()];
+        let (_, unreadable, _) = place(
+            Classified::Untypable(PathBuf::from("/tree/target")),
+            "/tree",
+            &prune,
+        );
+
+        assert_eq!(
+            unreadable,
+            vec![PathBuf::from("/tree/target")],
+            "a failure must not be hidden under a rule that may not apply"
+        );
+    }
+
+    #[test]
+    fn a_pruned_directory_is_neither_walked_nor_reported() {
+        let prune = vec!["target".to_string()];
+        let (paths, unreadable, placement) = place(
+            Classified::Dir {
+                name: OsString::from("target"),
+                path: PathBuf::from("/tree/target"),
+            },
+            "/tree",
+            &prune,
+        );
+
+        assert!(paths.is_empty());
+        assert!(
+            unreadable.is_empty(),
+            "a pruned directory was skipped on request, not skipped by failure"
+        );
+        assert_eq!(placement, Placement::Done);
+    }
+
+    #[test]
+    fn an_unpruned_directory_is_descended_into() {
+        let (paths, unreadable, placement) = place(
+            Classified::Dir {
+                name: OsString::from("src"),
+                path: PathBuf::from("/tree/src"),
+            },
+            "/tree",
+            &[],
+        );
+
+        assert!(paths.is_empty(), "a directory is not itself a result");
+        assert!(unreadable.is_empty());
+        assert_eq!(placement, Placement::Descend(PathBuf::from("/tree/src")));
+    }
+
+    #[test]
+    fn a_file_is_collected() {
+        let (paths, unreadable, placement) =
+            place(Classified::File(PathBuf::from("/tree/a.txt")), "/tree", &[]);
+
+        assert_eq!(paths, vec![PathBuf::from("/tree/a.txt")]);
+        assert!(unreadable.is_empty());
+        assert_eq!(placement, Placement::Done);
+    }
+
+    /// BRS-107: `unreadable`'s only producer of repeats is several
+    /// failed entries in one directory, which is the arm above. The
+    /// spec promises `unreadable.len()` counts PLACES skipped, so the
+    /// collapse is what makes that promise true.
+    #[test]
+    fn repeated_failures_in_one_directory_collapse_to_one_place() {
+        let mut unreadable = vec![
+            PathBuf::from("/tree/b"),
+            PathBuf::from("/tree/a"),
+            PathBuf::from("/tree/b"),
+            PathBuf::from("/tree/b"),
+        ];
+
+        collapse_unreadable(&mut unreadable);
+
+        assert_eq!(
+            unreadable,
+            vec![PathBuf::from("/tree/a"), PathBuf::from("/tree/b")]
+        );
+    }
+
+    /// Sorted and deduplicated as bytes, not as rendered strings. Two
+    /// names differing only in bytes that are not valid UTF-8 render
+    /// identically, and collapsing them would undercount the very thing
+    /// the field is for.
+    #[test]
+    #[cfg(unix)]
+    fn two_names_that_render_alike_stay_two_places() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let one = PathBuf::from(OsString::from_vec(b"/tree/\xf0".to_vec()));
+        let other = PathBuf::from(OsString::from_vec(b"/tree/\xf1".to_vec()));
+        assert_eq!(
+            lossy(&one),
+            lossy(&other),
+            "the premise: these render the same"
+        );
+
+        let mut unreadable = vec![one.clone(), other.clone(), one.clone()];
+        collapse_unreadable(&mut unreadable);
+
+        assert_eq!(unreadable.len(), 2, "rendering alike must not merge them");
+    }
 }
