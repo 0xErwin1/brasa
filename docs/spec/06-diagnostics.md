@@ -132,6 +132,7 @@ file named by an `import` could not be turned into a module.
 | `M001` | unreadable import | ``cannot read imported file `util.bras`: No such file or directory`` |
 | `M002` | import cycle | `import cycle: a -> b -> a` |
 | `M003` | imports too deep | `import chain is deeper than 128 files and was not followed` |
+| `M004` | module not found | ``cannot find module `text::slug` on the search path`` |
 
 Notes on kind boundaries:
 
@@ -141,6 +142,9 @@ Notes on kind boundaries:
 - The entry file's own read failure is not an `M` code. It never reached
   the loader — the CLI refuses an unreadable script before compiling
   anything, and exits 65 with a plain message.
+- `M004` names the roots it searched. Without them the reader cannot
+  tell a missing dependency from a misconfigured `BRASA_PATH`, which is
+  the only thing the error is really about.
 
 ### Resolver (`R`)
 
@@ -153,7 +157,7 @@ Notes on kind boundaries:
 | `R005` | ambiguous constructor | ``ambiguous constructor `Red` `` |
 | `R006` | duplicate definition | ``duplicate definition of `x` `` |
 | `R007` | `self` outside a method | `` `self` outside a method`` |
-| `R008` | unknown import root | ``unknown import root `sys::io` `` |
+| `R008` | *(retired)* unknown import root | — |
 | `R009` | unknown std module | ``unknown std module `netz` `` |
 | `R010` | constraint is not an interface | `` `Point` is not an interface`` |
 | `R011` | unknown panic | ``unknown panic `panics.Nope` `` |
@@ -187,9 +191,12 @@ Notes on kind boundaries:
   import is not re-exported, so reaching through one module's import to
   another module is the first case, not the second: there is no `pub
   import` to suggest.
-- `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
-  path naming no known module) are distinct lookups and keep distinct
-  codes.
+- `R008` is **retired**. A `::` path whose root is not `std` used to be
+  rejected outright; since the search path landed, any root may name a
+  module, and one that resolves to nothing is `M004` — a loader failure,
+  not a resolver one. Codes are append-only, so the number stays spent.
+  `R009` remains: `std` is a closed list, so a typo there is a different
+  mistake from a module that is merely not installed.
 - `R011` and `R012` cover the closed builtin `catch`-arm namespaces:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
   stdlib-error names (`string.ParseError`, `string.RegexError`,

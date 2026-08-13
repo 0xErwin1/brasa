@@ -60,6 +60,8 @@ pub const M_UNREADABLE_IMPORT: &str = "M001";
 pub const M_IMPORT_CYCLE: &str = "M002";
 /// An import chain deeper than the loader follows.
 pub const M_IMPORTS_TOO_DEEP: &str = "M003";
+/// A `::` import naming no file under any search-path root.
+pub const M_MODULE_NOT_FOUND: &str = "M004";
 
 // --- resolver (R) ---
 
@@ -81,7 +83,10 @@ pub const R_AMBIGUOUS_CONSTRUCTOR: &str = "R005";
 pub const R_DUPLICATE_DEFINITION: &str = "R006";
 /// `self` used outside a function taking a `self` parameter.
 pub const R_SELF_OUTSIDE_METHOD: &str = "R007";
-/// A `::` import whose first segment is not `std`.
+/// Retired. A `::` import whose first segment is not `std` used to be
+/// rejected outright; since BRS-102 any root may name a module on the
+/// search path, and a root that resolves to nothing is `M004`. Codes are
+/// append-only, so the constant stays and the number is never reused.
 pub const R_UNKNOWN_IMPORT_ROOT: &str = "R008";
 /// A `std::` import naming no known std module.
 pub const R_UNKNOWN_STD_MODULE: &str = "R009";
@@ -254,6 +259,7 @@ mod tests {
         super::M_UNREADABLE_IMPORT,
         super::M_IMPORT_CYCLE,
         super::M_IMPORTS_TOO_DEEP,
+        super::M_MODULE_NOT_FOUND,
         super::R_UNKNOWN_NAME,
         super::R_USE_BEFORE_DEF,
         super::R_UNKNOWN_TYPE,

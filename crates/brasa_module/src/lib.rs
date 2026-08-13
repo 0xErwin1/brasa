@@ -95,16 +95,18 @@ const MAX_IMPORT_DEPTH: usize = 128;
 /// imported file) lands in [`Program::diagnostics`] and still produces a
 /// module list, so one run reports every problem it can see.
 pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
+    let canonical = canonicalize(entry);
+
     let mut loader = Loader {
         sources,
         lowerer: Lowerer::new(),
+        search_path: search_path(&canonical),
         modules: Vec::new(),
         loaded: HashMap::new(),
         stack: Vec::new(),
         diagnostics: Vec::new(),
     };
 
-    let canonical = canonicalize(entry);
     let entry_ix = loader
         .load_file(&canonical, None, 0)
         .unwrap_or_else(|| loader.push_empty(canonical));
@@ -121,6 +123,39 @@ pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
         sugar_origins,
         diagnostics,
     }
+}
+
+/// Where a `::` import is looked for, in priority order: every entry of
+/// `BRASA_PATH`, then a `lib` directory beside the executed file.
+///
+/// Two deliberate limits. There is no manifest — a standalone file has
+/// to keep running with no project around it
+/// (`docs/spec/00-vision.md`), so a manifest could only ever be
+/// optional, and an optional one is not worth its weight yet. And there
+/// is no walk up the ancestors looking for a `lib`: implicit project
+/// roots are surprising when they fire and worse when they do not, and
+/// a shared directory is one `BRASA_PATH` entry away. Both omissions
+/// are additive later; neither would be removable.
+///
+/// Resolution is anchored to the EXECUTED file, not to the importing
+/// one, so a library's own `::` imports mean the same thing wherever
+/// the library sits.
+fn search_path(entry: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(configured) = std::env::var_os("BRASA_PATH") {
+        roots.extend(
+            std::env::split_paths(&configured)
+                .filter(|path| !path.as_os_str().is_empty())
+                .map(|path| canonicalize(&path)),
+        );
+    }
+
+    if let Some(dir) = entry.parent() {
+        roots.push(canonicalize(&dir.join("lib")));
+    }
+
+    roots
 }
 
 /// The canonical form of a path, or the path itself when the OS cannot
@@ -140,9 +175,19 @@ fn module_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// One import, reduced to how it has to be resolved.
+enum Request {
+    /// `import "foo.bras"`, relative to the importing file.
+    Relative(String),
+    /// `import lib::helpers`, looked up on the search path.
+    Search(Vec<String>),
+}
+
 struct Loader<'a> {
     sources: &'a mut SourceMap,
     lowerer: Lowerer,
+    /// Where a `::` import is looked for, in priority order.
+    search_path: Vec<PathBuf>,
     modules: Vec<Module>,
     /// Canonical path to the module it produced, so a file reached twice
     /// is loaded once.
@@ -244,7 +289,9 @@ impl Loader<'_> {
         Some(ix)
     }
 
-    /// Follows every file import declared by one module.
+    /// Follows every import declared by one module that names a file:
+    /// a relative `import "..."`, and a `::` path whose root is not
+    /// `std`.
     fn load_imports(
         &mut self,
         importer: &Path,
@@ -253,21 +300,26 @@ impl Loader<'_> {
     ) -> HashMap<ItemId, usize> {
         let mut imports = HashMap::new();
 
-        let file_imports: Vec<(ItemId, String, Span)> = roots
+        let requests: Vec<(ItemId, Request, Span)> = roots
             .iter()
             .filter_map(|&root| {
                 let Item::Import(import) = self.lowerer.hir().item(root) else {
                     return None;
                 };
-                let ImportPath::File(path) = &import.path else {
-                    return None;
+
+                let request = match &import.path {
+                    ImportPath::File(path) => Request::Relative(path.clone()),
+                    // `std::` names builtins, never a file.
+                    _ if import.path.std_module().is_some() => return None,
+                    ImportPath::Path(segments) => Request::Search(segments.clone()),
                 };
-                Some((root, path.clone(), self.lowerer.hir().span_of_item(root)))
+
+                Some((root, request, self.lowerer.hir().span_of_item(root)))
             })
             .collect();
 
-        for (root, raw, span) in file_imports {
-            let Some(target) = self.resolve_import(importer, &raw, span, depth) else {
+        for (root, request, span) in requests {
+            let Some(target) = self.resolve_request(importer, &request, span, depth) else {
                 continue;
             };
 
@@ -279,12 +331,12 @@ impl Loader<'_> {
         imports
     }
 
-    /// Turns one `import "path"` into the canonical path it names, or
-    /// reports why it cannot be followed.
-    fn resolve_import(
+    /// Turns one import into the canonical path it names, whichever
+    /// spelling it used, and rejects a cycle before following it.
+    fn resolve_request(
         &mut self,
         importer: &Path,
-        raw: &str,
+        request: &Request,
         span: Span,
         depth: usize,
     ) -> Option<PathBuf> {
@@ -302,11 +354,10 @@ impl Loader<'_> {
             return None;
         }
 
-        // "relative to the importing file" (`docs/spec/01-syntax.md`).
-        // An absolute path in an import is not spelled by the spec, and
-        // `join` already takes it verbatim.
-        let base = importer.parent().unwrap_or_else(|| Path::new("."));
-        let target = canonicalize(&base.join(raw));
+        let target = match request {
+            Request::Relative(raw) => self.resolve_relative(importer, raw),
+            Request::Search(segments) => self.resolve_on_search_path(segments, span)?,
+        };
 
         if let Some(position) = self.stack.iter().position(|entry| entry == &target) {
             self.report_cycle(position, &target, span);
@@ -314,6 +365,57 @@ impl Loader<'_> {
         }
 
         Some(target)
+    }
+
+    /// `import "foo.bras"`: relative to the importing file
+    /// (`docs/spec/01-syntax.md`). An absolute path is taken verbatim,
+    /// which `join` already does.
+    fn resolve_relative(&self, importer: &Path, raw: &str) -> PathBuf {
+        let base = importer.parent().unwrap_or_else(|| Path::new("."));
+        canonicalize(&base.join(raw))
+    }
+
+    /// `import lib::helpers`: `lib/helpers.bras` under the first search
+    /// root that has it.
+    ///
+    /// First match wins, so the roots are a priority list. Reporting the
+    /// roots that were tried is the whole content of the failure — "not
+    /// found" without them leaves the reader guessing which directories
+    /// the compiler even looked in.
+    fn resolve_on_search_path(&mut self, segments: &[String], span: Span) -> Option<PathBuf> {
+        let relative = segments.iter().collect::<PathBuf>().with_extension("bras");
+
+        for root in &self.search_path {
+            let candidate = root.join(&relative);
+            if candidate.is_file() {
+                return Some(canonicalize(&candidate));
+            }
+        }
+
+        let path = segments.join("::");
+        let tried: Vec<String> = self
+            .search_path
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect();
+
+        let message = format!("cannot find module `{path}` on the search path");
+        let mut diagnostic = self.error(codes::M_MODULE_NOT_FOUND, span, message, "no such module");
+        diagnostic = if tried.is_empty() {
+            diagnostic.with_note(
+                "the search path is empty: set `BRASA_PATH`, or put the module under a `lib` directory beside the script"
+                    .to_string(),
+            )
+        } else {
+            diagnostic.with_note(format!(
+                "looked for `{}` under: {}",
+                relative.display(),
+                tried.join(", ")
+            ))
+        };
+        self.diagnostics.push(diagnostic);
+
+        None
     }
 
     /// Reports an import cycle, naming every file on it in the order the

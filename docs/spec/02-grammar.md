@@ -55,8 +55,9 @@ program     = NL? item ( NL item )* NL? EOF
 item        = import | func_def | struct_def | enum_def | interface_def
             | top_let | stmt
 
-import      = "import" ( std_path | STRING )
-std_path    = IDENT ( "::" IDENT )+        # import std::fs; aliased roots in the future
+import      = "import" ( module_path | STRING )
+module_path = IDENT ( "::" IDENT )+        # std::fs is the stdlib; any other root is
+                                            # a module on the search path
                                             # STRING: file path, relative to the importer
 
 top_let     = "pub"? let_stmt

@@ -39,7 +39,7 @@ fn line(out: &mut String, depth: usize, text: &str) {
 fn dump_item(ast: &Ast, id: ItemId, depth: usize, out: &mut String) {
     match ast.item(id) {
         Item::Import(import) => match &import.path {
-            ImportPath::Std(segments) => {
+            ImportPath::Path(segments) => {
                 line(out, depth, &format!("Import::Std({})", segments.join("::")));
             }
             ImportPath::File(path) => {

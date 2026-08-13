@@ -100,7 +100,7 @@ pub(crate) fn builtin_type(name: &str) -> Option<BuiltinType> {
 /// the parser already reported).
 pub(crate) fn import_binding_name(import: &Import) -> Option<&str> {
     match &import.path {
-        ImportPath::Std(segments) => segments
+        ImportPath::Path(segments) => segments
             .last()
             .map(String::as_str)
             .filter(|s| !s.is_empty()),
@@ -419,21 +419,20 @@ impl<'h> Resolver<'h> {
         seen
     }
 
+    /// Validates a `::` import.
+    ///
+    /// Only the `std` root is this crate's business: its modules are a
+    /// closed builtin list. Every other root names a file the module
+    /// loader resolves on the search path, and the loader has already
+    /// reported anything it could not find — re-rejecting it here would
+    /// be a second diagnostic for one mistake, and rejecting it as an
+    /// "unknown root" would be wrong outright.
     fn check_import(&mut self, import: &Import, span: Span) {
-        let ImportPath::Std(segments) = &import.path else {
+        let ImportPath::Path(segments) = &import.path else {
             return;
         };
 
         if segments.first().map(String::as_str) != Some("std") {
-            self.error(
-                err_at(
-                    codes::R_UNKNOWN_IMPORT_ROOT,
-                    span,
-                    format!("unknown import root `{}`", segments.join("::")),
-                    "expected `std::` or a file path",
-                )
-                .with_note("only `std::` imports and file imports exist in v1".to_string()),
-            );
             return;
         }
 

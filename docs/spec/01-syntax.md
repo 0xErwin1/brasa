@@ -326,9 +326,25 @@ fs.read("data.txt")
 - **Import cycles are a compile error** (`a.bras` imports
   `b.bras` which imports `a.bras`): top-level `let`s evaluate on
   import and a cycle has no sound order.
-- Future (requires a project file): user-defined path aliases in
-  `std::` style (e.g. `import lib::helpers`), and
-  possibly `import ... as alias` for name collisions. Out of v1.
+- **`::` paths beyond `std` name modules on a search path.**
+  `import text::slug` looks for `text/slug.bras` under each search root
+  in order, first match wins. The roots are every entry of `BRASA_PATH`,
+  then a `lib` directory beside the executed file — so vendoring into
+  `lib/` works with no configuration. The `std` root is reserved and is
+  never looked for on disk, so a directory named `std` cannot shadow the
+  standard library.
+
+  Resolution is anchored to the executed file, not to the importing one,
+  so a library's own `::` imports mean the same thing wherever the
+  library sits. A searched module is otherwise an ordinary module: it may
+  import its own dependencies relatively, and canonical-path identity
+  still applies, so reaching one two ways loads it once.
+
+  There is deliberately no project manifest — a standalone file has to
+  keep running with no project around it
+  ([00-vision.md](00-vision.md)) — and no walk up the ancestors looking
+  for a `lib`. Both are additive later; neither would be removable.
+- Future: `import ... as alias` for name collisions. Out of v1.
 
 ## Entry point and execution
 

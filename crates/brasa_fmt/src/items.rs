@@ -60,7 +60,7 @@ impl<'a> Printer<'a> {
         match ast.item(id) {
             Item::Import(import) => {
                 let path = match &import.path {
-                    ImportPath::Std(segments) => segments.join("::"),
+                    ImportPath::Path(segments) => segments.join("::"),
                     ImportPath::File(path) => format!("\"{}\"", path.replace('\\', "\\\\")),
                 };
                 format!("{}import {path}", indent_of(level))

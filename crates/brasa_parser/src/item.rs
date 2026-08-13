@@ -97,7 +97,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            ImportPath::Std(segments)
+            ImportPath::Path(segments)
         };
 
         let end = self.prev_span();

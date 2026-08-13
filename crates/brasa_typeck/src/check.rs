@@ -25,9 +25,9 @@ use std::collections::{HashMap, HashSet};
 use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, BinaryOp, CatchArm, CatchType, Constraint, EnumDef, Expr, ExprId, FuncDef,
-    GenericParam, Hir, IfNode, IfaceMember, ImportPath, Item, ItemId, LambdaBody, LambdaParam,
-    Literal, MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId,
-    UnaryOp, Variant,
+    GenericParam, Hir, IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal,
+    MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp,
+    Variant,
 };
 use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
@@ -1435,10 +1435,7 @@ impl<'a> Checker<'a> {
             return None;
         };
 
-        match &import.path {
-            ImportPath::Std(segments) => segments.last().cloned(),
-            ImportPath::File(_) => None,
-        }
+        import.path.std_module().map(str::to_string)
     }
 
     fn check_field(&mut self, id: ExprId, recv: ExprId, name: &str) -> Type {

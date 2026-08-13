@@ -448,21 +448,21 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
         return;
     };
 
-    let is_std = matches!(&import.path, ImportPath::Std(_));
-    let module = match &import.path {
-        ImportPath::Std(segments) => segments.last().cloned().unwrap_or_default(),
-        ImportPath::File(path) => std::path::Path::new(path)
+    // Only `std::x` is a builtin namespace. Every other `::` path
+    // names a file module resolved on the search path, and its members
+    // are ordinary items the resolver already settled — treating one as
+    // std would bind the standard library's `fs` to someone else's code.
+    let std_module = import.path.std_module().map(str::to_string);
+    let module = match (&std_module, &import.path) {
+        (Some(module), _) => module.clone(),
+        (None, ImportPath::Path(segments)) => segments.last().cloned().unwrap_or_default(),
+        (None, ImportPath::File(path)) => std::path::Path::new(path)
             .file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.clone()),
     };
 
-    if is_std
-        && matches!(
-            module.as_str(),
-            "math" | "proc" | "env" | "fs" | "json" | "io" | "time" | "rand"
-        )
-    {
+    if std_module.is_some() {
         if let Some(builtin) = builtin_id(&format!("{module}.{name}")) {
             for &arg in args {
                 compile_expr(f, arg);

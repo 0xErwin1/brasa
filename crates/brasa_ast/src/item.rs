@@ -7,12 +7,36 @@ use crate::{Block, StmtId, TypeExprId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportPath {
-    /// `import std::fs`: `["std", "fs"]`, in source order (the leading
-    /// `std` segment is part of `std_path` itself, per the grammar).
-    Std(Vec<String>),
+    /// A `::` path, in source order: `import std::fs` is
+    /// `["std", "fs"]`, `import lib::helpers` is `["lib", "helpers"]`.
+    ///
+    /// The root decides what it names. `std` is reserved for the
+    /// standard library and is never looked for on disk; every other
+    /// root is a module resolved against the search path
+    /// (`docs/spec/01-syntax.md`, modules).
+    Path(Vec<String>),
     /// `import "utils.bras"` / `import "./sub/helpers.bras"`, resolved
     /// relative to the importing file.
     File(String),
+}
+
+impl ImportPath {
+    /// The std module this import names, or `None` for anything else.
+    ///
+    /// Shared rather than re-derived per phase because the answer is not
+    /// "is it a `::` path" — `lib::fs` is a `::` path naming a file
+    /// module, and treating it as `std::fs` would silently bind the
+    /// standard library's `fs` to someone else's code.
+    pub fn std_module(&self) -> Option<&str> {
+        let ImportPath::Path(segments) = self else {
+            return None;
+        };
+
+        match segments.as_slice() {
+            [root, module] if root == "std" => Some(module),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

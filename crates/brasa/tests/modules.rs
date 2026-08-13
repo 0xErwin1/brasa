@@ -10,8 +10,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 fn brasa(entry: &Path) -> Output {
+    // `BRASA_PATH` is cleared rather than inherited: a developer who has
+    // one set would otherwise be running a different search path from
+    // CI, and the search-path tests below would mean nothing.
     Command::new(env!("CARGO_BIN_EXE_brasa"))
         .arg(entry)
+        .env_remove("BRASA_PATH")
         .stdin(Stdio::null())
         .output()
         .expect("failed to spawn brasa")
@@ -623,4 +627,153 @@ fn a_member_access_on_a_value_is_not_read_as_a_path() {
 
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     assert_eq!(stdout(&output), "5\n10\n");
+}
+
+// --- the module search path (BRS-102) --------------------------------
+
+fn brasa_with_path(entry: &Path, search_path: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_brasa"))
+        .arg(entry)
+        .env("BRASA_PATH", search_path)
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to spawn brasa")
+}
+
+/// A `lib` directory beside the executed file is on the search path with
+/// no configuration at all, which is what makes vendoring work.
+#[test]
+fn a_lib_directory_beside_the_script_is_searched() {
+    let dir = temp_dir("search-lib");
+    write(
+        &dir,
+        "lib/text/slug.bras",
+        "pub def slugify(s: string): string\n  s.trim().toLower().replace(\" \", \"-\")\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        "import text::slug\nputs slug.slugify(\"Hola Mundo\")\n",
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "hola-mundo\n");
+}
+
+#[test]
+fn brasa_path_entries_are_searched_in_order() {
+    let dir = temp_dir("search-order");
+    write(
+        &dir,
+        "first/pick/me.bras",
+        "pub def who(): string\n  \"first\"\nend\n",
+    );
+    write(
+        &dir,
+        "second/pick/me.bras",
+        "pub def who(): string\n  \"second\"\nend\n",
+    );
+    let main = write(&dir, "main.bras", "import pick::me\nputs me.who()\n");
+
+    let path = format!(
+        "{}:{}",
+        dir.join("first").display(),
+        dir.join("second").display()
+    );
+    let output = brasa_with_path(&main, &path);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "first\n", "the first root wins");
+}
+
+/// `std` is reserved: it names builtins and is never looked for on disk,
+/// so a directory called `std` cannot shadow the standard library.
+#[test]
+fn a_std_directory_on_the_search_path_does_not_shadow_the_stdlib() {
+    let dir = temp_dir("search-std");
+    write(
+        &dir,
+        "lib/std/math.bras",
+        "pub def abs(x: int): int\n  99\nend\n",
+    );
+    let main = write(&dir, "main.bras", "import std::math\nputs math.abs(-3)\n");
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "3\n", "the real `math.abs` must be used");
+}
+
+/// The failure a user actually hits, and the one thing that makes it
+/// diagnosable: which directories were searched.
+#[test]
+fn a_module_missing_from_the_search_path_names_the_roots_it_tried() {
+    let dir = temp_dir("search-missing");
+    let main = write(&dir, "main.bras", "import nowhere::at_all\nputs 1\n");
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(65));
+    let stderr = stderr(&output);
+    assert!(stderr.contains("M004"), "got: {stderr}");
+    assert!(
+        stderr.contains("cannot find module `nowhere::at_all` on the search path"),
+        "got: {stderr}"
+    );
+    assert!(
+        stderr.contains("nowhere/at_all.bras") && stderr.contains("lib"),
+        "the roots searched must be named, got: {stderr}"
+    );
+}
+
+/// A searched module is a module like any other: it may import its own
+/// dependencies relatively, and identity still deduplicates.
+#[test]
+fn a_searched_module_may_import_relatively_and_stays_one_instance() {
+    let dir = temp_dir("search-nested");
+    write(
+        &dir,
+        "lib/pkg/helper.bras",
+        "puts \"helper loaded\"\npub let tag = \"h\"\n",
+    );
+    write(
+        &dir,
+        "lib/pkg/main.bras",
+        "import \"helper.bras\"\n\npub def label(): string\n  \"pkg-\" + helper.tag\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        "import pkg::main\nimport pkg::helper\nputs main.label()\nputs helper.tag\n",
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "helper loaded\npkg-h\nh\n",
+        "the helper is reached two ways and must load once"
+    );
+}
+
+/// A `std::` path naming no std module is still the resolver's `R009`,
+/// not a search-path miss: `std` is closed, so a typo there is a
+/// different mistake from a module that is merely not installed.
+#[test]
+fn an_unknown_std_module_is_still_reported_as_such() {
+    let dir = temp_dir("search-std-typo");
+    let main = write(&dir, "main.bras", "import std::netz\nputs 1\n");
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(65));
+    let stderr = stderr(&output);
+    assert!(stderr.contains("R009"), "got: {stderr}");
+    assert!(
+        stderr.contains("unknown std module `netz`"),
+        "got: {stderr}"
+    );
 }

@@ -35,8 +35,8 @@ use std::collections::HashMap;
 
 use brasa_diagnostics::Diagnostic;
 use brasa_hir::{
-    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, ImportPath, Item, ItemId,
-    LambdaBody, Stmt, StmtId,
+    ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, ItemId, LambdaBody, Stmt,
+    StmtId,
 };
 use brasa_resolver::{
     BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, JSON_PARSE_ERROR,
@@ -575,10 +575,7 @@ impl<'a> Collector<'a> {
             return None;
         };
 
-        match &import.path {
-            ImportPath::Std(segments) => segments.last().cloned(),
-            ImportPath::File(_) => None,
-        }
+        import.path.std_module().map(str::to_string)
     }
 }
 
