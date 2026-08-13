@@ -19,6 +19,41 @@ signatures are closed module by module during M4.
   `Option`/`Some`/`None`, `Vector`, `Map`,
   `Set`, ranges, and primitive type methods are always available.
 
+## `http` (`import std::http`)
+
+```ruby
+let r = http.get("https://api.example.com/repos", 5000)
+
+if r.status == 200
+  let data = json.parse(r.body)
+  ...
+end
+
+let kind = r.header("Content-Type") ?? "unknown"
+http.post(url, json.stringify(payload))
+```
+
+- `get(url: string, timeoutMs?: int)` and
+  `post(url: string, body: string, timeoutMs?: int)`, both returning the
+  compiler-known `Response` record: `status: int`, `body: string`, and
+  `header(name: string): Option<string>`.
+- **A non-2xx status is an ANSWER, not a failure.** A 404 is what the
+  caller asked for, so it arrives as a `Response` with the code, the
+  headers and the body — usually the part that says why. Only a request
+  that never produced a response — DNS, connection, TLS, timeout —
+  raises `http.RequestError`. This is the same split `std::proc` draws
+  between a non-zero exit and a `SpawnError`.
+- `header` is a **method**, not a `Map` field, so the lookup is
+  case-insensitive (HTTP header names are) and total (an absent header
+  is an ordinary `None`, answered with `??`).
+- `timeoutMs` defaults to 30 seconds. A script that forgets one still
+  terminates: an unbounded wait in automation is a hang nobody debugs.
+- The client is **blocking**. Brasa is synchronous, and an async runtime
+  would put a scheduler on the startup path and leak colored functions
+  into a language that has none.
+- Nothing in the TLS stack initializes before the first request, which
+  is what keeps cold start unmoved for the scripts that never make one.
+
 ## Assertions (prelude, no import needed)
 
 ```ruby

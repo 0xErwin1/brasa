@@ -10,6 +10,7 @@
 //! quietly disagree with the first about what a member does.
 
 pub mod fs_glue;
+pub mod http_glue;
 pub mod io_glue;
 pub mod json_glue;
 pub mod num_glue;

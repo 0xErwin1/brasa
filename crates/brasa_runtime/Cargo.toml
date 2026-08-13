@@ -10,3 +10,4 @@ edition.workspace = true
 brasa_resolver = { workspace = true }
 glob = { workspace = true }
 serde_json = { workspace = true }
+ureq = { workspace = true }

@@ -128,6 +128,13 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("proc.tryRun"),
     free("proc.shell"),
     free("proc.tryRunAll"),
+    free("http.get"),
+    free("http.post"),
+    // The `Response` record's members (BRS-113), like the `Output`
+    // and `Walk` field accessors below.
+    method("status"),
+    method("body"),
+    method("header"),
     free("env.get"),
     free("env.set"),
     free("env.vars"),

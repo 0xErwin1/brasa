@@ -839,6 +839,16 @@ fn every_std_module_has_a_runtime_behind_it() {
              end)",
             "-1\n",
         ),
+        // Port 1 is refused everywhere, so this reaches the module
+        // dispatch and its error namespace without needing a network
+        // or a server.
+        (
+            "http",
+            "puts(http.get(\"http://127.0.0.1:1/\").status catch (e)\n\
+             \x20 http.RequestError => -1\n\
+             end)",
+            "-1\n",
+        ),
         // A single-value range: random, but only one answer.
         ("rand", "puts(rand.int(5..6))", "5\n"),
         ("time", "puts(time.nowMillis() > 0)", "true\n"),
@@ -3990,6 +4000,56 @@ fn module_reaches(module: &brasa_bytecode::Module, builtin: brasa_bytecode::Buil
 /// `dir` is a scratch directory holding a read-only fixture at `ro/`
 /// (`ro/a.txt` and `ro/sub/b.txt`); the mutating `std::fs` snippets own
 /// disjoint paths under it and reset themselves.
+/// A loopback HTTP server that answers every request identically, for
+/// the `std::http` snippets.
+///
+/// Started once and left running for the process. Loopback only, so the
+/// corpus stays offline-safe: the alternative is either a network
+/// dependency, which makes the suite fail on a build machine with no
+/// route, or leaving `status`/`body`/`header` uncovered, which is what
+/// the cross-layer guard exists to prevent.
+fn http_probe_url() -> &'static str {
+    use std::io::{Read, Write};
+    use std::sync::OnceLock;
+
+    static URL: OnceLock<String> = OnceLock::new();
+
+    URL.get_or_init(|| {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is available");
+        let port = listener.local_addr().expect("the bound address").port();
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+
+                // The request is drained only far enough to reach the
+                // end of its headers; the body, if any, is irrelevant
+                // to a canned answer.
+                let mut seen = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read_exact(&mut byte).is_ok() {
+                    seen.push(byte[0]);
+                    if seen.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                let _ = stream.write_all(
+                    b"HTTP/1.1 201 Created\r\n\
+                      Content-Type: text/plain\r\n\
+                      Content-Length: 2\r\n\
+                      Connection: close\r\n\r\nok",
+                );
+                let _ = stream.flush();
+            }
+        });
+
+        format!("http://127.0.0.1:{port}/")
+    })
+    .as_str()
+}
+
 fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
     let math = "import std::math\n";
     let proc = "import std::proc\n";
@@ -3999,6 +4059,8 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
     let io = "import std::io\n";
     let time = "import std::time\n";
     let rand = "import std::rand\n";
+    let http = "import std::http\n";
+    let probe = http_probe_url();
 
     // A JSON document holding one node of every kind, for the accessors.
     let doc = concat!(
@@ -4288,6 +4350,37 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "proc.shell",
             format!("{proc}puts proc.shell(\"printf hi\").stdout\n"),
             "hi\n",
+        ),
+        (
+            "http.get",
+            // Port 1 is refused everywhere and needs no network, so the
+            // corpus stays offline-safe and deterministic. The error
+            // path is the only one a test can pin without a server.
+            "import std::http\nputs http.get(\"http://127.0.0.1:1/\").status catch (e)\n  http.RequestError => -1\nend\n".to_string(),
+            "-1\n",
+        ),
+        (
+            "http.post",
+            "import std::http\nputs http.post(\"http://127.0.0.1:1/\", \"body\").status catch (e)\n  http.RequestError => -1\nend\n".to_string(),
+            "-1\n",
+        ),
+        (
+            "status",
+            format!("{http}puts http.get(\"{probe}\").status\n"),
+            "201\n",
+        ),
+        (
+            "body",
+            format!("{http}puts http.get(\"{probe}\").body\n"),
+            "ok\n",
+        ),
+        (
+            "header",
+            // Asked with a different case than the server sent, because
+            // header names are case-insensitive and the lookup has to
+            // be too.
+            format!("{http}puts http.get(\"{probe}\").header(\"Content-Type\") ?? \"missing\"\n"),
+            "text/plain\n",
         ),
         (
             "proc.tryRunAll",

@@ -58,6 +58,16 @@ pub enum Type {
     /// `stdout: string`, `stderr: string`, `code: int`. Native — not
     /// user-constructible and not a pattern.
     ProcOutput,
+    /// The compiler-known `Response` record returned by `std::http`
+    /// (`docs/spec/05-stdlib.md`, BRS-113): the fields `status: int` and
+    /// `body: string`, plus a `header(name: string): Option<string>`
+    /// method. Native like `Output` — not user-constructible and not a
+    /// pattern.
+    ///
+    /// Headers are a METHOD rather than a `Map` field so the lookup can
+    /// be case-insensitive and total, which is what an HTTP caller
+    /// wants, and so the runtime record stays free of heap references.
+    HttpResponse,
     /// The compiler-known `Walk` record (`docs/spec/05-stdlib.md`,
     /// BRS-66) with exactly the fields `paths: Vector<string>` and
     /// `unreadable: Vector<string>`. Native, like `Output` — not
@@ -144,6 +154,7 @@ impl Type {
             }
             Type::Generic { owner, index } => generic_name(hir, *owner, *index),
             Type::ProcOutput => "Output".to_string(),
+            Type::HttpResponse => "Response".to_string(),
             Type::Walk => "Walk".to_string(),
             Type::Json => "Json".to_string(),
         }

@@ -1599,6 +1599,23 @@ impl<'a> Checker<'a> {
             }
         }
 
+        // The `Response` record: two fields plus `header`, which is a
+        // method because header lookup is case-insensitive and total
+        // (BRS-113).
+        if let Type::HttpResponse = recv {
+            match name {
+                "status" => return Member::Value(Type::Int),
+                "body" => return Member::Value(Type::String),
+                "header" => {
+                    return Member::Sig(builtins::MethodSig {
+                        params: vec![Type::String],
+                        ret: builtins::RetRule::Fixed(Type::option(Type::String)),
+                    });
+                }
+                _ => {}
+            }
+        }
+
         // `Walk` is the same shape of native record: two fields and the
         // universal `toString`, nothing else (BRS-66).
         if let Type::Walk = recv

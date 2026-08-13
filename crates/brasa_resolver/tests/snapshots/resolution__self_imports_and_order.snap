@@ -9,7 +9,7 @@ expression: rendered
    │ ──────────┬─────────  
    │           ╰─────────── no such std module
    │ 
-   │ Note: known std modules: env, fs, io, json, math, proc, rand, time
+   │ Note: known std modules: env, fs, http, io, json, math, proc, rand, time
 ───╯
 [R007] Error: `self` outside a method
    ╭─[ self_imports_and_order.bras:5:3 ]

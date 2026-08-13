@@ -603,12 +603,16 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
         return;
     }
 
-    // A field read on a native record — the `proc` `Output` (BRS-32) or
-    // the `fs` `Walk` (BRS-66) — is a receiver-only builtin call
-    // yielding the field value directly, rather than a bound method.
+    // A field read on a native record — the `proc` `Output` (BRS-32),
+    // the `fs` `Walk` (BRS-66), or the `http` `Response` (BRS-113) — is
+    // a receiver-only builtin call yielding the field value directly,
+    // rather than a bound method. `Response::header` is deliberately
+    // absent: it takes an argument, so it IS a method and binds like
+    // one.
     let native_field = match f.cx.types.expr_types.get(&recv) {
         Some(Type::ProcOutput) => matches!(name, "stdout" | "stderr" | "code"),
         Some(Type::Walk) => matches!(name, "paths" | "unreadable"),
+        Some(Type::HttpResponse) => matches!(name, "status" | "body"),
         _ => false,
     };
 

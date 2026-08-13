@@ -12,9 +12,11 @@ use brasa_runtime::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv, valid_env_name,
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
-use brasa_runtime::{fs_glue, io_glue, json_glue, num_glue, time_glue};
+use brasa_runtime::{fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 
-use crate::value::{NativeErrorValue, OutputValue, Value, WalkValue, value_cmp, value_eq};
+use crate::value::{
+    NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
+};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
 /// The canonical qualified name of the native `string` parse error
@@ -32,6 +34,11 @@ const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
 /// The canonical qualified name of the native `proc` spawn error
 /// (mirrors `brasa_resolver::PROC_SPAWN_ERROR`).
 const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
+
+/// The canonical qualified name of the native `http` request error
+/// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
+/// response.
+const HTTP_REQUEST_ERROR: &str = "http.RequestError";
 
 impl Vm<'_> {
     /// Receiver-less builtins: the prelude printers, `std::math`
@@ -73,6 +80,8 @@ impl Vm<'_> {
             _ => {
                 if let Some(member) = name.strip_prefix("math.") {
                     self.math_call(member, args)
+                } else if let Some(member) = name.strip_prefix("http.") {
+                    self.http_call(member, args)
                 } else if let Some(member) = name.strip_prefix("proc.") {
                     self.proc_call(member, args)
                 } else if let Some(member) = name.strip_prefix("env.") {
@@ -154,6 +163,51 @@ impl Vm<'_> {
             stdout: Rc::from(output.stdout),
             stderr: Rc::from(output.stderr),
             code: output.code,
+        })))
+    }
+
+    /// The `std::http` members (`docs/spec/05-stdlib.md`, BRS-113):
+    /// `get(url, timeoutMs?)` and `post(url, body, timeoutMs?)`.
+    ///
+    /// A non-2xx status is an ANSWER and comes back in the `Response`;
+    /// only a request that never produced one — DNS, connection, TLS,
+    /// timeout — throws `http.RequestError`. That is the same split
+    /// `std::proc` draws between a non-zero exit and a `SpawnError`.
+    ///
+    /// Nothing in the TLS stack initializes before the first call
+    /// reaches here, which is what keeps cold start unmoved for the
+    /// scripts that never make a request.
+    fn http_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `http.{name}`"));
+
+        let (url, body, timeout) = match (name, args.as_slice()) {
+            ("get", [Value::Str(url)]) => (url.to_string(), None, None),
+            ("get", [Value::Str(url), Value::Int(ms)]) => (url.to_string(), None, Some(*ms)),
+            ("post", [Value::Str(url), Value::Str(body)]) => {
+                (url.to_string(), Some(body.to_string()), None)
+            }
+            ("post", [Value::Str(url), Value::Str(body), Value::Int(ms)]) => {
+                (url.to_string(), Some(body.to_string()), Some(*ms))
+            }
+            ("get" | "post", _) => return Err(invalid()),
+            _ => {
+                return Err(Signal::Fatal(format!(
+                    "brasa: unknown member `{name}` on module `http`"
+                )));
+            }
+        };
+
+        let headers = std::collections::HashMap::new();
+        let result = match &body {
+            None => http_glue::get(&url, &headers, timeout),
+            Some(body) => http_glue::post(&url, body, &headers, timeout),
+        };
+        let response = result.map_err(|message| native_error(HTTP_REQUEST_ERROR, message))?;
+
+        Ok(Value::HttpResponse(Rc::new(ResponseValue {
+            status: response.status,
+            body: Rc::from(response.body),
+            headers: response.headers,
         })))
     }
 
@@ -637,6 +691,10 @@ impl Vm<'_> {
             Value::ProcOutput(output) => {
                 let output = output.clone();
                 proc_output_builtin(&output, name, &args)
+            }
+            Value::HttpResponse(response) => {
+                let response = response.clone();
+                response_builtin(&response, name, &args)
             }
             Value::Walk(walk) => {
                 let walk = walk.clone();
@@ -1211,6 +1269,30 @@ fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmRe
         ("stdout", []) => Ok(Value::Str(output.stdout.clone())),
         ("stderr", []) => Ok(Value::Str(output.stderr.clone())),
         ("code", []) => Ok(Value::Int(output.code)),
+        _ => Err(builtin_error(name)),
+    }
+}
+
+/// The `Response` record's members (BRS-113): two field accessors and
+/// `header`, which is a method rather than a field.
+///
+/// The lookup is case-insensitive because HTTP header names are, and
+/// total because a header that is absent is an ordinary answer — the
+/// caller writes `?? fallback` rather than guarding.
+fn response_builtin(response: &ResponseValue, name: &str, args: &[Value]) -> VmResult {
+    match (name, args) {
+        ("status", []) => Ok(Value::Int(response.status)),
+        ("body", []) => Ok(Value::Str(response.body.clone())),
+        ("header", [Value::Str(wanted)]) => {
+            let wanted = wanted.to_lowercase();
+            let found = response
+                .headers
+                .iter()
+                .find(|(name, _)| *name == wanted)
+                .map(|(_, value)| Value::Str(Rc::from(value.as_str())));
+
+            Ok(Value::Option(found.map(Rc::new)))
+        }
         _ => Err(builtin_error(name)),
     }
 }

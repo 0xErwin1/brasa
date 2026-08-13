@@ -86,6 +86,11 @@ pub enum Value {
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
     Json(brasa_runtime::json_glue::JsonRef),
+    /// The `std::http` response record (BRS-113). Frozen at the end of
+    /// the request and free of heap references — headers are kept as
+    /// plain pairs rather than as a `Map` value — so a plain [`Handle`]
+    /// is a precise collector for it, exactly like [`Value::ProcOutput`].
+    HttpResponse(Handle<ResponseValue>),
 }
 
 /// The payload of a [`Value::NativeError`]: the canonical qualified
@@ -103,6 +108,21 @@ pub struct OutputValue {
     pub stdout: Handle<str>,
     pub stderr: Handle<str>,
     pub code: i64,
+}
+
+/// The fields of a [`Value::HttpResponse`]: the status, the body, and
+/// the response headers as lowercased name/value pairs in the order the
+/// server sent them.
+///
+/// Headers are pairs rather than a `Map` value on purpose. A `Map`
+/// would be an arena reference the collector has to trace through this
+/// record; pairs keep the record frozen and let `header` answer
+/// case-insensitively, which is what an HTTP caller actually wants.
+#[derive(Debug)]
+pub struct ResponseValue {
+    pub status: i64,
+    pub body: Handle<str>,
+    pub headers: Vec<(String, String)>,
 }
 
 /// The fields of a [`Value::Walk`], in declaration order (`paths`,

@@ -16,6 +16,7 @@
 //! | `fs.abs` / `env.cwd` | the `Opaque("fs.IoError")` tag only (an unreadable current directory) |
 //! | the `fs` predicates and pure path helpers | nothing — they never throw |
 //! | `json.parse` | the `Opaque("json.ParseError")` tag (BRS-34) |
+//! | `http.get` / `http.post` | the `Opaque("http.RequestError")` tag (BRS-113) — a non-2xx status is an answer, not a throw |
 //! | `json.stringify` and every `io` member | nothing — they never throw (BRS-34) |
 //! | every `math`/`time`/`rand` member | nothing — they never throw (BRS-35: empty-range/vector picks and negative sleeps are panics, and panics are not in error-sets) |
 //! | `string.toInt` / `string.toFloat` | the `Opaque("string.ParseError")` tag (BRS-41, `docs/spec/05-stdlib.md`: both throw on parse failure) |
@@ -39,9 +40,9 @@ use brasa_hir::{
     StmtId,
 };
 use brasa_resolver::{
-    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, JSON_PARSE_ERROR,
-    PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR,
-    TypeRes,
+    BuiltinType, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR,
+    JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions, STRING_PARSE_ERROR,
+    STRING_REGEX_ERROR, TypeRes,
 };
 use brasa_typeck::{Type, TypeTables};
 
@@ -344,6 +345,11 @@ impl<'a> Collector<'a> {
                 (Some("proc"), "tryRun" | "tryRunAll") => {
                     set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
                 }
+                // A non-2xx status is an answer, so only a request that
+                // never produced a response throws (BRS-113).
+                (Some("http"), "get" | "post") => {
+                    set.tags.insert(ErrorTag::Opaque(HTTP_REQUEST_ERROR));
+                }
                 (
                     Some("fs"),
                     // `tryWalk` tolerates every failure BELOW the root
@@ -393,8 +399,9 @@ impl<'a> Collector<'a> {
             }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, enums (whose only member is the derived
-            // `toString`), the `proc` `Output` and `fs` `Walk` records
-            // (fields plus `toString` only), and `Json` (the `as*`
+            // `toString`), the `proc` `Output`, `http` `Response` and
+            // `fs` `Walk` records (fields plus `toString` only, and
+            // `Response::header`, which never throws), and `Json` (the `as*`
             // accessors and `null?` never throw — BRS-34). Every other builtin method
             // throws nothing in M2; only function arguments they may
             // invoke contribute (HOF transparency).
@@ -413,6 +420,7 @@ impl<'a> Collector<'a> {
                 | Type::Tuple(_)
                 | Type::Enum(_, _)
                 | Type::ProcOutput
+                | Type::HttpResponse
                 | Type::Walk
                 | Type::Json,
             ) => set.union_with(&self.hof_args(args)),

@@ -215,6 +215,18 @@ impl<'a> Vm<'a> {
                     output.code
                 ))
             }
+            // The `Response` record renders like a struct too
+            // (BRS-113). Headers are not rendered: a response carries
+            // enough of them to bury the two fields a reader is looking
+            // for, and `header(name)` is how they are read.
+            Value::HttpResponse(response) => {
+                let body =
+                    self.render(&Value::Str(response.body.clone()), true, depth + 1, path)?;
+                Ok(format!(
+                    "Response {{ status: {}, body: {body} }}",
+                    response.status
+                ))
+            }
             // The `Walk` record renders like a struct too (BRS-66). Its
             // fields are arena vectors, so the copies are rooted for
             // the nested renders exactly as a struct's fields are.

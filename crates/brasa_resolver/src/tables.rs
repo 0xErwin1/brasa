@@ -195,6 +195,12 @@ pub const FS_IO_ERROR: &str = "fs.IoError";
 /// input is not valid JSON).
 pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 
+/// The canonical qualified name of the native `http` request error
+/// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
+/// response — DNS, connection, TLS, or timeout. A non-2xx status is an
+/// answer, not an error, so it is not here.
+pub const HTTP_REQUEST_ERROR: &str = "http.RequestError";
+
 /// The closed list of stdlib-native errors whose namespaces have
 /// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
@@ -214,6 +220,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     FS_DENIED,
     FS_IO_ERROR,
     JSON_PARSE_ERROR,
+    HTTP_REQUEST_ERROR,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace
