@@ -126,8 +126,10 @@ assertEq slugify("Hola Mundo"), "hola-mundo"
 
 Highest priority.
 
-- Cutting and assembling: `split`, `join`, `lines`, `chars`, `bytes`, `slice`,
-  `repeat`, `reverse`.
+- Cutting and assembling: `split`, `lines`, `chars`, `bytes`, `slice`,
+  `repeat`, `reverse`. (`join` is the inverse of `split` but belongs to
+  the vector `split` returns, not to the string it came from — see
+  `Vector<T>.join`.)
 - Cleanup: `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`.
 - Search: `contains?`, `startsWith?`, `endsWith?`, `find` (-> Option),
   `count`.
