@@ -9,6 +9,7 @@
 //! `docs/spec/03-types.md` — so that a second implementation cannot
 //! quietly disagree with the first about what a member does.
 
+pub mod cli_glue;
 pub mod fs_glue;
 pub mod http_glue;
 pub mod io_glue;

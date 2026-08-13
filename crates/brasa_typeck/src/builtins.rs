@@ -293,6 +293,22 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![ModuleParam::Ty(Type::Int)],
             Type::vector(Type::ProcOutput),
         )),
+        ("cli", "parse") => Some(msig(
+            vec![
+                ModuleParam::Ty(Type::vector(Type::String)),
+                ModuleParam::Ty(Type::vector(Type::vector(Type::String))),
+            ],
+            vec![],
+            Type::CliArgs,
+        )),
+        ("cli", "help") => Some(msig(
+            vec![
+                ModuleParam::Ty(Type::String),
+                ModuleParam::Ty(Type::vector(Type::vector(Type::String))),
+            ],
+            vec![],
+            Type::String,
+        )),
         ("http", "get") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![ModuleParam::Ty(Type::Int)],
@@ -460,7 +476,7 @@ pub fn module_member_special(module: &str, name: &str) -> bool {
 pub fn module_closed(module: &str) -> bool {
     matches!(
         module,
-        "proc" | "env" | "fs" | "json" | "io" | "math" | "time" | "rand" | "http"
+        "proc" | "env" | "fs" | "json" | "io" | "math" | "time" | "rand" | "http" | "cli"
     )
 }
 

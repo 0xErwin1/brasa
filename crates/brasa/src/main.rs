@@ -61,7 +61,11 @@ struct Cli {
     dump_bytecode: bool,
 
     /// Arguments passed through to the script as `args()`.
-    #[arg(trailing_var_arg = true)]
+    ///
+    /// `allow_hyphen_values` is what makes `std::cli` usable at all:
+    /// without it clap claims `brasa script.bras --top 5`'s `--top` as
+    /// its own and the script can never see a flag.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
 }
 
@@ -93,7 +97,14 @@ fn main() -> ExitCode {
         }
     }
 
-    let cli = Cli::parse();
+    // Everything after the script path belongs to the SCRIPT, `--help`
+    // included. Without this split clap claims `brasa tool.bras --help`
+    // and a script can never own the one flag every script has — the
+    // same way it claimed `--top` before `allow_hyphen_values`.
+    let (mine, theirs) = split_at_script(std::env::args());
+
+    let mut cli = Cli::parse_from(mine);
+    cli.args = theirs;
 
     match &cli.command {
         Some(Subcommand::Fmt(args)) => return fmt::run(args),
@@ -129,6 +140,31 @@ enum Compiled {
     /// `Stopped` case too.
     Module(Box<brasa_codegen::CompileResult>),
     Stopped(ExitCode),
+}
+
+/// Splits argv into what this CLI parses and what the script receives.
+///
+/// The boundary is the first argument that is not an option and is not
+/// a subcommand name: that is the script path, and it is the last thing
+/// this CLI has an opinion about. A subcommand keeps the whole line,
+/// since `brasa fmt --check` is genuinely ours.
+fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
+    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "help"];
+
+    let argv: Vec<String> = argv.collect();
+
+    let boundary = argv
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, arg)| !arg.starts_with('-'));
+
+    match boundary {
+        Some((at, name)) if !SUBCOMMANDS.contains(&name.as_str()) => {
+            (argv[..=at].to_vec(), argv[at + 1..].to_vec())
+        }
+        _ => (argv, Vec::new()),
+    }
 }
 
 fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {

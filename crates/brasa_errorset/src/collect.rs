@@ -421,6 +421,7 @@ impl<'a> Collector<'a> {
                 | Type::Enum(_, _)
                 | Type::ProcOutput
                 | Type::HttpResponse
+                | Type::CliArgs
                 | Type::Walk
                 | Type::Json,
             ) => set.union_with(&self.hof_args(args)),

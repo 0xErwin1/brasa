@@ -1616,6 +1616,26 @@ impl<'a> Checker<'a> {
             }
         }
 
+        // The `Args` record: one field and two total lookups (BRS-112).
+        if let Type::CliArgs = recv {
+            match name {
+                "rest" => return Member::Value(Type::vector(Type::String)),
+                "flag" => {
+                    return Member::Sig(builtins::MethodSig {
+                        params: vec![Type::String],
+                        ret: builtins::RetRule::Fixed(Type::Bool),
+                    });
+                }
+                "option" => {
+                    return Member::Sig(builtins::MethodSig {
+                        params: vec![Type::String],
+                        ret: builtins::RetRule::Fixed(Type::option(Type::String)),
+                    });
+                }
+                _ => {}
+            }
+        }
+
         // `Walk` is the same shape of native record: two fields and the
         // universal `toString`, nothing else (BRS-66).
         if let Type::Walk = recv

@@ -613,6 +613,7 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
         Some(Type::ProcOutput) => matches!(name, "stdout" | "stderr" | "code"),
         Some(Type::Walk) => matches!(name, "paths" | "unreadable"),
         Some(Type::HttpResponse) => matches!(name, "status" | "body"),
+        Some(Type::CliArgs) => name == "rest",
         _ => false,
     };
 

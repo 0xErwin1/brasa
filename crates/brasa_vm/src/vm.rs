@@ -1740,6 +1740,7 @@ impl<'a> Vm<'a> {
             Value::NativeError(error) => error.name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
             Value::HttpResponse(_) => "Response".to_string(),
+            Value::CliArgs(_) => "Args".to_string(),
             Value::Walk(_) => "Walk".to_string(),
             Value::Json(_) => "Json".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {

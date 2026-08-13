@@ -12,10 +12,10 @@ use brasa_runtime::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv, valid_env_name,
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
-use brasa_runtime::{fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
+use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 
 use crate::value::{
-    NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
+    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
 };
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
@@ -39,6 +39,11 @@ const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
 /// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
 /// response.
 const HTTP_REQUEST_ERROR: &str = "http.RequestError";
+
+/// The canonical qualified name of the native `cli` usage error
+/// (`docs/spec/05-stdlib.md`, BRS-112): a command line the declaration
+/// does not accept.
+const CLI_USAGE_ERROR: &str = "cli.UsageError";
 
 impl Vm<'_> {
     /// Receiver-less builtins: the prelude printers, `std::math`
@@ -80,6 +85,8 @@ impl Vm<'_> {
             _ => {
                 if let Some(member) = name.strip_prefix("math.") {
                     self.math_call(member, args)
+                } else if let Some(member) = name.strip_prefix("cli.") {
+                    self.cli_call(member, args)
                 } else if let Some(member) = name.strip_prefix("http.") {
                     self.http_call(member, args)
                 } else if let Some(member) = name.strip_prefix("proc.") {
@@ -166,6 +173,79 @@ impl Vm<'_> {
         })))
     }
 
+    /// The `std::cli` members (`docs/spec/05-stdlib.md`, BRS-112):
+    /// `parse(args, spec)` and `help(program, spec)`.
+    ///
+    /// A malformed DECLARATION is fatal rather than a `cli.UsageError`:
+    /// it is the script author's bug, and reporting it as a usage error
+    /// would tell the person running the script to fix a command line
+    /// that was fine.
+    fn cli_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `cli.{name}`"));
+
+        match (name, args.as_slice()) {
+            ("parse", [Value::Vector(argv), Value::Vector(spec)]) => {
+                let argv = self.string_vector(*argv).ok_or_else(invalid)?;
+                let params = self.params(*spec)?;
+
+                let parsed = cli_glue::parse(&params, &argv)
+                    .map_err(|err| native_error(CLI_USAGE_ERROR, err.message))?;
+
+                Ok(Value::CliArgs(Rc::new(ArgsValue {
+                    flags: parsed.flags,
+                    options: parsed.options,
+                    rest: parsed.rest,
+                })))
+            }
+            ("help", [Value::Str(program), Value::Vector(spec)]) => {
+                let params = self.params(*spec)?;
+                Ok(Value::Str(Rc::from(cli_glue::help(program, &params))))
+            }
+            ("parse" | "help", _) => Err(invalid()),
+            _ => Err(Signal::Fatal(format!(
+                "brasa: unknown member `{name}` on module `cli`"
+            ))),
+        }
+    }
+
+    /// A `Vector<string>` argument as plain strings, or `None` when it
+    /// holds anything else.
+    fn string_vector(&self, vector: crate::heap::GcRef) -> Option<Vec<String>> {
+        let items = self.heap.vector(vector).borrow().clone();
+
+        items
+            .iter()
+            .map(|item| match item {
+                Value::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The declared parameters behind a `cli` spec argument.
+    fn params(&self, spec: crate::heap::GcRef) -> Result<Vec<cli_glue::Param>, Signal> {
+        let rows = self.heap.vector(spec).borrow().clone();
+
+        let mut params = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let Value::Vector(row) = row else {
+                return Err(Signal::Fatal(
+                    "brasa: a `cli` spec is a Vector of Vector<string>".to_string(),
+                ));
+            };
+            let row = self.string_vector(*row).ok_or_else(|| {
+                Signal::Fatal("brasa: a `cli` spec is a Vector of Vector<string>".to_string())
+            })?;
+
+            params.push(
+                cli_glue::param(&row)
+                    .map_err(|message| Signal::Fatal(format!("brasa: {message}")))?,
+            );
+        }
+
+        Ok(params)
+    }
+
     /// The `std::http` members (`docs/spec/05-stdlib.md`, BRS-113):
     /// `get(url, timeoutMs?)` and `post(url, body, timeoutMs?)`.
     ///
@@ -209,6 +289,41 @@ impl Vm<'_> {
             body: Rc::from(response.body),
             headers: response.headers,
         })))
+    }
+
+    /// The `Args` record's members (BRS-112): `flag(name)`,
+    /// `option(name)`, and `rest`.
+    ///
+    /// Both lookups are total: an undeclared flag is `false` and a
+    /// missing option is `None`, answered with `??`. A script asking
+    /// about a name it did not declare gets the same answer as one the
+    /// user did not pass, which is the only reading that does not need
+    /// a second error channel.
+    fn args_builtin(&mut self, parsed: &ArgsValue, name: &str, args: &[Value]) -> VmResult {
+        match (name, args) {
+            ("flag", [Value::Str(wanted)]) => Ok(Value::Bool(
+                parsed.flags.iter().any(|flag| flag.as_str() == &**wanted),
+            )),
+            ("option", [Value::Str(wanted)]) => {
+                let found = parsed
+                    .options
+                    .iter()
+                    .find(|(name, _)| name.as_str() == &**wanted)
+                    .map(|(_, value)| Value::Str(Rc::from(value.as_str())));
+
+                Ok(Value::Option(found.map(Rc::new)))
+            }
+            ("rest", []) => {
+                let items = parsed
+                    .rest
+                    .iter()
+                    .map(|item| Value::Str(Rc::from(item.as_str())))
+                    .collect();
+
+                Ok(self.heap.alloc_vector(items))
+            }
+            _ => Err(builtin_error(name)),
+        }
     }
 
     /// `proc.tryRunAll(commands, limit?)`: every command run with a
@@ -695,6 +810,10 @@ impl Vm<'_> {
             Value::HttpResponse(response) => {
                 let response = response.clone();
                 response_builtin(&response, name, &args)
+            }
+            Value::CliArgs(parsed) => {
+                let parsed = parsed.clone();
+                self.args_builtin(&parsed, name, &args)
             }
             Value::Walk(walk) => {
                 let walk = walk.clone();

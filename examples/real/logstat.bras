@@ -6,23 +6,30 @@
 #   brasa logstat.bras data/access.log
 #   cat /var/log/nginx/access.log | brasa logstat.bras
 
+import std::cli
 import std::env
 import std::fs
 import std::io
 import std::math
 import "tally.bras"
 
+# Declared once; `cli.help` renders the usage from it, so the two cannot
+# drift apart the way a hand-written usage string does.
+let spec = [
+  ["option", "top", "t", "how many rows per section (default 5)"],
+  ["flag", "help", "h", "print this help"],
+  ["arg", "log", "", "the access log to read; stdin when omitted"],
+]
+
 let entryPattern = """^(\S+) \S+ \S+ \[[^\]]+\] "([A-Z]+) ([^ "]+)[^"]*" (\d{3}) (\d+|-)"""
 
-# Reads the log from the first CLI argument, or from stdin when there is
+# Reads the log from the first positional, or from stdin when there is
 # none, so the script works both as a file reader and as a pipe filter.
-def source(): string
-  let args = env.args()
-
-  if args.len() == 0
+def source(rest: Vector<string>): string
+  if rest.len() == 0
     io.readAll()
   else
-    fs.read(args[0])
+    fs.read(rest[0])
   end
 end
 
@@ -43,6 +50,22 @@ def report(title: string, rows: Vector<tally.Tally>, limit: int)
 end
 
 def main()
+  let args = cli.parse(env.args(), spec) catch (e)
+    cli.UsageError =>
+      io.eprint("#{e}\n\n#{cli.help("logstat.bras", spec)}")
+      env.exit(2)
+      cli.parse([], spec)
+  end
+
+  if args.flag("help")
+    print cli.help("logstat.bras", spec)
+    return
+  end
+
+  let top = (args.option("top") ?? "5").toInt() catch (e)
+    string.ParseError => 5
+  end
+
   let classes: Map<string, int> = {}
   let paths: Map<string, int> = {}
   let clients: Map<string, int> = {}
@@ -52,7 +75,7 @@ def main()
   let mut skipped = 0
   let mut bytes = 0
 
-  for line in source().lines()
+  for line in source(args.rest).lines()
     if line.trim() == ""
       continue
     end
@@ -94,8 +117,8 @@ def main()
     puts "  #{class}  #{tally.pad(hits, 4)}  #{percent(hits, total)}"
   end
 
-  report("top paths:", tally.ranked(paths), 5)
-  report("top clients:", tally.ranked(clients), 3)
+  report("top paths:", tally.ranked(paths), top)
+  report("top clients:", tally.ranked(clients), top)
 
   if failing.len() == 0
     puts ""

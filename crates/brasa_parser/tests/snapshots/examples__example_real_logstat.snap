@@ -2,25 +2,50 @@
 source: crates/brasa_parser/tests/examples.rs
 expression: dump
 ---
+Import::Std(std::cli)
 Import::Std(std::env)
 Import::Std(std::fs)
 Import::Std(std::io)
 Import::Std(std::math)
 Import::File("tally.bras")
+Let spec
+  VectorLit
+    VectorLit
+      StringLit
+        Text(raw=false) "option"
+      StringLit
+        Text(raw=false) "top"
+      StringLit
+        Text(raw=false) "t"
+      StringLit
+        Text(raw=false) "how many rows per section (default 5)"
+    VectorLit
+      StringLit
+        Text(raw=false) "flag"
+      StringLit
+        Text(raw=false) "help"
+      StringLit
+        Text(raw=false) "h"
+      StringLit
+        Text(raw=false) "print this help"
+    VectorLit
+      StringLit
+        Text(raw=false) "arg"
+      StringLit
+        Text(raw=false) "log"
+      StringLit
+      StringLit
+        Text(raw=false) "the access log to read; stdin when omitted"
 Let entryPattern
   StringLit
     Text(raw=true) "^(\\S+) \\S+ \\S+ \\[[^\\]]+\\] \"([A-Z]+) ([^ \"]+)[^\"]*\" (\\d{3}) (\\d+|-)"
-FuncDef source()
-  Let args
-    Call
-      Field(args)
-        Ident(env)
+FuncDef source(rest)
   If
     cond
       Binary(==)
         Call
           Field(len)
-            Ident(args)
+            Ident(rest)
         Int(0)
     then
       Call
@@ -31,7 +56,7 @@ FuncDef source()
         Field(read)
           Ident(fs)
         Index
-          Ident(args)
+          Ident(rest)
           Int(0)
 FuncDef percent(part, total)
   Let share
@@ -89,6 +114,70 @@ FuncDef report(title, rows, limit)
           Field(key)
             Ident(row)
 FuncDef main()
+  Let args
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(parse)
+          Ident(cli)
+        Call
+          Field(args)
+            Ident(env)
+        Ident(spec)
+      arm cli.UsageError
+          Call
+            Field(eprint)
+              Ident(io)
+            StringLit
+              Interp
+                Ident(e)
+              Text(raw=false) "\n\n"
+              Interp
+                Call
+                  Field(help)
+                    Ident(cli)
+                  StringLit
+                    Text(raw=false) "logstat.bras"
+                  Ident(spec)
+          Call
+            Field(exit)
+              Ident(env)
+            Int(2)
+          Call
+            Field(parse)
+              Ident(cli)
+            VectorLit
+            Ident(spec)
+  If
+    cond
+      Call
+        Field(flag)
+          Ident(args)
+        StringLit
+          Text(raw=false) "help"
+    then
+      Call
+        Ident(print)
+        Call
+          Field(help)
+            Ident(cli)
+          StringLit
+            Text(raw=false) "logstat.bras"
+          Ident(spec)
+      Return
+  Let top
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(toInt)
+          Coalesce
+            Call
+              Field(option)
+                Ident(args)
+              StringLit
+                Text(raw=false) "top"
+            StringLit
+              Text(raw=false) "5"
+      arm string.ParseError
+          Int(5)
   Let classes
     MapLit
   Let paths
@@ -109,6 +198,8 @@ FuncDef main()
       Field(lines)
         Call
           Ident(source)
+          Field(rest)
+            Ident(args)
     If
       cond
         Binary(==)
@@ -275,7 +366,7 @@ FuncDef main()
       Field(ranked)
         Ident(tally)
       Ident(paths)
-    Int(5)
+    Ident(top)
   Call
     Ident(report)
     StringLit
@@ -284,7 +375,7 @@ FuncDef main()
       Field(ranked)
         Ident(tally)
       Ident(clients)
-    Int(3)
+    Ident(top)
   If
     cond
       Binary(==)

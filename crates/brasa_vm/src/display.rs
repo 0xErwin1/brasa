@@ -227,6 +227,15 @@ impl<'a> Vm<'a> {
                     response.status
                 ))
             }
+            // The `Args` record names what it captured rather than
+            // dumping it: a command line's positionals are the caller's
+            // data, and `rest` is how they are read (BRS-112).
+            Value::CliArgs(args) => Ok(format!(
+                "Args {{ flags: {}, options: {}, rest: {} }}",
+                args.flags.len(),
+                args.options.len(),
+                args.rest.len()
+            )),
             // The `Walk` record renders like a struct too (BRS-66). Its
             // fields are arena vectors, so the copies are rooted for
             // the nested renders exactly as a struct's fields are.

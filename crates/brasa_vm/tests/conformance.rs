@@ -839,6 +839,11 @@ fn every_std_module_has_a_runtime_behind_it() {
              end)",
             "-1\n",
         ),
+        (
+            "cli",
+            "puts(cli.parse([\"-v\"], [[\"flag\", \"verbose\", \"v\", \"loud\"]]).flag(\"verbose\"))",
+            "true\n",
+        ),
         // Port 1 is refused everywhere, so this reaches the module
         // dispatch and its error namespace without needing a network
         // or a server.
@@ -4060,6 +4065,8 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
     let time = "import std::time\n";
     let rand = "import std::rand\n";
     let http = "import std::http\n";
+    let cli = "import std::cli\n";
+    let spec = "let spec = [[\"option\", \"top\", \"t\", \"rows\"], [\"flag\", \"verbose\", \"v\", \"loud\"]]\n";
     let probe = http_probe_url();
 
     // A JSON document holding one node of every kind, for the accessors.
@@ -4350,6 +4357,31 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "proc.shell",
             format!("{proc}puts proc.shell(\"printf hi\").stdout\n"),
             "hi\n",
+        ),
+        (
+            "cli.parse",
+            format!("{cli}{spec}puts cli.parse([\"--top\", \"3\"], spec).option(\"top\") ?? \"none\"\n"),
+            "3\n",
+        ),
+        (
+            "cli.help",
+            format!("{cli}{spec}puts cli.help(\"tool\", spec).lines().first() ?? \"none\"\n"),
+            "usage: tool [options]\n",
+        ),
+        (
+            "flag",
+            format!("{cli}{spec}puts cli.parse([\"-v\"], spec).flag(\"verbose\")\n"),
+            "true\n",
+        ),
+        (
+            "option",
+            format!("{cli}{spec}puts cli.parse([], spec).option(\"top\") ?? \"default\"\n"),
+            "default\n",
+        ),
+        (
+            "rest",
+            format!("{cli}{spec}puts cli.parse([\"--\", \"--literal\"], spec).rest.join(\",\")\n"),
+            "--literal\n",
         ),
         (
             "http.get",

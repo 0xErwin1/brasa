@@ -68,6 +68,11 @@ pub enum Type {
     /// be case-insensitive and total, which is what an HTTP caller
     /// wants, and so the runtime record stays free of heap references.
     HttpResponse,
+    /// The compiler-known `Args` record returned by `cli.parse`
+    /// (`docs/spec/05-stdlib.md`, BRS-112): `flag(name): bool`,
+    /// `option(name): Option<string>`, and `rest: Vector<string>`.
+    /// Native like `Output` — not user-constructible and not a pattern.
+    CliArgs,
     /// The compiler-known `Walk` record (`docs/spec/05-stdlib.md`,
     /// BRS-66) with exactly the fields `paths: Vector<string>` and
     /// `unreadable: Vector<string>`. Native, like `Output` — not
@@ -155,6 +160,7 @@ impl Type {
             Type::Generic { owner, index } => generic_name(hir, *owner, *index),
             Type::ProcOutput => "Output".to_string(),
             Type::HttpResponse => "Response".to_string(),
+            Type::CliArgs => "Args".to_string(),
             Type::Walk => "Walk".to_string(),
             Type::Json => "Json".to_string(),
         }

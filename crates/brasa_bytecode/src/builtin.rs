@@ -135,6 +135,12 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("status"),
     method("body"),
     method("header"),
+    free("cli.parse"),
+    free("cli.help"),
+    // The `Args` record's members (BRS-112).
+    method("flag"),
+    method("option"),
+    method("rest"),
     free("env.get"),
     free("env.set"),
     free("env.vars"),

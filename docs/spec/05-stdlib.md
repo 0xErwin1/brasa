@@ -19,6 +19,49 @@ signatures are closed module by module during M4.
   `Option`/`Some`/`None`, `Vector`, `Map`,
   `Set`, ranges, and primitive type methods are always available.
 
+## `cli` (`import std::cli`)
+
+```ruby
+let spec = [
+  ["option", "top",     "t", "how many rows to show"],
+  ["flag",   "verbose", "v", "print more"],
+  ["arg",    "input",   "",  "the log file to read"]
+]
+
+let args = cli.parse(env.args(), spec) catch (e)
+  cli.UsageError => do
+    io.eprint("#{e}\n#{cli.help("logstat", spec)}")
+    env.exit(2)
+  end
+end
+
+let limit = (args.option("top") ?? "5").toInt()
+```
+
+- `parse(args: Vector<string>, spec: Vector<Vector<string>>): Args` and
+  `help(program: string, spec): string`.
+- A spec row is `[kind, name, short, help]`, with `kind` one of `flag`,
+  `option` (takes a value), or `arg` (a positional, declared only so the
+  usage text can name it). A short name is one character or empty.
+- `Args` answers `flag(name): bool`, `option(name): Option<string>`, and
+  `rest: Vector<string>`. Both lookups are **total**: an undeclared name
+  reads the same as one the user did not pass, so a script needs no
+  second error channel to ask a question.
+- `--name=value` and `--name value` are the same thing. `--` ends option
+  parsing: everything after it is positional however it is spelled,
+  which is the only way to pass an argument that starts with a dash.
+- **`--help` is not handled for you.** `help` generates the usage text
+  from the declaration — a hand-written one drifts from the parser the
+  first time a parameter is added — but printing it and choosing an exit
+  status are the script's, because a stdlib member must not call `exit`.
+- A command line the declaration does not accept raises the catchable
+  `cli.UsageError`. A malformed DECLARATION is a different mistake and is
+  **fatal**: it is the author's bug, and reporting it as a usage error
+  would tell the person running the script to fix a command line that
+  was fine.
+- Explicitly out of v1: subcommands, shell completion, config-file
+  merging. Those are what turn an argument parser into a framework.
+
 ## `http` (`import std::http`)
 
 ```ruby

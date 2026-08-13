@@ -278,3 +278,62 @@ fn assert_rejects_a_non_bool_at_compile_time() {
     assert_eq!(output.status.code(), Some(65));
     assert!(stderr(&output).contains("T001"), "got: {}", stderr(&output));
 }
+
+// --- `std::cli` at the command line (BRS-112) ------------------------
+
+/// The bug `std::cli` exposed: without it the interpreter claimed the
+/// script's own flags and a script could never see one.
+#[test]
+fn a_script_receives_its_own_flags() {
+    let dir = temp_dir("script-flags");
+    let script = write(
+        &dir,
+        "tool.bras",
+        concat!(
+            "import std::cli\nimport std::env\n\n",
+            "let spec = [[\"option\", \"top\", \"t\", \"rows\"], [\"flag\", \"help\", \"h\", \"usage\"]]\n\n",
+            "def main()\n",
+            "  let args = cli.parse(env.args(), spec) catch! (e)\n",
+            "    cli.UsageError => cli.parse([], spec)\n",
+            "  end\n",
+            "  puts args.option(\"top\") ?? \"none\"\n",
+            "  puts args.flag(\"help\")\n",
+            "end\n",
+        ),
+    );
+
+    let output = brasa(&[script.to_str().expect("utf-8 path"), "--top", "9", "--help"]);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "9\ntrue\n",
+        "the interpreter must not claim `--top` or `--help`"
+    );
+}
+
+/// `brasa --help` still belongs to the interpreter: the split is at the
+/// script path, so a flag BEFORE it is ours.
+#[test]
+fn the_interpreters_own_help_still_works() {
+    let output = brasa(&["--help"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stdout(&output).contains("The Brasa programming language"),
+        "got: {}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn a_subcommand_keeps_its_own_flags() {
+    let output = brasa(&["fmt", "--help"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stdout(&output).contains("Format Brasa source files"),
+        "got: {}",
+        stdout(&output)
+    );
+}

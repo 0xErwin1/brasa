@@ -64,7 +64,7 @@ enum CtorPosition {
 /// it: the parity suite reads this list and exercises every entry, so a
 /// module cannot be accepted by the resolver with no runtime behind it.
 pub const STD_MODULES: &[&str] = &[
-    "env", "fs", "http", "io", "json", "math", "proc", "rand", "time",
+    "cli", "env", "fs", "http", "io", "json", "math", "proc", "rand", "time",
 ];
 
 pub(crate) fn builtin_value(name: &str) -> Option<BuiltinValue> {

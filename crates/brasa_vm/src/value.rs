@@ -86,6 +86,10 @@ pub enum Value {
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
     Json(brasa_runtime::json_glue::JsonRef),
+    /// The `std::cli` parsed-arguments record (BRS-112). Frozen after
+    /// the parse and free of heap references, like
+    /// [`Value::HttpResponse`].
+    CliArgs(Handle<ArgsValue>),
     /// The `std::http` response record (BRS-113). Frozen at the end of
     /// the request and free of heap references — headers are kept as
     /// plain pairs rather than as a `Map` value — so a plain [`Handle`]
@@ -123,6 +127,15 @@ pub struct ResponseValue {
     pub status: i64,
     pub body: Handle<str>,
     pub headers: Vec<(String, String)>,
+}
+
+/// The payload of a [`Value::CliArgs`]: which flags were present, the
+/// options that were given a value, and everything positional.
+#[derive(Debug)]
+pub struct ArgsValue {
+    pub flags: Vec<String>,
+    pub options: Vec<(String, String)>,
+    pub rest: Vec<String>,
 }
 
 /// The fields of a [`Value::Walk`], in declaration order (`paths`,
