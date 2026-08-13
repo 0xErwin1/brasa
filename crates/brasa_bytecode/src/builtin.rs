@@ -127,6 +127,7 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("proc.run"),
     free("proc.tryRun"),
     free("proc.shell"),
+    free("proc.tryRunAll"),
     free("env.get"),
     free("env.set"),
     free("env.vars"),

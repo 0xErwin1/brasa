@@ -285,6 +285,14 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![ModuleParam::Ty(Type::String)],
             Type::ProcOutput,
         )),
+        // The commands are argv arrays only: the whitespace-split
+        // string sugar exists for a literal command an author typed,
+        // and a batch is built from data.
+        ("proc", "tryRunAll") => Some(msig(
+            vec![ModuleParam::Ty(Type::vector(Type::vector(Type::String)))],
+            vec![ModuleParam::Ty(Type::Int)],
+            Type::vector(Type::ProcOutput),
+        )),
         ("proc", "shell") => Some(msig(
             vec![ModuleParam::Ty(Type::String)],
             vec![ModuleParam::Ty(Type::String)],

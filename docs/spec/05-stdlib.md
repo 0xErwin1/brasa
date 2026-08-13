@@ -322,7 +322,35 @@ if r.code == 0 ...
 
 let counted = proc.run(["wc", "-l"], text)        # optional trailing stdin
 proc.shell("ls *.bras | wc -l")                   # via explicit /bin/sh
+
+let outs = proc.tryRunAll(jobs, 8)                # bounded parallelism
 ```
+
+- `tryRunAll(commands: Vector<Vector<string>>, limit?: int)` runs every
+  command with at most `limit` running at once and returns the `Output`
+  values **in input order**, whatever order they finished in. `limit`
+  defaults to the machine's parallelism and is clamped to at least one:
+  an unbounded fan-out is never offered, because the caller is
+  processing a list whose length it does not control.
+
+  It is tolerant like `tryRun`, one step further: a non-zero exit is
+  data, not a throw. A batch that aborted on the first failure would
+  have already paid for the work it then discarded, and the codes are
+  what the caller asked for. A child that cannot START is still
+  `proc.SpawnError` — an environment failure is not a result.
+
+  Commands are argv arrays only; the whitespace-split string sugar
+  exists for a literal command an author typed, and a batch is built
+  from data. There is no piped stdin: a shared input would have to be
+  split or duplicated across children, and neither is a choice this
+  member should make for the caller.
+
+  **This is not concurrency.** No Brasa value crosses a thread — the
+  commands go out as argv arrays and the results come back as data after
+  every child has exited — so the VM and the collector stay
+  single-threaded and no interleaving is observable in the language
+  ([00-vision.md](00-vision.md): concurrency is out of v1). It is the
+  `xargs -P` a bash replacement cannot do without.
 
 - **The argv-array form is the primary API**: `run(Vector<string>)` passes
   arguments through untouched, so interpolated data (filenames with

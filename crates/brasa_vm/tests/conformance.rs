@@ -4290,6 +4290,13 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "hi\n",
         ),
         (
+            "proc.tryRunAll",
+            format!(
+                "{proc}let outs = proc.tryRunAll([[\"/bin/sh\", \"-c\", \"printf a\"], [\"/bin/sh\", \"-c\", \"printf b\"]], 2)\nputs outs[0].stdout + outs[1].stdout\n"
+            ),
+            "ab\n",
+        ),
+        (
             "stdout",
             format!("{proc}let o = proc.shell(\"printf hi\")\nputs o.stdout\n"),
             "hi\n",

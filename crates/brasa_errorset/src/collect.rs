@@ -11,7 +11,7 @@
 //! | declared struct method | that method's current set |
 //! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
 //! | `proc.run` / `proc.shell` | the `Opaque("proc.NonZeroExit")` and `Opaque("proc.SpawnError")` tags (BRS-32) |
-//! | `proc.tryRun` | the `Opaque("proc.SpawnError")` tag only — it never throws `NonZeroExit` |
+//! | `proc.tryRun` / `proc.tryRunAll` | the `Opaque("proc.SpawnError")` tag only — neither throws `NonZeroExit` |
 //! | the throwing `fs` members and `env.cd` | all three `fs` tags (`fs.NotFound`, `fs.Denied`, `fs.IoError`) — BRS-33 |
 //! | `fs.abs` / `env.cwd` | the `Opaque("fs.IoError")` tag only (an unreadable current directory) |
 //! | the `fs` predicates and pure path helpers | nothing — they never throw |
@@ -341,7 +341,7 @@ impl<'a> Collector<'a> {
                     set.tags.insert(ErrorTag::Opaque(PROC_NON_ZERO_EXIT));
                     set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
                 }
-                (Some("proc"), "tryRun") => {
+                (Some("proc"), "tryRun" | "tryRunAll") => {
                     set.tags.insert(ErrorTag::Opaque(PROC_SPAWN_ERROR));
                 }
                 (

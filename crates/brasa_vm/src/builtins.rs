@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 use brasa_runtime::proc_env::{
-    env_lookup, merged_env, non_zero_exit_message, run_command, shell_argv, valid_env_name,
+    env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv, valid_env_name,
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{fs_glue, io_glue, json_glue, num_glue, time_glue};
@@ -102,6 +102,10 @@ impl Vm<'_> {
     /// exit; every runner throws `proc.SpawnError` when the child
     /// cannot start.
     fn proc_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
+        if name == "tryRunAll" {
+            return self.proc_try_run_all(args);
+        }
+
         if !matches!(name, "run" | "tryRun" | "shell") {
             return Err(Signal::Fatal(format!(
                 "brasa: unknown member `{name}` on module `proc`"
@@ -151,6 +155,64 @@ impl Vm<'_> {
             stderr: Rc::from(output.stderr),
             code: output.code,
         })))
+    }
+
+    /// `proc.tryRunAll(commands, limit?)`: every command run with a
+    /// concurrency cap, results in input order.
+    ///
+    /// Tolerant like `tryRun` and for the same reason, one step
+    /// stronger: a batch that aborts on the first non-zero exit has
+    /// already paid for the work it then throws away, and the codes are
+    /// exactly the data the caller asked for. A child that cannot START
+    /// is still `proc.SpawnError` — that is an environment failure, not
+    /// a result, and mapping it to some invented exit code would hide
+    /// it.
+    fn proc_try_run_all(&mut self, args: Vec<Value>) -> VmResult {
+        let invalid =
+            || Signal::Fatal("brasa: invalid argument(s) to `proc.tryRunAll`".to_string());
+
+        let (commands, limit) = match args.as_slice() {
+            [Value::Vector(commands)] => (*commands, None),
+            [Value::Vector(commands), Value::Int(limit)] => (*commands, Some(*limit)),
+            _ => return Err(invalid()),
+        };
+
+        let rows = self.heap.vector(commands).borrow().clone();
+        let mut argvs = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let Value::Vector(items) = row else {
+                return Err(invalid());
+            };
+            let items = self.heap.vector(*items).borrow().clone();
+
+            let mut argv = Vec::with_capacity(items.len());
+            for item in &items {
+                match item {
+                    Value::Str(s) => argv.push(s.to_string()),
+                    _ => return Err(invalid()),
+                }
+            }
+            argvs.push(argv);
+        }
+
+        // A non-positive cap is clamped by `run_all` rather than
+        // rejected: `0` reads as "no limit" to anyone who knows
+        // `xargs -P0`, and the honest answer to that is the machine's
+        // parallelism, not an unbounded fan-out.
+        let limit = limit.map(|n| usize::try_from(n).unwrap_or(1));
+        let results = run_all(&argvs, &self.env_overlay, limit);
+
+        let mut outputs = Vec::with_capacity(results.len());
+        for result in results {
+            let output = result.map_err(|message| native_error(PROC_SPAWN_ERROR, message))?;
+            outputs.push(Value::ProcOutput(Rc::new(OutputValue {
+                stdout: Rc::from(output.stdout),
+                stderr: Rc::from(output.stderr),
+                code: output.code,
+            })));
+        }
+
+        Ok(self.heap.alloc_vector(outputs))
     }
 
     /// The `std::env` members, ported from the walker's `env_call`
