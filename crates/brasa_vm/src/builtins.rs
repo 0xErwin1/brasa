@@ -14,7 +14,7 @@ use brasa_runtime::proc_env::{
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{fs_glue, io_glue, json_glue, num_glue, time_glue};
 
-use crate::value::{OutputValue, Value, WalkValue, value_cmp, value_eq};
+use crate::value::{NativeErrorValue, OutputValue, Value, WalkValue, value_cmp, value_eq};
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
 /// The canonical qualified name of the native `string` parse error
@@ -1171,10 +1171,10 @@ fn builtin_error(name: &str) -> Signal {
 /// [`Value::NativeError`], caught by naming its qualified name or by
 /// `_` like any thrown value.
 fn native_error(name: &'static str, message: String) -> Signal {
-    Signal::Error(Value::NativeError {
+    Signal::Error(Value::NativeError(Rc::new(NativeErrorValue {
         name,
         message: Rc::from(message),
-    })
+    })))
 }
 
 fn fs_signal(err: fs_glue::FsError) -> Signal {

@@ -63,11 +63,10 @@ pub enum Value {
     /// A builtin method accessed without calling it (`v.push` as a value).
     BoundBuiltin(Handle<BoundBuiltin>),
     /// A stdlib-native error: canonical qualified name + message
-    /// (`brasa_resolver::NATIVE_ERRORS`).
-    NativeError {
-        name: &'static str,
-        message: Handle<str>,
-    },
+    /// (`brasa_resolver::NATIVE_ERRORS`). Boxed because it is the
+    /// widest payload any variant carries and the rarest at runtime:
+    /// inline it would set the size of every stack slot.
+    NativeError(Handle<NativeErrorValue>),
     /// INTERNAL: the caught-signal value handler dispatch operates on
     /// (`docs/spec/07-bytecode.md`, throw/catch). Never observable in
     /// the language.
@@ -87,6 +86,14 @@ pub enum Value {
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
     Json(brasa_runtime::json_glue::JsonRef),
+}
+
+/// The payload of a [`Value::NativeError`]: the canonical qualified
+/// name the `catch` tag matches and the message the binding sees.
+#[derive(Debug)]
+pub struct NativeErrorValue {
+    pub name: &'static str,
+    pub message: Handle<str>,
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
@@ -149,8 +156,9 @@ pub enum Caught {
     /// A thrown error carrying its value.
     Error(Value),
     /// A panic: qualified kind name, detail, and the raise-time call
-    /// chain (innermost first) for the uncaught rendering.
-    Panic(PanicValue),
+    /// chain (innermost first) for the uncaught rendering. Boxed for
+    /// the same reason [`crate::vm::Signal`] boxes it — see there.
+    Panic(Box<PanicValue>),
 }
 
 #[derive(Debug, Clone)]
@@ -377,13 +385,9 @@ fn eq(heap: &Heap, a: &Value, b: &Value, depth: usize, assumed: Option<&Assumed>
                     .all(|(a, b)| eq(heap, a, b, deeper, assumed))
         }
         (Value::Func(x), Value::Func(y)) => x == y,
-        (
-            Value::NativeError { name, message },
-            Value::NativeError {
-                name: name2,
-                message: message2,
-            },
-        ) => name == name2 && message == message2,
+        (Value::NativeError(x), Value::NativeError(y)) => {
+            x.name == y.name && x.message == y.message
+        }
         (Value::Closure(x), Value::Closure(y)) => Rc::ptr_eq(x, y),
         (Value::BoundMethod(x), Value::BoundMethod(y)) => Rc::ptr_eq(x, y),
         (Value::BoundBuiltin(x), Value::BoundBuiltin(y)) => Rc::ptr_eq(x, y),
@@ -400,6 +404,7 @@ fn eq(heap: &Heap, a: &Value, b: &Value, depth: usize, assumed: Option<&Assumed>
 /// Primitive ordering for `<`/`<=`/`>`/`>=` and sort keys: `int`,
 /// `float`, `string`, `char`. `None` for incomparable operands,
 /// including any float pair involving `NaN`.
+#[inline]
 pub fn value_cmp(a: &Value, b: &Value) -> Option<Ordering> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),

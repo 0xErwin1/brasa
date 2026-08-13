@@ -48,7 +48,10 @@ const NATIVE_ROOT_FLOOR: usize = 64;
 #[derive(Debug)]
 pub(crate) enum Signal {
     Error(Value),
-    Panic(PanicValue),
+    /// Boxed: a panic's name, detail, and raise-time call chain are the
+    /// widest payload a signal carries, and every instruction returns a
+    /// `Result<_, Signal>` whose size this would otherwise set.
+    Panic(Box<PanicValue>),
     Fatal(String),
     BrokenPipe,
     /// `env.exit(code)`. Not an error and deliberately not catchable:
@@ -257,11 +260,11 @@ impl<'a> Vm<'a> {
     }
 
     pub(crate) fn panic(&self, name: &'static str, detail: impl Into<String>) -> Signal {
-        Signal::Panic(PanicValue {
+        Signal::Panic(Box::new(PanicValue {
             name,
             detail: detail.into(),
             stack: self.capture_trace(),
-        })
+        }))
     }
 
     fn fatal(message: impl Into<String>) -> Signal {
@@ -318,7 +321,18 @@ impl<'a> Vm<'a> {
     /// values on (BRS-62). A nested loop that did not collect would let
     /// a long-running builtin HOF hold the whole run's garbage, since
     /// its callback never reaches a top-level boundary.
+    ///
+    /// The running function's code slice is hoisted into a loop local
+    /// and refreshed only when the top frame's function changes, which
+    /// takes the module-table indirection (function table, chunk,
+    /// instruction vector) out of the per-instruction fetch. `ip` stays
+    /// in the frame and is pre-advanced there: unwinding reads it to
+    /// locate the faulting instruction, and every instruction that can
+    /// raise would otherwise have to write it back anyway.
     fn execute(&mut self, min_frames: usize) -> Result<(), Signal> {
+        let mut current: Option<FuncId> = None;
+        let mut code: &'a [Op] = &[];
+
         while self.frames.len() >= min_frames {
             if self.heap.should_collect() {
                 self.heap.collect(
@@ -330,10 +344,16 @@ impl<'a> Vm<'a> {
             }
 
             let frame = self.frames.last_mut().expect("loop condition holds");
-            let op = self.module.functions[frame.func.0 as usize].chunk.ops()[frame.ip];
-            frame.ip += 1;
+            let func = frame.func;
+            let ip = frame.ip;
+            frame.ip = ip + 1;
 
-            if let Err(signal) = self.step(op) {
+            if current != Some(func) {
+                current = Some(func);
+                code = self.function(func).chunk.ops();
+            }
+
+            if let Err(signal) = self.step(code[ip]) {
                 self.unwind(signal, min_frames)?;
             }
         }
@@ -635,11 +655,17 @@ impl<'a> Vm<'a> {
     }
 
     // --- stack helpers -------------------------------------------------
+    //
+    // These are the per-instruction primitives, so they are inlined
+    // unconditionally: left to its own judgement the optimizer outlines
+    // them, and a push or a pop then costs a call and a spill.
 
+    #[inline(always)]
     fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
+    #[inline(always)]
     fn pop(&mut self) -> Value {
         self.stack.pop().expect("operand stack underflow")
     }
@@ -648,34 +674,59 @@ impl<'a> Vm<'a> {
         self.stack.split_off(self.stack.len() - n)
     }
 
+    #[inline(always)]
     fn peek(&self) -> &Value {
         self.stack.last().expect("operand stack underflow")
     }
 
+    #[inline(always)]
     fn pop_int(&mut self) -> VmResult<i64> {
         match self.pop() {
             Value::Int(v) => Ok(v),
-            _ => Err(Self::fatal("brasa: expected an int")),
+            _ => Err(Self::not_an_int()),
         }
     }
 
+    /// Outlined so that the operand check `pop_int` compiles to is a
+    /// predicted branch over a call, not an inline `String` build.
+    #[cold]
+    #[inline(never)]
+    fn not_an_int() -> Signal {
+        Self::fatal("brasa: expected an int")
+    }
+
+    #[inline(always)]
     fn pop_bool(&mut self) -> VmResult<bool> {
         match self.pop() {
             Value::Bool(v) => Ok(v),
-            _ => Err(Self::fatal("brasa: condition is not a bool")),
+            _ => Err(Self::not_a_bool()),
         }
     }
 
+    /// Outlined for the same reason as [`Vm::not_an_int`].
+    #[cold]
+    #[inline(never)]
+    fn not_a_bool() -> Signal {
+        Self::fatal("brasa: condition is not a bool")
+    }
+
+    #[inline(always)]
     fn jump(&mut self, target: CodeIx) {
         self.frames.last_mut().expect("active frame").ip = target.0 as usize;
     }
 
+    #[inline(always)]
     fn frame_base(&self) -> usize {
         self.frames.last().expect("active frame").base
     }
 
     // --- one instruction -----------------------------------------------
 
+    /// Inlined into [`Vm::execute`] on purpose: as a separate function
+    /// every instruction paid a call, the prologue and epilogue of a
+    /// frame sized by the cold arms' string formatting, and a
+    /// multi-word `Result` return, none of which the hot arms need.
+    #[inline(always)]
     fn step(&mut self, op: Op) -> Result<(), Signal> {
         match op {
             Op::Const(id) => {
@@ -1070,9 +1121,7 @@ impl<'a> Vm<'a> {
                     unreachable!("caught_detail peeks the caught signal");
                 };
                 let bound = match &**caught {
-                    Caught::Error(Value::NativeError { message, .. }) => {
-                        Value::Str(message.clone())
-                    }
+                    Caught::Error(Value::NativeError(error)) => Value::Str(error.message.clone()),
                     Caught::Error(value) => value.clone(),
                     Caught::Panic(panic) => Value::str(&panic.detail),
                 };
@@ -1097,10 +1146,15 @@ impl<'a> Vm<'a> {
 
     // --- operator helpers ----------------------------------------------
 
+    #[cold]
+    #[inline(never)]
     fn overflow(&self, op: &str) -> Signal {
         self.panic(INTEGER_OVERFLOW, format!("integer overflow in `{op}`"))
     }
 
+    /// Inlined so that `f` resolves to the concrete checked operation
+    /// at each of its call sites instead of an indirect call.
+    #[inline(always)]
     fn int_arith(&mut self, symbol: &str, f: fn(i64, i64) -> Option<i64>) -> Result<(), Signal> {
         let b = self.pop_int().map_err(Self::bad_arith)?;
         let a = self.pop_int().map_err(Self::bad_arith)?;
@@ -1123,6 +1177,8 @@ impl<'a> Vm<'a> {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn bad_arith(_: Signal) -> Signal {
         Self::fatal("brasa: invalid operands for arithmetic operator")
     }
@@ -1132,36 +1188,52 @@ impl<'a> Vm<'a> {
     /// `int`/`float`/`string`/`char` satisfy `Comparable` today, so the
     /// struct branch is unreachable in checked programs — mirrored
     /// anyway so the two backends share one dynamic contract.
+    ///
+    /// Inlined so that `f` resolves at each comparison opcode; the
+    /// fallback stays outlined so the four call sites do not each carry
+    /// a copy of a path only a generic struct receiver reaches.
+    #[inline(always)]
     fn ordering(&mut self, f: fn(std::cmp::Ordering) -> bool) -> Result<(), Signal> {
         let b = self.pop();
         let a = self.pop();
 
         let result = match value_cmp(&a, &b) {
             Some(ordering) => f(ordering),
-            None => match (&a, &b) {
-                // IEEE: comparisons involving NaN are all false.
-                (Value::Float(_), Value::Float(_)) => false,
-                // A struct satisfying `Comparable` through its own
-                // `cmp`, reached from inside a generic function where
-                // the operand type is not statically one of the
-                // orderable primitives. `a > b` on two struct values
-                // written directly is a T004 diagnostic, which is why
-                // this reads as unreachable and is not:
-                // `comparable_structs_order_through_their_cmp` and
-                // `comparable_is_satisfied_transitively_through_a_user_constraint`
-                // both come through here.
-                (Value::Struct(_), Value::Struct(_)) => {
-                    let cmp = self.call_struct_by_name(a.clone(), "cmp", vec![b.clone()])?;
-                    match cmp {
-                        Value::Int(v) => f(v.cmp(&0)),
-                        _ => return Err(Self::fatal("brasa: `cmp` must return an int")),
-                    }
-                }
-                _ => return Err(Self::fatal("brasa: operands are not comparable")),
-            },
+            None => self.ordering_fallback(&a, &b, f)?,
         };
         self.push(Value::Bool(result));
         Ok(())
+    }
+
+    /// The operands [`value_cmp`] has no primitive ordering for.
+    #[cold]
+    #[inline(never)]
+    fn ordering_fallback(
+        &mut self,
+        a: &Value,
+        b: &Value,
+        f: fn(std::cmp::Ordering) -> bool,
+    ) -> VmResult<bool> {
+        match (a, b) {
+            // IEEE: comparisons involving NaN are all false.
+            (Value::Float(_), Value::Float(_)) => Ok(false),
+            // A struct satisfying `Comparable` through its own `cmp`,
+            // reached from inside a generic function where the operand
+            // type is not statically one of the orderable primitives.
+            // `a > b` on two struct values written directly is a T004
+            // diagnostic, which is why this reads as unreachable and is
+            // not: `comparable_structs_order_through_their_cmp` and
+            // `comparable_is_satisfied_transitively_through_a_user_constraint`
+            // both come through here.
+            (Value::Struct(_), Value::Struct(_)) => {
+                let cmp = self.call_struct_by_name(a.clone(), "cmp", vec![b.clone()])?;
+                match cmp {
+                    Value::Int(v) => Ok(f(v.cmp(&0))),
+                    _ => Err(Self::fatal("brasa: `cmp` must return an int")),
+                }
+            }
+            _ => Err(Self::fatal("brasa: operands are not comparable")),
+        }
     }
 
     /// Runtime member dispatch on a struct receiver: declared methods
@@ -1616,7 +1688,7 @@ impl<'a> Vm<'a> {
                 .name
                 .clone(),
             Value::Enum(e) => self.module.enums[e.shape.0 as usize].name.clone(),
-            Value::NativeError { name, .. } => name.to_string(),
+            Value::NativeError(error) => error.name.to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
             Value::Walk(_) => "Walk".to_string(),
             Value::Json(_) => "Json".to_string(),
@@ -1633,6 +1705,21 @@ impl<'a> Vm<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every operand-stack slot is a [`Value`] and every instruction
+    /// returns a `Result<_, Signal>`, so both widths are dispatch-loop
+    /// costs paid per instruction rather than implementation details
+    /// (BRS-98). Both are set by their widest variant, and a new
+    /// variant carrying its payload inline silently widens every slot
+    /// or every return — which is what these figures catch. Raising
+    /// either is a deliberate decision, not a diff to wave through:
+    /// box the payload instead, as `Value::NativeError` and
+    /// `Signal::Panic` do.
+    #[test]
+    fn the_hot_path_types_stay_narrow() {
+        assert_eq!(std::mem::size_of::<Value>(), 24, "Value widened");
+        assert_eq!(std::mem::size_of::<Signal>(), 32, "Signal widened");
+    }
 
     /// The resolver validates `panics.`-qualified `catch` arm names
     /// against its own list, and the VM raises by the constants above.

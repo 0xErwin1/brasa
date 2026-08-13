@@ -240,7 +240,7 @@ caught-signal value at the top of the stack:
 
 | Option | Verdict |
 |--------|---------|
-| Rust `enum Value` with inline scalars + typed GC handles for heap kinds | **Chosen for v1.** 16 bytes per value, exhaustive matches, no `unsafe` in the representation, GC tracing is a `match`. The walker→VM criterion win comes from eliminating tree dispatch, `HashMap` frames, and `Rc` traffic — not from packing values into 8 bytes |
+| Rust `enum Value` with inline scalars + typed GC handles for heap kinds | **Chosen for v1.** 24 bytes per value, exhaustive matches, no `unsafe` in the representation, GC tracing is a `match`. Payloads wider than a `Range` are boxed rather than inlined (BRS-98), because every operand-stack slot pays for the widest variant. The walker→VM criterion win came from eliminating tree dispatch, `HashMap` frames, and `Rc` traffic — not from packing values into 8 bytes |
 | NaN-boxing / pointer tagging | Explicit non-goal for v1 (below). It is an *optimization of* the enum representation, invisible to bytecode and to this document's semantics, so it can land later without respeccing anything |
 
 The VM `Value` mirrors the walker's kinds with `Rc<RefCell<…>>` replaced

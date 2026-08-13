@@ -202,7 +202,7 @@ impl<'a> Vm<'a> {
             // Only the message: the uncaught-error path prepends the
             // nominal tag itself, producing `error: string.ParseError:
             // <message>` without duplication.
-            Value::NativeError { message, .. } => Ok(message.to_string()),
+            Value::NativeError(error) => Ok(error.message.to_string()),
             // The `Output` record renders like a struct
             // (`docs/spec/05-stdlib.md`, BRS-32).
             Value::ProcOutput(output) => {

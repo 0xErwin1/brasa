@@ -613,7 +613,7 @@ fn shared_address(value: &Value) -> Option<usize> {
         | Value::Range { .. }
         | Value::Option(None)
         | Value::Func(_)
-        | Value::NativeError { .. }
+        | Value::NativeError(_)
         | Value::ProcOutput(_)
         | Value::Json(_)
         | Value::Vector(_)
