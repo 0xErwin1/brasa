@@ -1,0 +1,14 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  writes -> {fs.Denied, fs.IoError, fs.NotFound}
+  listing -> {fs.Denied, fs.IoError, fs.NotFound}
+  matching -> {fs.Denied, fs.IoError, fs.NotFound}
+  walked -> {fs.Denied, fs.IoError, fs.NotFound}
+  tolerant -> {fs.Denied, fs.IoError, fs.NotFound}
+  trees -> {fs.Denied, fs.IoError, fs.NotFound}
+  moved -> {fs.Denied, fs.IoError, fs.NotFound}
+  real -> {fs.Denied, fs.IoError, fs.NotFound}
+  link -> {}

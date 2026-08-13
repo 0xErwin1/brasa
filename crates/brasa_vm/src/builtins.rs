@@ -13,7 +13,7 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
-use brasa_stdlib::VectorMember;
+use brasa_stdlib::{FsMember, VectorMember};
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -448,62 +448,136 @@ impl Vm<'_> {
         }
     }
 
-    /// The `std::fs` members plus path helpers, ported from the
-    /// walker's `fs_call` (BRS-33, `docs/spec/05-stdlib.md`); all OS
+    /// The `std::fs` members plus path helpers, dispatched through the
+    /// declaration in `brasa_stdlib::fs` (BRS-96, BRS-33); all OS
     /// behavior lives in the shared `brasa_runtime::fs_glue`, only value
     /// construction happens here.
+    ///
+    /// The outer match is exhaustive over the declared surface, so a
+    /// member added to the table does not compile until it is
+    /// implemented here. Argument shapes stay an inner match: a member
+    /// called with the wrong operands is the same fatal failure it has
+    /// always been.
     fn fs_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("read", [Value::Str(path)]) => fs_str(fs_glue::read(path)),
-            ("write", [Value::Str(path), Value::Str(contents)]) => {
-                fs_unit(fs_glue::write(path, contents))
-            }
-            ("append", [Value::Str(path), Value::Str(contents)]) => {
-                fs_unit(fs_glue::append(path, contents))
-            }
-            ("exists?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::exists(path))),
-            ("isFile?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_file(path))),
-            ("isDir?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_dir(path))),
+        let Some(member) = FsMember::from_name(name) else {
+            return Err(unknown_fs_member(name));
+        };
+
+        // `resolve` and `isSymlink?` were appended after the argument
+        // check was written and never joined it, so a mismatched shape
+        // reports the unknown-member failure instead. Kept as-is: the
+        // checker rejects both calls long before the VM sees them, so
+        // changing the message would only churn an unreachable string.
+        let invalid = match member {
+            FsMember::Resolve | FsMember::IsSymlink => unknown_fs_member,
+            _ => invalid_fs_args,
+        };
+
+        match member {
+            FsMember::Read => match args.as_slice() {
+                [Value::Str(path)] => fs_str(fs_glue::read(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Write => match args.as_slice() {
+                [Value::Str(path), Value::Str(contents)] => fs_unit(fs_glue::write(path, contents)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Append => match args.as_slice() {
+                [Value::Str(path), Value::Str(contents)] => {
+                    fs_unit(fs_glue::append(path, contents))
+                }
+                _ => Err(invalid(name)),
+            },
+            FsMember::Exists => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::Bool(fs_glue::exists(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::IsFile => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::Bool(fs_glue::is_file(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::IsDir => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::Bool(fs_glue::is_dir(path))),
+                _ => Err(invalid(name)),
+            },
             // The one predicate that must NOT follow the link: it
             // answers about the path, not about its target.
-            ("isSymlink?", [Value::Str(path)]) => Ok(Value::Bool(fs_glue::is_symlink(path))),
-            ("ls", [Value::Str(path)]) => self.fs_strings(fs_glue::ls(path)),
-            ("glob", [Value::Str(pattern)]) => self.fs_strings(fs_glue::glob(pattern)),
-            ("walk", [Value::Str(path)]) => self.fs_strings(fs_glue::walk(path, &[])),
-            ("walk", [Value::Str(path), Value::Vector(prune)]) => {
-                let names = self.prune_names(*prune, "walk")?;
-                self.fs_strings(fs_glue::walk(path, &names))
-            }
-            ("tryWalk", [Value::Str(path)]) => self.fs_walk(fs_glue::try_walk(path, &[])),
-            ("tryWalk", [Value::Str(path), Value::Vector(prune)]) => {
-                let names = self.prune_names(*prune, "tryWalk")?;
-                self.fs_walk(fs_glue::try_walk(path, &names))
-            }
-            ("mkdir", [Value::Str(path)]) => fs_unit(fs_glue::mkdir(path)),
-            ("mkdirAll", [Value::Str(path)]) => fs_unit(fs_glue::mkdir_all(path)),
-            ("rm", [Value::Str(path)]) => fs_unit(fs_glue::rm(path)),
-            ("rmAll", [Value::Str(path)]) => fs_unit(fs_glue::rm_all(path)),
-            ("cp", [Value::Str(from), Value::Str(to)]) => fs_unit(fs_glue::cp(from, to)),
-            ("mv", [Value::Str(from), Value::Str(to)]) => fs_unit(fs_glue::mv(from, to)),
-            ("join", [Value::Str(base), Value::Str(part)]) => {
-                Ok(Value::str(fs_glue::join(base, part)))
-            }
-            ("base", [Value::Str(path)]) => Ok(Value::str(fs_glue::base(path))),
-            ("dir", [Value::Str(path)]) => Ok(Value::str(fs_glue::dir(path))),
-            ("ext", [Value::Str(path)]) => Ok(Value::str(fs_glue::ext(path))),
-            ("abs", [Value::Str(path)]) => fs_str(fs_glue::abs(path)),
-            ("resolve", [Value::Str(path)]) => fs_str(fs_glue::resolve(path)),
-            (
-                "read" | "write" | "append" | "exists?" | "isFile?" | "isDir?" | "ls" | "glob"
-                | "walk" | "tryWalk" | "mkdir" | "mkdirAll" | "rm" | "rmAll" | "cp" | "mv" | "join"
-                | "base" | "dir" | "ext" | "abs",
-                _,
-            ) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `fs.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `fs`"
-            ))),
+            FsMember::IsSymlink => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::Bool(fs_glue::is_symlink(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Ls => match args.as_slice() {
+                [Value::Str(path)] => self.fs_strings(fs_glue::ls(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Glob => match args.as_slice() {
+                [Value::Str(pattern)] => self.fs_strings(fs_glue::glob(pattern)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Walk => match args.as_slice() {
+                [Value::Str(path)] => self.fs_strings(fs_glue::walk(path, &[])),
+                [Value::Str(path), Value::Vector(prune)] => {
+                    let names = self.prune_names(*prune, "walk")?;
+                    self.fs_strings(fs_glue::walk(path, &names))
+                }
+                _ => Err(invalid(name)),
+            },
+            FsMember::TryWalk => match args.as_slice() {
+                [Value::Str(path)] => self.fs_walk(fs_glue::try_walk(path, &[])),
+                [Value::Str(path), Value::Vector(prune)] => {
+                    let names = self.prune_names(*prune, "tryWalk")?;
+                    self.fs_walk(fs_glue::try_walk(path, &names))
+                }
+                _ => Err(invalid(name)),
+            },
+            FsMember::Mkdir => match args.as_slice() {
+                [Value::Str(path)] => fs_unit(fs_glue::mkdir(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::MkdirAll => match args.as_slice() {
+                [Value::Str(path)] => fs_unit(fs_glue::mkdir_all(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Rm => match args.as_slice() {
+                [Value::Str(path)] => fs_unit(fs_glue::rm(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::RmAll => match args.as_slice() {
+                [Value::Str(path)] => fs_unit(fs_glue::rm_all(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Cp => match args.as_slice() {
+                [Value::Str(from), Value::Str(to)] => fs_unit(fs_glue::cp(from, to)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Mv => match args.as_slice() {
+                [Value::Str(from), Value::Str(to)] => fs_unit(fs_glue::mv(from, to)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Join => match args.as_slice() {
+                [Value::Str(base), Value::Str(part)] => Ok(Value::str(fs_glue::join(base, part))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Base => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::str(fs_glue::base(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Dir => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::str(fs_glue::dir(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Ext => match args.as_slice() {
+                [Value::Str(path)] => Ok(Value::str(fs_glue::ext(path))),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Abs => match args.as_slice() {
+                [Value::Str(path)] => fs_str(fs_glue::abs(path)),
+                _ => Err(invalid(name)),
+            },
+            FsMember::Resolve => match args.as_slice() {
+                [Value::Str(path)] => fs_str(fs_glue::resolve(path)),
+                _ => Err(invalid(name)),
+            },
         }
     }
 
@@ -1529,6 +1603,16 @@ fn walk_builtin(walk: &WalkValue, name: &str, args: &[Value]) -> VmResult {
 
 fn builtin_error(name: &str) -> Signal {
     Signal::Fatal(format!("brasa: unknown builtin method `{name}`"))
+}
+
+/// A `std::fs` member reached with operands it does not accept.
+fn invalid_fs_args(name: &str) -> Signal {
+    Signal::Fatal(format!("brasa: invalid argument(s) to `fs.{name}`"))
+}
+
+/// A name `std::fs` does not carry.
+fn unknown_fs_member(name: &str) -> Signal {
+    Signal::Fatal(format!("brasa: unknown member `{name}` on module `fs`"))
 }
 
 /// Raises a stdlib-native error: an ordinary error signal carrying a

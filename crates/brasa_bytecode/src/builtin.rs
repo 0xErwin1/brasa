@@ -279,6 +279,43 @@ mod tests {
         }
     }
 
+    /// The same cover for a free module, whose registry name is
+    /// qualified (`fs.read`) because a bare member name is not unique
+    /// across modules.
+    #[test]
+    fn every_declared_fs_member_holds_a_free_id() {
+        for decl in brasa_stdlib::FS_MEMBERS {
+            let qualified = format!("{}.{}", brasa_stdlib::FsMember::MODULE, decl.name);
+            let id = builtin_id(&qualified)
+                .unwrap_or_else(|| panic!("`{qualified}` is declared but has no id"));
+
+            assert!(
+                builtin_def(id).is_some_and(|def| !def.has_receiver),
+                "`{qualified}` is a module member, so its entry must take no receiver"
+            );
+        }
+    }
+
+    /// The other direction: an id minted under `fs.` that no row
+    /// declares would be a member the checker cannot type and the VM
+    /// cannot reach.
+    #[test]
+    fn every_fs_registry_entry_is_declared() {
+        let prefix = format!("{}.", brasa_stdlib::FsMember::MODULE);
+
+        for def in BUILTINS {
+            let Some(member) = def.name.strip_prefix(&prefix) else {
+                continue;
+            };
+
+            assert!(
+                brasa_stdlib::FsMember::from_name(member).is_some(),
+                "`{}` holds an id but no row declares it",
+                def.name
+            );
+        }
+    }
+
     #[test]
     fn unknown_names_do_not_resolve() {
         assert_eq!(builtin_id("definitelyNotABuiltin"), None);

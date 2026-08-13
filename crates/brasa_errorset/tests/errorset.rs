@@ -1189,6 +1189,57 @@ end
 "#
 );
 
+// The rest of the `fs` surface that touches the filesystem. Every one
+// of these contributes all three errors, so a member whose declared
+// list narrowed would change the set its caller infers here (BRS-96).
+errorset_test!(
+    the_remaining_fs_members_tag_the_set,
+    r#"
+import std::fs
+
+def writes(path: string, text: string)
+  fs.write(path, text)
+  fs.append(path, text)
+end
+
+def listing(dir: string): Vector<string>
+  fs.ls(dir)
+end
+
+def matching(pattern: string): Vector<string>
+  fs.glob(pattern)
+end
+
+def walked(dir: string): Vector<string>
+  fs.walk(dir, ["node_modules"])
+end
+
+def tolerant(dir: string): Vector<string>
+  fs.tryWalk(dir).paths
+end
+
+def trees(dir: string)
+  fs.mkdir(dir)
+  fs.mkdirAll(dir)
+  fs.rm(dir)
+  fs.rmAll(dir)
+end
+
+def moved(from: string, to: string)
+  fs.cp(from, to)
+  fs.mv(from, to)
+end
+
+def real(path: string): string
+  fs.resolve(path)
+end
+
+def link(path: string): bool
+  fs.isSymlink?(path)
+end
+"#
+);
+
 errorset_error_test!(
     e001_unreachable_fs_arm,
     r#"

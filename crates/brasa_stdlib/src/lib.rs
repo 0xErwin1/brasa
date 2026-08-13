@@ -27,6 +27,26 @@
 //! `docs/spec/05-stdlib.md` remains normative and hand-written: this
 //! removes duplication inside the compiler, not between the compiler
 //! and the spec.
+//!
+//! # Two table shapes
+//!
+//! A receiver type ([`method_table!`], `Vector<T>`) and a free module
+//! ([`module_table!`], `std::fs`) do NOT share a shape, because almost
+//! nothing about their columns overlaps:
+//!
+//! | | receiver method | free module member |
+//! |---|---|---|
+//! | receiver | yes, and its element type is a type ([`TyDesc::Elem`]) | none |
+//! | result | can depend on an argument ([`RetDesc`]) | always a fixed type |
+//! | trailing parameters | all required | last ones may be optional |
+//! | errors raised | none on the converted surface | part of the contract ([`ModuleDecl::throws`]) |
+//! | registry name | the bare name, shared across receivers | `module.name`, unique |
+//!
+//! One shape covering both would carry an `Elem` case free modules can
+//! never use and an optional/`throws` column receivers never fill —
+//! columns no test could reach. What the two DO share is the type
+//! language ([`TyDesc`] and [`ty!`]), which is where the real
+//! duplication would have been.
 
 /// A type in a declaration, written in the table's small type language
 /// and lowered to the checker's `Type` by `brasa_typeck`.
@@ -43,7 +63,10 @@ pub enum TyDesc {
     /// member's type is decided by the call site rather than the table.
     Unknown,
     /// The receiver's element type — `T` in a `Vector<T>` receiver.
+    /// Meaningless in a free module's table, which has no receiver.
     Elem,
+    /// The `Walk` record `fs.tryWalk` yields (BRS-66).
+    Walk,
     Vector(&'static TyDesc),
     Option(&'static TyDesc),
     Tuple(&'static [TyDesc]),
@@ -81,13 +104,38 @@ pub struct MethodDecl {
     pub ret: RetDesc,
 }
 
+/// One declared member of a free stdlib module (`fs.read(path)`): the
+/// surface name, the signature, and the errors the member raises.
+///
+/// The error column lives here rather than in a table of its own
+/// because the two rot apart otherwise: before BRS-96 the error-set
+/// pass carried its own copy of this knowledge, and a throwing member
+/// added to the signature table but forgotten in the error table made
+/// `throws never` verifiable over a body that throws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModuleDecl {
+    /// The surface name. The `brasa_bytecode` registry mints the id
+    /// under the qualified `module.name` instead, since a free member's
+    /// bare name is not unique across modules (`fs.read`, `io.readAll`).
+    pub name: &'static str,
+    /// The parameters every call must pass.
+    pub required: &'static [TyDesc],
+    /// Trailing parameters a call may omit, in order.
+    pub optional: &'static [TyDesc],
+    pub ret: TyDesc,
+    /// The stdlib-native errors this member raises, by canonical
+    /// qualified name (`fs.NotFound`) — the member's contribution to
+    /// its caller's inferred error-set.
+    pub throws: &'static [&'static str],
+}
+
 /// One type in the table's type language, as a [`TyDesc`].
 ///
 /// Every type is exactly one token tree, which is what keeps the table
-/// grammar trivial: primitives are bare words (`int`, `string`, `bool`,
-/// `unit`, `unknown`), the receiver's element type is `elem`, and every
-/// composite type is bracketed — `[Vector<elem>]`, `[Option<elem>]`,
-/// `[Tuple<elem, unknown>]`, `[fn(elem) -> bool]`.
+/// grammar trivial: named types are bare words (`int`, `string`,
+/// `bool`, `unit`, `unknown`, `walk`), the receiver's element type is
+/// `elem`, and every composite type is bracketed — `[Vector<elem>]`,
+/// `[Option<elem>]`, `[Tuple<elem, unknown>]`, `[fn(elem) -> bool]`.
 #[macro_export]
 macro_rules! ty {
     (int) => {
@@ -107,6 +155,9 @@ macro_rules! ty {
     };
     (elem) => {
         $crate::TyDesc::Elem
+    };
+    (walk) => {
+        $crate::TyDesc::Walk
     };
     ([Vector<$inner:tt>]) => {
         $crate::TyDesc::Vector(&$crate::ty!($inner))
@@ -203,6 +254,86 @@ macro_rules! method_table {
     };
 }
 
+/// Declares one free stdlib module's member surface — the modules
+/// called as `module.member(...)` rather than through a receiver.
+///
+/// Like [`method_table!`] it expands to the member enum the VM matches
+/// exhaustively and to the declaration table the checker reads, and it
+/// adds the two columns a free member has and a method does not:
+/// optional trailing parameters, written as a second parenthesized
+/// group after a `?`, and the errors the member raises, written after
+/// `throws`.
+///
+/// ```ignore
+/// brasa_stdlib::module_table! {
+///     /// The `std::fs` members.
+///     FsMember => FS_MEMBERS, module "fs" {
+///         Read "read" (string)                     -> string           throws ALL_ERRORS;
+///         Base "base" (string)                     -> string;
+///         Walk "walk" (string) ?([Vector<string>]) -> [Vector<string>] throws ALL_ERRORS;
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! module_table {
+    (@throws) => { &[] };
+    (@throws $throws:expr) => { $throws };
+    (
+        $(#[$table_meta:meta])*
+        $member:ident => $table:ident, module $module:literal {
+            $(
+                $(#[$row_meta:meta])*
+                $variant:ident $name:literal ( $($req:tt),* ) $( ? ( $($opt:tt),* ) )?
+                    -> $ret:tt $( throws $throws:expr )? ;
+            )*
+        }
+    ) => {
+        $(#[$table_meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum $member {
+            $(
+                $(#[$row_meta])*
+                $variant,
+            )*
+        }
+
+        impl $member {
+            /// The module these members are reached through, which is
+            /// also the prefix of their `brasa_bytecode` registry names.
+            pub const MODULE: &'static str = $module;
+
+            /// The member a surface name selects, or `None` when the
+            /// name is not part of this module's surface.
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            /// This member's declaration.
+            pub const fn decl(self) -> &'static $crate::ModuleDecl {
+                &$table[self as usize]
+            }
+        }
+
+        $(#[$table_meta])*
+        pub const $table: &[$crate::ModuleDecl] = &[
+            $(
+                $crate::ModuleDecl {
+                    name: $name,
+                    required: &[$($crate::ty!($req)),*],
+                    optional: &[$($($crate::ty!($opt)),*)?],
+                    ret: $crate::ty!($ret),
+                    throws: $crate::module_table!(@throws $($throws)?),
+                },
+            )*
+        ];
+    };
+}
+
+pub mod fs;
 pub mod vector;
 
+pub use fs::{FS_MEMBERS, FsMember};
 pub use vector::{VECTOR_METHODS, VectorMember};

@@ -7,11 +7,12 @@
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
 //!
-//! The `Vector<T>` surface no longer lives here: it is declared once in
-//! `brasa_stdlib::vector` and lowered below (BRS-96). The remaining
-//! receivers still carry their signatures in this file.
+//! The `Vector<T>` and `std::fs` surfaces no longer live here: each is
+//! declared once in `brasa_stdlib` and lowered below (BRS-96). The
+//! remaining receivers and modules still carry their signatures — and,
+//! for the modules, their error contributions — in this file.
 
-use brasa_stdlib::{RetDesc, TyDesc, VectorMember};
+use brasa_stdlib::{FsMember, RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -127,14 +128,22 @@ fn string_method(name: &str) -> Option<MethodSig> {
 /// Lowers a declared type against the receiver it was declared for:
 /// [`TyDesc::Elem`] becomes the receiver's element type, everything else
 /// is fixed.
-fn lower(desc: &TyDesc, elem: &Type) -> Type {
+///
+/// A free module's table has no receiver and passes `None`; a row there
+/// mentioning `elem` is a declaration bug that
+/// `brasa_stdlib::fs::tests::no_row_mentions_the_receiver_element_type`
+/// rejects before it can reach a user's call.
+fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
     match desc {
         TyDesc::Int => Type::Int,
         TyDesc::String => Type::String,
         TyDesc::Bool => Type::Bool,
         TyDesc::Unit => Type::Unit,
         TyDesc::Unknown => Type::Unknown,
-        TyDesc::Elem => elem.clone(),
+        TyDesc::Walk => Type::Walk,
+        TyDesc::Elem => elem
+            .expect("a receiver-less declaration cannot mention the receiver's element type")
+            .clone(),
         TyDesc::Vector(inner) => Type::vector(lower(inner, elem)),
         TyDesc::Option(inner) => Type::option(lower(inner, elem)),
         TyDesc::Tuple(items) => Type::Tuple(items.iter().map(|item| lower(item, elem)).collect()),
@@ -151,12 +160,17 @@ fn vector_method(elem: &Type, name: &str) -> Option<MethodSig> {
     let member = VectorMember::from_name(name)?;
     let decl = member.decl();
 
-    let params = || decl.params.iter().map(|param| lower(param, elem)).collect();
+    let params = || {
+        decl.params
+            .iter()
+            .map(|param| lower(param, Some(elem)))
+            .collect()
+    };
 
     match decl.ret {
         RetDesc::Ty(ret) => Some(MethodSig {
             params: params(),
-            ret: RetRule::Fixed(lower(&ret, elem)),
+            ret: RetRule::Fixed(lower(&ret, Some(elem))),
         }),
         RetDesc::VectorOfFnRet => Some(MethodSig {
             params: params(),
@@ -276,15 +290,22 @@ pub struct ModuleSig {
 ///
 /// Covers polymorphic members and constants too, which is why it is a
 /// function rather than a field on [`ModuleSig`].
+///
+/// `std::fs` answers from its declaration table's `throws` column
+/// (`brasa_stdlib::fs`, BRS-96); the modules below still declare their
+/// contribution here.
 pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
     use brasa_resolver::{
-        CLI_USAGE_ERROR, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR,
-        JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
+        CLI_USAGE_ERROR, FS_IO_ERROR, HTTP_REQUEST_ERROR, JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT,
+        PROC_SPAWN_ERROR,
     };
 
-    /// The three `fs` errors, raised together by every member that
-    /// touches the filesystem (BRS-33).
-    const FS_ALL: &[&str] = &[FS_NOT_FOUND, FS_DENIED, FS_IO_ERROR];
+    if module == FsMember::MODULE {
+        return match FsMember::from_name(name) {
+            Some(member) => member.decl().throws,
+            None => &[],
+        };
+    }
 
     match (module, name) {
         // BRS-32: the runners raise `NonZeroExit` on a non-zero exit and
@@ -298,20 +319,15 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
         // BRS-112: `help` renders a declaration and cannot fail; only
         // `parse` sees a command line.
         ("cli", "parse") => &[CLI_USAGE_ERROR],
-        // BRS-33. `tryWalk` tolerates every failure BELOW the root but
-        // still throws for the root itself, so it raises the same three.
-        (
-            "fs",
-            "read" | "write" | "append" | "ls" | "glob" | "walk" | "tryWalk" | "mkdir" | "mkdirAll"
-            | "rm" | "rmAll" | "cp" | "mv" | "resolve",
-        )
-        | ("env", "cd") => FS_ALL,
-        // An unreadable current directory is the only way these fail.
-        ("fs", "abs") | ("env", "cwd") => &[FS_IO_ERROR],
+        // BRS-33: changing directory fails exactly the way touching any
+        // other path does, so it borrows the `fs` list.
+        ("env", "cd") => brasa_stdlib::fs::ALL_ERRORS,
+        // An unreadable current directory is the only way this fails.
+        ("env", "cwd") => &[FS_IO_ERROR],
         ("json", "parse") => &[JSON_PARSE_ERROR],
-        // The `fs` predicates and pure path helpers, every `io`,
-        // `math`, `time` and `rand` member, and `json.stringify` never
-        // throw (BRS-33/34/35).
+        // Every `io`, `math`, `time` and `rand` member and
+        // `json.stringify` never throw (BRS-33/34/35); the `fs` surface
+        // answered from its table above.
         _ => &[],
     }
 }
@@ -319,7 +335,8 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
 /// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
-/// BRS-35: `math`, `time`, and `rand`). Polymorphic members
+/// BRS-35: `math`, `time`, and `rand`). `fs` is answered from its
+/// declaration table by [`fs_member`]. Polymorphic members
 /// ([`module_member_special`]) and constants ([`module_constant`])
 /// resolve outside this fixed-type table.
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
@@ -328,6 +345,10 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         optional,
         ret,
     };
+
+    if module == FsMember::MODULE {
+        return fs_member(name);
+    }
 
     match (module, name) {
         // Every runner takes an optional trailing stdin string and
@@ -399,56 +420,6 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![],
             Type::Unit,
         )),
-        // `std::fs` (BRS-33): every member takes string paths. The
-        // path helpers (`join`, `base`, `dir`, `ext`, `abs`) are `fs`
-        // members per the spec's "`path` helpers" bullet.
-        ("fs", "read" | "base" | "dir" | "ext" | "abs" | "resolve") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::String,
-        )),
-        ("fs", "join" | "write" | "append" | "cp" | "mv") => {
-            let ret = if name == "join" {
-                Type::String
-            } else {
-                Type::Unit
-            };
-            Some(msig(
-                vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
-                vec![],
-                ret,
-            ))
-        }
-        ("fs", "exists?" | "isFile?" | "isDir?" | "isSymlink?") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::Bool,
-        )),
-        ("fs", "ls" | "glob") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::vector(Type::String),
-        )),
-        // The optional trailing list is directory names to prune,
-        // following `proc.run`'s optional-stdin shape.
-        ("fs", "walk") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![ModuleParam::Ty(Type::vector(Type::String))],
-            Type::vector(Type::String),
-        )),
-        // The tolerant form (BRS-66): same arguments, but a directory
-        // below the root that cannot be read is reported rather than
-        // thrown, so the result carries both halves.
-        ("fs", "tryWalk") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![ModuleParam::Ty(Type::vector(Type::String))],
-            Type::Walk,
-        )),
-        ("fs", "mkdir" | "mkdirAll" | "rm" | "rmAll") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::Unit,
-        )),
         // `std::json` (BRS-34): `parse` yields the compiler-known
         // `Json` tree (throwing `json.ParseError`); `stringify` takes a
         // `Json` value — serializing arbitrary language values is a v2
@@ -500,6 +471,27 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         ("rand", "float") => Some(msig(vec![], vec![], Type::Float)),
         _ => None,
     }
+}
+
+/// The `std::fs` members, derived from their declarations
+/// (`brasa_stdlib::fs`, BRS-96). Every parameter is an ordinary typed
+/// one: no `fs` member accepts the alternative-shaped
+/// [`ModuleParam::Command`] argument `std::proc`'s runners take.
+fn fs_member(name: &str) -> Option<ModuleSig> {
+    let decl = FsMember::from_name(name)?.decl();
+
+    let params = |descs: &'static [TyDesc]| {
+        descs
+            .iter()
+            .map(|desc| ModuleParam::Ty(lower(desc, None)))
+            .collect()
+    };
+
+    Some(ModuleSig {
+        required: params(decl.required),
+        optional: params(decl.optional),
+        ret: lower(&decl.ret, None),
+    })
 }
 
 /// Looks up a plain-value module member (`math.pi`): the constants of
@@ -901,5 +893,113 @@ mod stdlib_declaration_tests {
         assert!(module_throws("fs", "join").is_empty());
         assert!(module_throws("cli", "help").is_empty());
         assert!(module_throws("math", "sqrt").is_empty());
+    }
+
+    /// The whole `fs` error contribution, member by member. Written out
+    /// rather than derived from the table it checks: a test that asks
+    /// the table what the table says would pass for any answer, and
+    /// what `throws` decides is whether E004/E005 accept a caller's
+    /// declaration.
+    #[test]
+    fn every_fs_member_contributes_exactly_this() {
+        use brasa_resolver::{FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND};
+
+        const ALL: &[&str] = &[FS_NOT_FOUND, FS_DENIED, FS_IO_ERROR];
+        const NONE: &[&str] = &[];
+
+        let expected: &[(&str, &[&str])] = &[
+            ("read", ALL),
+            ("write", ALL),
+            ("append", ALL),
+            ("exists?", NONE),
+            ("isFile?", NONE),
+            ("isDir?", NONE),
+            ("isSymlink?", NONE),
+            ("ls", ALL),
+            ("glob", ALL),
+            ("walk", ALL),
+            ("tryWalk", ALL),
+            ("mkdir", ALL),
+            ("mkdirAll", ALL),
+            ("rm", ALL),
+            ("rmAll", ALL),
+            ("cp", ALL),
+            ("mv", ALL),
+            ("join", NONE),
+            ("base", NONE),
+            ("dir", NONE),
+            ("ext", NONE),
+            ("abs", &[FS_IO_ERROR]),
+            ("resolve", ALL),
+        ];
+
+        for (name, throws) in expected {
+            assert_eq!(
+                module_throws("fs", name),
+                *throws,
+                "`fs.{name}` contributes something other than its pinned error list"
+            );
+        }
+
+        // And the list above covers the surface, so a new member cannot
+        // arrive with an unexamined contribution.
+        for decl in brasa_stdlib::FS_MEMBERS {
+            assert!(
+                expected.iter().any(|(name, _)| *name == decl.name),
+                "`fs.{}` is declared but its error list is not pinned here",
+                decl.name
+            );
+        }
+    }
+
+    /// The table spells its error names out, since the declaration
+    /// crate is a leaf and cannot see the resolver's constants. The two
+    /// spellings must be the same string, or a `catch` arm naming the
+    /// error would not match what the member contributes.
+    #[test]
+    fn the_declared_error_names_are_the_resolvers() {
+        assert_eq!(brasa_stdlib::fs::NOT_FOUND, brasa_resolver::FS_NOT_FOUND);
+        assert_eq!(brasa_stdlib::fs::DENIED, brasa_resolver::FS_DENIED);
+        assert_eq!(brasa_stdlib::fs::IO_ERROR, brasa_resolver::FS_IO_ERROR);
+    }
+
+    /// The `fs` signatures the declaration table now answers, including
+    /// the only two members with an optional trailing parameter.
+    #[test]
+    fn fs_signatures_come_from_the_declaration() {
+        let string_param = |param: &ModuleParam| matches!(param, ModuleParam::Ty(Type::String));
+
+        let read = module_member("fs", "read").expect("read exists");
+        assert!(read.required.iter().all(string_param));
+        assert_eq!(read.required.len(), 1);
+        assert!(read.optional.is_empty());
+        assert_eq!(read.ret, Type::String);
+
+        for name in ["walk", "tryWalk"] {
+            let sig = module_member("fs", name).expect("the walkers exist");
+            assert_eq!(sig.required.len(), 1);
+            assert!(matches!(
+                sig.optional.as_slice(),
+                [ModuleParam::Ty(Type::Vector(elem))] if **elem == Type::String
+            ));
+        }
+
+        assert_eq!(
+            module_member("fs", "walk").expect("walk exists").ret,
+            Type::vector(Type::String)
+        );
+        assert_eq!(
+            module_member("fs", "tryWalk").expect("tryWalk exists").ret,
+            Type::Walk
+        );
+        assert_eq!(
+            module_member("fs", "mv").expect("mv exists").required.len(),
+            2
+        );
+        assert_eq!(
+            module_member("fs", "exists?").expect("exists").ret,
+            Type::Bool
+        );
+        assert!(module_member("fs", "definitelyNotAMember").is_none());
     }
 }
