@@ -133,6 +133,24 @@ fn assign(f: &mut FuncCx, target: ExprId, value: ExprId, span: Span) {
                 }
             }
         }
+        // `mod.counter = e` on an exported `let mut`: a global store,
+        // not a field store. The resolver settled which item it is and
+        // the checker enforced the same mutability rules a same-module
+        // top-level `let` gets.
+        Expr::Field { .. }
+            if matches!(
+                f.cx.res.expr_res.get(&target),
+                Some(Res::Item(item)) if f.cx.global_of_item.contains_key(item)
+            ) =>
+        {
+            let Some(Res::Item(item)) = f.cx.res.expr_res.get(&target).copied() else {
+                unreachable!("guarded by the match arm");
+            };
+
+            compile_expr(f, value);
+            let global = f.cx.global_of_item[&item];
+            f.emit(Op::StoreGlobal(global), span);
+        }
         Expr::Field { recv, name } => {
             compile_expr(f, recv);
             compile_expr(f, value);

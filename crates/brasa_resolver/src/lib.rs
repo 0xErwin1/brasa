@@ -34,7 +34,7 @@ pub mod dump;
 mod resolver;
 mod tables;
 
-pub use resolver::STD_MODULES;
+pub use resolver::{ModuleView, STD_MODULES};
 
 pub use tables::{
     BinderKind, BuiltinType, BuiltinValue, CtorRes, DefRef, FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND,
@@ -54,11 +54,37 @@ pub struct ResolveResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Resolves every name in the module rooted at `roots`.
+/// Resolves every name in the single module rooted at `roots`.
 pub fn resolve(hir: &Hir, roots: &[ItemId]) -> ResolveResult {
-    let (resolutions, mut diagnostics) = resolver::run(hir, roots);
+    let imports = std::collections::HashMap::new();
+    resolve_program(
+        hir,
+        &[ModuleView {
+            name: "<main>",
+            roots,
+            imports: &imports,
+        }],
+    )
+}
 
-    diagnostics.sort_by_key(|d| (d.primary_span.start.0, d.primary_span.end.0));
+/// Resolves every name in a whole module graph. `modules` is the loader's
+/// post-order list; a qualified name in one module reaches another
+/// module's scope through [`ModuleView::imports`].
+pub fn resolve_program(hir: &Hir, modules: &[ModuleView<'_>]) -> ResolveResult {
+    let (resolutions, mut diagnostics) = resolver::run(hir, modules);
+
+    // Sorted by file first: with several files in play, byte offsets
+    // alone would interleave two files' diagnostics into one meaningless
+    // sequence. File IDs are assigned as the loader discovers files, so
+    // this puts the entry file first and each import where it was
+    // reached from.
+    diagnostics.sort_by_key(|d| {
+        (
+            d.primary_span.file.index(),
+            d.primary_span.start.0,
+            d.primary_span.end.0,
+        )
+    });
     dedup_identical_diagnostics(&mut diagnostics);
 
     ResolveResult {

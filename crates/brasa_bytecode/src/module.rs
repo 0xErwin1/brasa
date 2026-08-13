@@ -1,14 +1,20 @@
 //! The compiled module: what BRS-27 emits and BRS-28 executes.
 //!
 //! Entry convention (`docs/spec/07-bytecode.md`, module execution):
-//! `functions[0]` is the synthetic `<toplevel>` function — top-level
-//! statements and top-`let` initializers in source order — and the
-//! driver then calls the module's `main` if the file defines one.
+//! `functions[0]` is the synthetic `<toplevel>` function — every
+//! module's top-level statements and top-`let` initializers, imported
+//! modules first — and the driver then calls [`Module::entry`] if the
+//! executed file defines `main`.
 
 use crate::{Chunk, ConstPool, FuncId};
 
-/// A whole compiled module. In-memory only: bytecode is never
+/// A whole compiled program. In-memory only: bytecode is never
 /// serialized (spec non-goal).
+///
+/// A multi-file program compiles to one of these, not one per file: the
+/// module graph is flattened at compile time, so function, struct, enum
+/// and global indices are program-wide and the VM never needs a module
+/// concept.
 #[derive(Debug, Default)]
 pub struct Module {
     pub constants: ConstPool,
@@ -20,6 +26,12 @@ pub struct Module {
     /// [`crate::GlobalIx`]. Names exist for diagnostics and the
     /// disassembler; slots start unset at runtime.
     pub globals: Vec<String>,
+    /// The `main` to call after `<toplevel>` returns, when the executed
+    /// file defines one. Named by the code generator rather than found
+    /// by name at run time: an imported module may define its own
+    /// `main`, and only the executed file's is an entry point
+    /// (`docs/spec/01-syntax.md`).
+    pub entry: Option<FuncId>,
 }
 
 /// One function-table entry: top-level function, struct method, lambda,

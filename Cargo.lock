@@ -114,6 +114,7 @@ dependencies = [
  "brasa_errorset",
  "brasa_fmt",
  "brasa_hir",
+ "brasa_module",
  "brasa_parser",
  "brasa_resolver",
  "brasa_runtime",
@@ -212,6 +213,16 @@ dependencies = [
  "brasa_token",
  "insta",
  "logos",
+]
+
+[[package]]
+name = "brasa_module"
+version = "0.1.0"
+dependencies = [
+ "brasa_diagnostics",
+ "brasa_hir",
+ "brasa_parser",
+ "brasa_source",
 ]
 
 [[package]]

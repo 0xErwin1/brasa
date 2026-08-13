@@ -311,6 +311,12 @@ fs.read("data.txt")
   (`bar.bras` → `bar`).
 - **No selective import** (`import x.{y}` does not exist). All access is
   qualified: `utils.slugify(...)`.
+- **A module's identity is its canonical path.** `./utils.bras`,
+  `utils.bras`, and a symlink to the same file are one module: loaded
+  once, top level run once, one set of bindings.
+- **An import is not re-exported.** It binds a handle in the importing
+  module only, so `a.b.member` never reaches through `a`'s own imports.
+  There is no `pub import`.
 - **Import cycles are a compile error** (`a.bras` imports
   `b.bras` which imports `a.bras`): top-level `let`s evaluate on
   import and a cycle has no sound order.

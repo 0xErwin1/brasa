@@ -428,6 +428,19 @@ impl<'a> Checker<'a> {
                 let name = name.clone();
                 self.check_named_assign(span, target, &name, value);
             }
+            // `mod.counter = e`: assigning an imported module's exported
+            // `let`, which obeys the same mutability rule as one in this
+            // module. A plain field target is always assignable —
+            // immutability belongs to the variable, not the value.
+            Expr::Field { name, .. }
+                if matches!(self.res.expr_res.get(&target), Some(Res::Item(_))) =>
+            {
+                let name = name.clone();
+                let Some(&Res::Item(item)) = self.res.expr_res.get(&target) else {
+                    unreachable!("guarded by the match arm");
+                };
+                self.check_item_assign(span, target, &name, item, value);
+            }
             Expr::Field { .. } => {
                 let target_ty = self.check_expr(target, None);
                 self.check_expect(value, &target_ty);
@@ -758,7 +771,12 @@ impl<'a> Checker<'a> {
             return Type::Unit;
         }
 
-        if let Expr::Field { recv, name } = hir.expr(callee) {
+        // A member call, unless the resolver already bound the member to
+        // an item — `mod.f(...)` on an imported file module, which is
+        // checked below exactly like a direct call to `f`.
+        if let Expr::Field { recv, name } = hir.expr(callee)
+            && !matches!(self.res.expr_res.get(&callee), Some(Res::Item(_)))
+        {
             let (recv, name) = (*recv, name.clone());
             return self.check_method_call(span, callee, recv, &name, &args);
         }
@@ -766,8 +784,7 @@ impl<'a> Checker<'a> {
         // Direct calls to generic functions solve the type parameters
         // from the arguments — there is no turbofish, instantiation is
         // always inferred at the call site (`docs/spec/02-grammar.md`).
-        if let Expr::Ident(_) = hir.expr(callee)
-            && let Some(&Res::Item(item)) = self.res.expr_res.get(&callee)
+        if let Some(&Res::Item(item)) = self.res.expr_res.get(&callee)
             && let Item::FuncDef(func) = hir.item(item)
             && !func.generics.is_empty()
         {
@@ -1353,6 +1370,17 @@ impl<'a> Checker<'a> {
     }
 
     fn check_field(&mut self, id: ExprId, recv: ExprId, name: &str) -> Type {
+        // `mod.member` on an imported file module: the resolver bound it
+        // to that module's item, so it types like a direct reference.
+        if let Some(&Res::Item(item)) = self.res.expr_res.get(&id) {
+            return self
+                .tables
+                .item_types
+                .get(&item)
+                .cloned()
+                .unwrap_or(Type::Unknown);
+        }
+
         if self.is_module_ref(recv) {
             self.check_expr(recv, None);
 

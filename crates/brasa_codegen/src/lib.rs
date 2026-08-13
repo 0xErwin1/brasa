@@ -80,6 +80,25 @@ pub fn compile(
     resolutions: &Resolutions,
     types: &TypeTables,
 ) -> CompileResult {
+    compile_program(hir, roots, roots, resolutions, types)
+}
+
+/// Compiles a whole module graph into one bytecode [`Module`].
+///
+/// `roots` is every module's items concatenated in the loader's
+/// post-order, which is also the order `<toplevel>` runs them in
+/// (`docs/spec/01-syntax.md`: a module's top level runs the first time
+/// it is imported, dependencies first). `entry_roots` is the executed
+/// file's slice of that list: only its `main` becomes
+/// [`Module::entry`], because an imported module's `main` is never
+/// invoked.
+pub fn compile_program(
+    hir: &Hir,
+    roots: &[ItemId],
+    entry_roots: &[ItemId],
+    resolutions: &Resolutions,
+    types: &TypeTables,
+) -> CompileResult {
     let mut cx = context::Cx::new(hir, resolutions, types);
 
     cx.collect(roots);
@@ -90,6 +109,7 @@ pub fn compile(
     if cx.diagnostics.is_empty() {
         item::compile_toplevel(&mut cx, roots);
         item::compile_items(&mut cx, roots);
+        cx.entry = item::find_entry(&cx, entry_roots);
     }
 
     cx.finish()

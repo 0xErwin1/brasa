@@ -270,6 +270,15 @@ impl<'a> Collector<'a> {
     }
 
     fn call(&mut self, callee: ExprId, args: &[ExprId]) -> ErrorSet {
+        // `mod.f(...)` on an imported file module resolved to `f`'s
+        // item, so its declared or inferred set is the callee's — the
+        // call graph the fixpoint walks crosses files exactly here.
+        if matches!(self.res.expr_res.get(&callee), Some(Res::Item(_))) {
+            let mut set = self.args(args);
+            set.union_with(&self.ident_callee(callee));
+            return set;
+        }
+
         match self.hir.expr(callee) {
             Expr::Field { recv, name } => self.method_call(*recv, name, args),
             Expr::Ident(_) => {

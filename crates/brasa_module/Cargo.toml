@@ -1,0 +1,13 @@
+[package]
+name = "brasa_module"
+description.workspace = true
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+brasa_source = { workspace = true }
+brasa_parser = { workspace = true }
+brasa_hir = { workspace = true }
+brasa_diagnostics = { workspace = true }

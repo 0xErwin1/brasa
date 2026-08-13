@@ -3,7 +3,8 @@
 //! This is the machine-facing side of the public registry in
 //! `docs/spec/06-diagnostics.md`; the spec table and these constants must
 //! stay in sync. Codes follow `<PhaseLetter><3 digits>` (`L` lexer, `P`
-//! parser, `R` resolver, `T` type checker, `E` error-sets, `C` code
+//! parser, `M` module loading, `R` resolver, `T` type checker, `E`
+//! error-sets, `C` code
 //! generation; `X` is
 //! reserved), are append-only, and are never renumbered or reused after
 //! removal. Every
@@ -49,6 +50,17 @@ pub const P_DUPLICATE_FIELD: &str = "P008";
 /// A `#{...}` interpolation in a string position that forbids it.
 pub const P_INTERPOLATION_NOT_ALLOWED: &str = "P009";
 
+// --- module loading (M) ---
+
+/// An `import "path"` naming a file that cannot be read: missing, not a
+/// regular file, or denied by the OS.
+pub const M_UNREADABLE_IMPORT: &str = "M001";
+/// An import cycle. Top-level `let`s evaluate on import
+/// (`docs/spec/01-syntax.md`), so a cycle has no sound evaluation order.
+pub const M_IMPORT_CYCLE: &str = "M002";
+/// An import chain deeper than the loader follows.
+pub const M_IMPORTS_TOO_DEEP: &str = "M003";
+
 // --- resolver (R) ---
 
 /// A value name that resolves to nothing in any scope or the prelude.
@@ -81,6 +93,9 @@ pub const R_UNKNOWN_PANIC: &str = "R011";
 /// A `catch` arm in a landed stdlib-error namespace (`string.`) naming
 /// no member of the closed native-error list.
 pub const R_UNKNOWN_NATIVE_ERROR: &str = "R012";
+/// A qualified name (`mod.member`) naming nothing in the imported
+/// module, or naming something the module declares without `pub`.
+pub const R_UNKNOWN_MODULE_MEMBER: &str = "R013";
 
 // --- type checker (T) ---
 
@@ -230,6 +245,9 @@ mod tests {
         super::P_INVALID_INT_LITERAL,
         super::P_DUPLICATE_FIELD,
         super::P_INTERPOLATION_NOT_ALLOWED,
+        super::M_UNREADABLE_IMPORT,
+        super::M_IMPORT_CYCLE,
+        super::M_IMPORTS_TOO_DEEP,
         super::R_UNKNOWN_NAME,
         super::R_USE_BEFORE_DEF,
         super::R_UNKNOWN_TYPE,
@@ -242,6 +260,7 @@ mod tests {
         super::R_NOT_AN_INTERFACE,
         super::R_UNKNOWN_PANIC,
         super::R_UNKNOWN_NATIVE_ERROR,
+        super::R_UNKNOWN_MODULE_MEMBER,
         super::T_MISMATCHED_TYPES,
         super::T_INVALID_OPERANDS,
         super::T_CANNOT_COMPARE_EQUALITY,
@@ -286,12 +305,13 @@ mod tests {
         super::C_EXPRESSION_TOO_COMPLEX,
     ];
 
-    /// The spec's `^[LPRTEC]\d{3}$` shape, checked without a regex crate.
+    /// The spec's `^[LPMRTEC]\d{3}$` shape, checked without a regex
+    /// crate.
     fn has_valid_format(code: &str) -> bool {
         let bytes = code.as_bytes();
 
         bytes.len() == 4
-            && matches!(bytes[0], b'L' | b'P' | b'R' | b'T' | b'E' | b'C')
+            && matches!(bytes[0], b'L' | b'P' | b'M' | b'R' | b'T' | b'E' | b'C')
             && bytes[1..].iter().all(u8::is_ascii_digit)
     }
 
@@ -309,7 +329,7 @@ mod tests {
         for code in ALL {
             assert!(
                 has_valid_format(code),
-                "code {code} does not match ^[LPRTEC][0-9]{{3}}$"
+                "code {code} does not match ^[LPMRTEC][0-9]{{3}}$"
             );
         }
     }

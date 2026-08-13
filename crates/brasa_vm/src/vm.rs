@@ -17,7 +17,6 @@
 //! all frames are still active then, so this matches the spec's
 //! record-while-popping wording and the walker's behavior.
 
-use std::collections::HashSet;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -183,7 +182,7 @@ impl<'a> Vm<'a> {
         self.execute(1)?;
         self.stack.clear();
 
-        if let Some(main) = self.find_main() {
+        if let Some(main) = self.module.entry {
             if self.function(main).arity != 0 {
                 return Err(Signal::Fatal(
                     "brasa: `main` must take no parameters".to_string(),
@@ -195,26 +194,6 @@ impl<'a> Vm<'a> {
         }
 
         Ok(())
-    }
-
-    /// The module's `main`: the first non-method function-table entry
-    /// with that name (struct methods may share the name but are not
-    /// entry points).
-    fn find_main(&self) -> Option<FuncId> {
-        let method_ids: HashSet<u32> = self
-            .module
-            .structs
-            .iter()
-            .flat_map(|shape| shape.methods.iter().map(|f| f.0))
-            .collect();
-
-        self.module
-            .functions
-            .iter()
-            .enumerate()
-            .skip(1)
-            .find(|(ix, func)| func.name == "main" && !method_ids.contains(&(*ix as u32)))
-            .map(|(ix, _)| FuncId(ix as u32))
     }
 
     fn finish(&mut self, result: Result<(), Signal>) -> Outcome {

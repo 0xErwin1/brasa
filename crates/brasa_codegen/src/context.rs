@@ -42,6 +42,8 @@ pub(crate) struct Cx<'a> {
     pub(crate) structs: Vec<StructShape>,
     pub(crate) enums: Vec<EnumShape>,
     pub(crate) globals: Vec<String>,
+    /// The executed file's `main`, once bodies are compiled.
+    pub(crate) entry: Option<FuncId>,
 }
 
 impl<'a> Cx<'a> {
@@ -61,6 +63,7 @@ impl<'a> Cx<'a> {
             structs: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            entry: None,
         }
     }
 
@@ -251,6 +254,7 @@ impl<'a> Cx<'a> {
                     structs: Vec::new(),
                     enums: Vec::new(),
                     globals: Vec::new(),
+                    entry: None,
                 },
                 diagnostics: self.diagnostics,
             };
@@ -267,6 +271,7 @@ impl<'a> Cx<'a> {
                 structs: self.structs,
                 enums: self.enums,
                 globals: self.globals,
+                entry: self.entry,
             },
             diagnostics: Vec::new(),
         }

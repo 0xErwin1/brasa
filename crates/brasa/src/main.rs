@@ -2,6 +2,9 @@
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 
+mod fmt;
+
+use std::collections::HashMap;
 use std::io::{BufWriter, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,15 +12,26 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use brasa_diagnostics::{Diagnostic, Severity};
+use brasa_hir::ItemId;
+use brasa_resolver::ModuleView;
 use brasa_source::SourceMap;
 
 #[derive(Parser)]
-#[command(name = "brasa", version, about = "The Brasa programming language")]
+#[command(
+    name = "brasa",
+    version,
+    about = "The Brasa programming language",
+    args_conflicts_with_subcommands = true
+)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Subcommand>,
+
     /// Script to execute.
-    script: PathBuf,
+    script: Option<PathBuf>,
 
     /// Print the parsed AST to stdout instead of executing the script.
+    /// Covers the named file only, not the modules it imports.
     #[arg(long)]
     dump_ast: bool,
 
@@ -45,82 +59,84 @@ struct Cli {
     args: Vec<String>,
 }
 
+#[derive(clap::Subcommand)]
+enum Subcommand {
+    /// Format Brasa source files.
+    Fmt(fmt::FmtArgs),
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match std::fs::metadata(&cli.script) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => {
-            eprintln!("brasa: {} is not a regular file", cli.script.display());
-            return ExitCode::from(65);
-        }
-        Err(err) => {
-            eprintln!("brasa: cannot read {}: {err}", cli.script.display());
-            return ExitCode::from(65);
-        }
+    if let Some(Subcommand::Fmt(args)) = &cli.command {
+        return fmt::run(args);
     }
 
-    let source = match std::fs::read_to_string(&cli.script) {
-        Ok(source) => source,
-        Err(err) => {
-            eprintln!("brasa: cannot read {}: {err}", cli.script.display());
-            return ExitCode::from(65);
-        }
+    let Some(script) = cli.script.clone() else {
+        eprintln!("brasa: no script and no subcommand");
+        eprintln!("usage: brasa <script.bras> [args...]   or   brasa fmt [paths...]");
+        return ExitCode::from(64);
     };
 
-    let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file(cli.script.clone(), source.clone());
+    run_script(&cli, &script)
+}
 
-    let result = brasa_parser::parse(&source, file);
-    let has_errors = result
-        .diagnostics
-        .iter()
-        .any(|diag| diag.severity == Severity::Error);
+fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
+    match std::fs::metadata(script) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            eprintln!("brasa: {} is not a regular file", script.display());
+            return ExitCode::from(65);
+        }
+        Err(err) => {
+            eprintln!("brasa: cannot read {}: {err}", script.display());
+            return ExitCode::from(65);
+        }
+    }
 
     let color = std::io::stderr().is_terminal();
-    let mut stderr = BufWriter::new(std::io::stderr());
-    for diagnostic in &result.diagnostics {
-        if let Err(err) =
-            brasa_diagnostics::render::render(diagnostic, &sources, &mut stderr, color)
-        {
-            eprintln!("brasa: failed to render diagnostic: {err}");
-            return ExitCode::from(70);
-        }
-    }
-    if let Err(err) = stderr.flush() {
-        eprintln!("brasa: failed to flush diagnostics: {err}");
-        return ExitCode::from(70);
-    }
 
-    if has_errors {
-        return ExitCode::from(65);
-    }
-
+    // `--dump-ast` is a single-file view: an AST belongs to one parsed
+    // file, and the module loader drops each one as soon as it lowers.
     if cli.dump_ast {
-        println!("{}", brasa_parser::dump::dump(&result.ast, &result.roots));
-        return ExitCode::from(0);
+        return dump_ast(script, color);
     }
 
-    if cli.dump_hir {
-        let lowered = brasa_hir::lower(&result.ast, &result.roots);
-        match render_diagnostics(&lowered.diagnostics, &sources, color) {
-            Ok(false) => {}
-            Ok(true) => return ExitCode::from(65),
-            Err(code) => return code,
-        }
-
-        println!("{}", brasa_hir::dump::dump(&lowered.hir, &lowered.roots));
-        return ExitCode::from(0);
-    }
-
-    let lowered = brasa_hir::lower(&result.ast, &result.roots);
-    match render_diagnostics(&lowered.diagnostics, &sources, color) {
+    let mut sources = SourceMap::new();
+    let program = brasa_module::load(script, &mut sources);
+    match render_diagnostics(&program.diagnostics, &sources, color) {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),
         Err(code) => return code,
     }
 
-    let resolved = brasa_resolver::resolve(&lowered.hir, &lowered.roots);
+    let roots = program.all_roots();
+    let entry_roots = &program.module(program.entry).roots;
+
+    if cli.dump_hir {
+        println!("{}", brasa_hir::dump::dump(&program.hir, &roots));
+        return ExitCode::from(0);
+    }
+
+    // The loader's post-order list is what the resolver walks; the
+    // per-module import maps have to outlive the views that borrow them.
+    let import_maps: Vec<HashMap<ItemId, usize>> = program
+        .modules
+        .iter()
+        .map(|module| module.imports.clone())
+        .collect();
+    let views: Vec<ModuleView<'_>> = program
+        .modules
+        .iter()
+        .zip(&import_maps)
+        .map(|(module, imports)| ModuleView {
+            name: &module.name,
+            roots: &module.roots,
+            imports,
+        })
+        .collect();
+
+    let resolved = brasa_resolver::resolve_program(&program.hir, &views);
     match render_diagnostics(&resolved.diagnostics, &sources, color) {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),
@@ -128,10 +144,10 @@ fn main() -> ExitCode {
     }
 
     let checked = brasa_typeck::check(
-        &lowered.hir,
-        &lowered.roots,
+        &program.hir,
+        &roots,
         &resolved.resolutions,
-        &lowered.sugar_origins,
+        &program.sugar_origins,
     );
     match render_diagnostics(&checked.diagnostics, &sources, color) {
         Ok(false) => {}
@@ -139,12 +155,8 @@ fn main() -> ExitCode {
         Err(code) => return code,
     }
 
-    let inferred = brasa_errorset::infer(
-        &lowered.hir,
-        &lowered.roots,
-        &resolved.resolutions,
-        &checked.types,
-    );
+    let inferred =
+        brasa_errorset::infer(&program.hir, &roots, &resolved.resolutions, &checked.types);
     match render_diagnostics(&inferred.diagnostics, &sources, color) {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),
@@ -152,7 +164,7 @@ fn main() -> ExitCode {
     }
 
     if cli.dump_error_sets {
-        println!("{}", brasa_errorset::dump::dump(&lowered.hir, &inferred));
+        println!("{}", brasa_errorset::dump::dump(&program.hir, &inferred));
         return ExitCode::from(0);
     }
 
@@ -160,9 +172,10 @@ fn main() -> ExitCode {
     // are properties of the program, so a program that cannot be
     // compiled must be rejected here rather than at run time
     // (`docs/spec/06-diagnostics.md`, code generation).
-    let compiled = brasa_codegen::compile(
-        &lowered.hir,
-        &lowered.roots,
+    let compiled = brasa_codegen::compile_program(
+        &program.hir,
+        &roots,
+        entry_roots,
         &resolved.resolutions,
         &checked.types,
     );
@@ -181,8 +194,12 @@ fn main() -> ExitCode {
         return ExitCode::from(0);
     }
 
+    execute(&compiled.module, &cli.args)
+}
+
+fn execute(module: &brasa_bytecode::Module, args: &[String]) -> ExitCode {
     let mut stdout = std::io::stdout();
-    let outcome = brasa_vm::run(&compiled.module, &mut stdout, &cli.args);
+    let outcome = brasa_vm::run(module, &mut stdout, args);
     let flushed = stdout.flush();
 
     // The outcome is reported before any flush handling: a script
@@ -212,6 +229,29 @@ fn main() -> ExitCode {
         }
         _ => ExitCode::from(chosen),
     }
+}
+
+fn dump_ast(script: &PathBuf, color: bool) -> ExitCode {
+    let source = match std::fs::read_to_string(script) {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("brasa: cannot read {}: {err}", script.display());
+            return ExitCode::from(65);
+        }
+    };
+
+    let mut sources = SourceMap::new();
+    let file = sources.add_file(script.clone(), source.clone());
+
+    let result = brasa_parser::parse(&source, file);
+    match render_diagnostics(&result.diagnostics, &sources, color) {
+        Ok(false) => {}
+        Ok(true) => return ExitCode::from(65),
+        Err(code) => return code,
+    }
+
+    println!("{}", brasa_parser::dump::dump(&result.ast, &result.roots));
+    ExitCode::from(0)
 }
 
 /// Renders every diagnostic to stderr and reports whether any was an

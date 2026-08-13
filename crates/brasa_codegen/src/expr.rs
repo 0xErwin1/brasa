@@ -42,7 +42,7 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
         Expr::Ident(name) => ident(f, id, &name, span),
         Expr::SelfExpr => f.load_self(span),
         Expr::Call { callee, args } => call(f, callee, &args, span),
-        Expr::Field { recv, name } => field(f, recv, &name, span),
+        Expr::Field { recv, name } => field(f, id, recv, &name, span),
         Expr::Index { recv, index } => {
             compile_expr(f, recv);
             compile_expr(f, index);
@@ -308,6 +308,33 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
             let builtin = builtin_id(builtin.name()).expect("prelude builtins are registered");
             f.emit(Op::CallBuiltin { builtin, argc: 1 }, span);
         }
+        // `mod.f(...)`: the resolver already settled which item `f` is,
+        // so this is a call on a known item, not a member lookup.
+        Expr::Field { .. } if matches!(f.cx.res.expr_res.get(&callee), Some(Res::Item(_))) => {
+            let Some(Res::Item(item)) = f.cx.res.expr_res.get(&callee).copied() else {
+                unreachable!("guarded by the match arm");
+            };
+
+            match f.cx.hir.item(item) {
+                Item::FuncDef(_) => {
+                    for &arg in args {
+                        compile_expr(f, arg);
+                    }
+                    let func = f.cx.func_of_item[&item];
+                    let argc = f.cx.argc(args.len(), span);
+                    f.emit(Op::Call { func, argc }, span);
+                }
+                // An exported `let` holding a callable.
+                _ => {
+                    compile_expr(f, callee);
+                    for &arg in args {
+                        compile_expr(f, arg);
+                    }
+                    let argc = f.cx.argc(args.len(), span);
+                    f.emit(Op::CallValue { argc }, span);
+                }
+            }
+        }
         Expr::Field { recv, name } => method_call(f, recv, &name, args, span),
         Expr::Ident(_)
             if matches!(
@@ -458,20 +485,41 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
         return;
     }
 
+    // A file module's members are resolved by name, so reaching here
+    // means the member did not resolve — already reported as `R013`, or
+    // as the loader error that stopped the file from loading at all.
+    // Argument side effects still run before the failure.
     for &arg in args {
         compile_expr(f, arg);
         f.emit(Op::Pop, span);
     }
     f.emit_fatal(
-        &format!("brasa: module `{module}` is not available yet (importing from another file is not implemented)"),
+        &format!("brasa: unknown member `{name}` on module `{module}`"),
         span,
     );
 }
 
-fn field(f: &mut FuncCx, recv: ExprId, name: &str, span: Span) {
-    // A member read on a module handle: no module exposes plain values
-    // in M1, so this reuses the module-call path with zero arguments,
-    // as the spec requires.
+fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
+    // `mod.member` on an imported file module: the resolver settled it
+    // to an item, so it loads exactly like a direct reference would.
+    if let Some(Res::Item(item)) = f.cx.res.expr_res.get(&id).copied() {
+        match f.cx.hir.item(item) {
+            Item::FuncDef(_) => {
+                let func = f.cx.func_of_item[&item];
+                f.emit(Op::LoadFunc(func), span);
+            }
+            Item::TopLet(_) => {
+                let global = f.cx.global_of_item[&item];
+                f.emit(Op::LoadGlobal(global), span);
+            }
+            _ => f.emit_fatal(&format!("brasa: `{name}` is not a value"), span),
+        }
+        return;
+    }
+
+    // A member read on a `std::` module handle: no std module exposes
+    // plain values, so this reuses the module-call path with zero
+    // arguments, as the spec requires.
     if let Expr::Ident(_) = f.cx.hir.expr(recv)
         && let Some(Res::Module(item)) = f.cx.res.expr_res.get(&recv).copied()
     {

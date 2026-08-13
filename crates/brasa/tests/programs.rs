@@ -546,24 +546,15 @@ fn example_modules_utils() {
     assert_example("modules/utils.bras", "");
 }
 
-/// Pinned as the failure it is. File-import module loading does not
-/// exist yet, so this example cannot run — and an example that cannot
-/// run is worth pinning precisely so it cannot sit in `examples/`
-/// looking like it works. When imports land, this test fails and says
-/// what to replace it with.
+/// The whole of BRS-97 in one example: the importer's top-level `let`
+/// calls across the module boundary before `main` runs, `main` reads a
+/// second exported function, and `utils`' own private helper is reached
+/// only from inside `utils`.
 #[test]
-fn example_modules_main_is_not_runnable_yet() {
-    let output = run_program(&example_path("modules/main.bras"));
-
-    assert_eq!(
-        output.status.code(),
-        Some(70),
-        "file imports appear to work now: pin this example's real output instead"
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stderr),
-        "brasa: module `utils` is not available yet (importing from another file is not implemented)\n",
-        "unexpected failure"
+fn example_modules_main() {
+    assert_example(
+        "modules/main.bras",
+        ">> BRASA MODULES <<\nhola-mundo-brasa\n",
     );
 }
 

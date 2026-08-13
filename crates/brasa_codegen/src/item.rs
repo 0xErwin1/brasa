@@ -43,6 +43,20 @@ pub(crate) fn compile_toplevel(cx: &mut Cx, roots: &[ItemId]) {
     cx.define_function(FuncId(0), function);
 }
 
+/// The `main` the driver calls after `<toplevel>` returns: a top-level
+/// `def main` declared by the executed file. A struct method named
+/// `main` is not a candidate — it has no `ItemId` of its own and never
+/// appears among the roots — and neither is an imported module's `main`,
+/// which is why only the entry file's roots are searched.
+pub(crate) fn find_entry(cx: &Cx, entry_roots: &[ItemId]) -> Option<FuncId> {
+    entry_roots.iter().find_map(|item_id| {
+        let Item::FuncDef(def) = cx.hir.item(*item_id) else {
+            return None;
+        };
+        (def.name == "main").then(|| cx.func_of_item[item_id])
+    })
+}
+
 pub(crate) fn compile_items(cx: &mut Cx, roots: &[ItemId]) {
     for &item_id in roots {
         match cx.hir.item(item_id) {

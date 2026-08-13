@@ -123,11 +123,45 @@ struct ValueBinding {
     /// earlier top lets" visibility rule. `None` for every other kind of
     /// binding.
     top_let_order: Option<usize>,
+    /// Whether an importer may name this through `stem.member`. Only
+    /// module-level `pub` declarations are exported; locals carry
+    /// `false` and are never reached through a module scope anyway
+    /// (`docs/spec/01-syntax.md`: everything is private except `pub`).
+    exported: bool,
 }
 
 struct TypeBinding {
     res: TypeRes,
     span: Span,
+}
+
+/// One module's declarations, built by pass 1 and kept for the whole
+/// run: resolving `util.slugify` in one module reads another module's
+/// scope, so every scope has to outlive the module that built it.
+#[derive(Default)]
+struct ModuleScope<'h> {
+    values: HashMap<&'h str, ValueBinding>,
+    types: HashMap<&'h str, TypeBinding>,
+    /// Every enum item declared here, in source order; the candidate
+    /// pool for constructor resolution alongside `Some`/`None`.
+    enums: Vec<ItemId>,
+    /// For each root index, how many top-level `let`s precede it.
+    top_lets_before: Vec<usize>,
+}
+
+/// One module as the resolver sees it. The module loader owns discovery
+/// and cycle detection (`brasa_module`); this crate only needs to know
+/// which items belong together and where each import points, so the view
+/// is a plain borrow rather than a dependency on the loader.
+pub struct ModuleView<'a> {
+    /// The name this module binds in an importer's scope, for
+    /// diagnostics.
+    pub name: &'a str,
+    pub roots: &'a [ItemId],
+    /// File-import item to the index of the module it loaded. A `std::`
+    /// import, or one whose file failed to load, has no entry: its
+    /// binding stays an opaque module handle.
+    pub imports: &'a HashMap<ItemId, usize>,
 }
 
 enum ValueLookup {
@@ -142,15 +176,22 @@ pub(crate) struct Resolver<'h> {
     hir: &'h Hir,
     res: Resolutions,
     diagnostics: Vec<Diagnostic>,
-    /// `value_scopes[0]` is the module scope; the prelude sits behind it
-    /// as a hardcoded fallback rather than a real scope.
+    /// Local scopes only, innermost last. Module-level names live in
+    /// [`Resolver::scopes`] and the prelude sits behind both as a
+    /// hardcoded fallback rather than a real scope.
     value_scopes: Vec<HashMap<&'h str, ValueBinding>>,
-    module_types: HashMap<&'h str, TypeBinding>,
     /// Generic-parameter (and interface `Self`) frames, innermost last.
     type_frames: Vec<HashMap<&'h str, TypeBinding>>,
-    /// Every enum item in the module, in source order; the candidate pool
-    /// for constructor resolution alongside `Some`/`None`.
-    enums: Vec<ItemId>,
+    /// Every module's declarations, indexed like the [`ModuleView`] list
+    /// the run was given.
+    scopes: Vec<ModuleScope<'h>>,
+    /// Module names, parallel to [`Resolver::scopes`], for diagnostics.
+    module_names: Vec<String>,
+    /// Import item to the module it loaded, flattened across every
+    /// module: `ItemId`s are globally unique, so one map serves all.
+    module_of_import: HashMap<ItemId, usize>,
+    /// Which module's bodies are being resolved.
+    current: usize,
     /// `Some(n)`: resolving code in top-level execution position, where
     /// only the first `n` top-level `let`s are initialized. `None`:
     /// resolving a function/method body, where all of them are visible.
@@ -161,21 +202,37 @@ pub(crate) struct Resolver<'h> {
     self_allowed: bool,
 }
 
-pub(crate) fn run(hir: &Hir, roots: &[ItemId]) -> (Resolutions, Vec<Diagnostic>) {
+pub(crate) fn run(hir: &Hir, modules: &[ModuleView<'_>]) -> (Resolutions, Vec<Diagnostic>) {
     let mut resolver = Resolver {
         hir,
         res: Resolutions::default(),
         diagnostics: Vec::new(),
         value_scopes: vec![HashMap::new()],
-        module_types: HashMap::new(),
         type_frames: Vec::new(),
-        enums: Vec::new(),
+        scopes: Vec::new(),
+        module_names: modules.iter().map(|m| m.name.to_string()).collect(),
+        module_of_import: modules
+            .iter()
+            .flat_map(|m| m.imports.iter().map(|(&item, &target)| (item, target)))
+            .collect(),
+        current: 0,
         top_let_watermark: None,
         self_allowed: false,
     };
 
-    let top_lets_before = resolver.collect_module(roots);
-    resolver.resolve_items(roots, &top_lets_before);
+    // Every module declares before any body resolves: a qualified name
+    // reaches into another module's scope, and post-order DFS puts
+    // dependencies first but says nothing about the reverse edges a
+    // diagnostic may have to follow.
+    for module in modules {
+        let scope = resolver.collect_module(module.roots);
+        resolver.scopes.push(scope);
+    }
+
+    for (ix, module) in modules.iter().enumerate() {
+        resolver.current = ix;
+        resolver.resolve_items(module.roots);
+    }
 
     (resolver.res, resolver.diagnostics)
 }
@@ -199,54 +256,76 @@ impl<'h> Resolver<'h> {
 
     // --- pass 1: module declarations -----------------------------------
 
-    /// Declares every module-level name and returns, for each root index,
-    /// how many top-level `let`s precede it.
-    fn collect_module(&mut self, roots: &[ItemId]) -> Vec<usize> {
+    /// Declares every name one module defines, and records for each root
+    /// index how many top-level `let`s precede it.
+    fn collect_module(&mut self, roots: &[ItemId]) -> ModuleScope<'h> {
         let hir = self.hir;
-        let mut top_lets_before = Vec::with_capacity(roots.len());
+        let mut scope = ModuleScope {
+            top_lets_before: Vec::with_capacity(roots.len()),
+            ..ModuleScope::default()
+        };
         let mut top_let_count = 0usize;
 
         for &root in roots {
-            top_lets_before.push(top_let_count);
+            scope.top_lets_before.push(top_let_count);
             let span = hir.span_of_item(root);
 
             match hir.item(root) {
                 Item::Import(import) => {
                     self.check_import(import, span);
                     if let Some(name) = import_binding_name(import) {
-                        self.declare_module_value(name, Res::Module(root), span, None);
+                        // An import binds a handle for this module only:
+                        // there is no re-export in v1, so an importer
+                        // never reaches through it.
+                        self.declare_module_value(
+                            &mut scope,
+                            name,
+                            Res::Module(root),
+                            span,
+                            None,
+                            false,
+                        );
                     }
                 }
                 Item::FuncDef(func) => {
-                    self.declare_module_value(&func.name, Res::Item(root), span, None);
+                    self.declare_module_value(
+                        &mut scope,
+                        &func.name,
+                        Res::Item(root),
+                        span,
+                        None,
+                        func.is_pub,
+                    );
                 }
                 Item::TopLet(top_let) => {
                     self.declare_module_value(
+                        &mut scope,
                         &top_let.let_stmt.name,
                         Res::Item(root),
                         span,
                         Some(top_let_count),
+                        top_let.is_pub,
                     );
                     top_let_count += 1;
                 }
                 Item::StructDef(def) => {
-                    self.declare_module_type(&def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span);
                     self.check_struct_hygiene(def);
                 }
                 Item::EnumDef(def) => {
-                    self.declare_module_type(&def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span);
                     self.check_enum_hygiene(def);
-                    self.enums.push(root);
+                    scope.enums.push(root);
                 }
                 Item::InterfaceDef(def) => {
-                    self.declare_module_type(&def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span);
                     self.check_member_hygiene(&def.methods);
                 }
                 Item::Stmt(_) => {}
             }
         }
 
-        top_lets_before
+        scope
     }
 
     /// Enum definition hygiene (BRS-18): a repeated variant name within
@@ -370,36 +449,44 @@ impl<'h> Resolver<'h> {
     /// resolve to something stable.
     fn declare_module_value(
         &mut self,
+        scope: &mut ModuleScope<'h>,
         name: &'h str,
         res: Res,
         span: Span,
         top_let_order: Option<usize>,
+        exported: bool,
     ) {
-        let scope = &mut self.value_scopes[0];
-        if let Some(prev) = scope.get(name) {
+        if let Some(prev) = scope.values.get(name) {
             let prev_span = prev.span;
             self.duplicate_error(name, span, prev_span);
             return;
         }
 
-        scope.insert(
+        scope.values.insert(
             name,
             ValueBinding {
                 res,
                 span,
                 top_let_order,
+                exported,
             },
         );
     }
 
-    fn declare_module_type(&mut self, name: &'h str, item: ItemId, span: Span) {
-        if let Some(prev) = self.module_types.get(name) {
+    fn declare_module_type(
+        &mut self,
+        scope: &mut ModuleScope<'h>,
+        name: &'h str,
+        item: ItemId,
+        span: Span,
+    ) {
+        if let Some(prev) = scope.types.get(name) {
             let prev_span = prev.span;
             self.duplicate_error(name, span, prev_span);
             return;
         }
 
-        self.module_types.insert(
+        scope.types.insert(
             name,
             TypeBinding {
                 res: TypeRes::Item(item),
@@ -410,8 +497,9 @@ impl<'h> Resolver<'h> {
 
     // --- pass 2: bodies and signatures ---------------------------------
 
-    fn resolve_items(&mut self, roots: &[ItemId], top_lets_before: &[usize]) {
+    fn resolve_items(&mut self, roots: &[ItemId]) {
         let hir = self.hir;
+        let top_lets_before = std::mem::take(&mut self.scopes[self.current].top_lets_before);
 
         for (i, &root) in roots.iter().enumerate() {
             let span = hir.span_of_item(root);
@@ -709,6 +797,7 @@ impl<'h> Resolver<'h> {
                     res: Res::Local(local),
                     span,
                     top_let_order: None,
+                    exported: false,
                 },
             );
 
@@ -716,22 +805,94 @@ impl<'h> Resolver<'h> {
     }
 
     fn lookup_value(&self, name: &str) -> ValueLookup {
-        for (depth, scope) in self.value_scopes.iter().enumerate().rev() {
+        for scope in self.value_scopes.iter().rev() {
             if let Some(binding) = scope.get(name) {
-                if depth == 0
-                    && let (Some(order), Some(watermark)) =
-                        (binding.top_let_order, self.top_let_watermark)
-                    && order >= watermark
-                {
-                    return ValueLookup::UseBeforeDef(binding.span);
-                }
                 return ValueLookup::Found(binding.res);
             }
+        }
+
+        if let Some(binding) = self.scopes[self.current].values.get(name) {
+            if let (Some(order), Some(watermark)) = (binding.top_let_order, self.top_let_watermark)
+                && order >= watermark
+            {
+                return ValueLookup::UseBeforeDef(binding.span);
+            }
+            return ValueLookup::Found(binding.res);
         }
 
         match builtin_value(name) {
             Some(builtin) => ValueLookup::Found(Res::Builtin(builtin)),
             None => ValueLookup::Missing,
+        }
+    }
+
+    /// Resolves `stem.member` against the scope of the file module
+    /// `stem` binds, recording the result on the member expression
+    /// itself so the later phases treat it exactly like a direct
+    /// reference to that item.
+    ///
+    /// Does nothing when the receiver is not a file-module handle: a
+    /// `std::` module's members are builtins, and a member of a value is
+    /// a field or method the type checker settles.
+    fn resolve_module_member(&mut self, id: ExprId, recv: ExprId, name: &str) {
+        let Some(Res::Module(import_item)) = self.res.expr_res.get(&recv).copied() else {
+            return;
+        };
+        let Some(&target) = self.module_of_import.get(&import_item) else {
+            return;
+        };
+
+        let module = &self.module_names[target];
+        let span = self.hir.span_of_expr(id);
+
+        match self.scopes[target].values.get(name) {
+            Some(binding) if binding.exported => {
+                let res = binding.res;
+                self.res.expr_res.insert(id, res);
+            }
+            // An import binds a handle for its own module only. There
+            // is no `pub import`, so pointing at the import and asking
+            // for a keyword that does not exist would send the reader
+            // after a fix they cannot make.
+            Some(binding) if matches!(binding.res, Res::Module(_)) => {
+                let declared = binding.span;
+                self.error(
+                    err_at(
+                        codes::R_UNKNOWN_MODULE_MEMBER,
+                        span,
+                        format!("module `{module}` has no member `{name}`"),
+                        "not found in that module",
+                    )
+                    .with_label(declared, format!("`{module}` imports `{name}` here"))
+                    .with_note(
+                        "an import is not re-exported: import the module directly instead"
+                            .to_string(),
+                    ),
+                );
+            }
+            Some(binding) => {
+                let declared = binding.span;
+                self.error(
+                    err_at(
+                        codes::R_UNKNOWN_MODULE_MEMBER,
+                        span,
+                        format!("`{name}` is not exported by module `{module}`"),
+                        "not exported",
+                    )
+                    .with_label(declared, "declared without `pub` here".to_string())
+                    .with_note(format!(
+                        "everything in a module is private unless declared `pub`; write `pub` before `{name}`'s definition to export it"
+                    )),
+                );
+            }
+            None => {
+                self.error(err_at(
+                    codes::R_UNKNOWN_MODULE_MEMBER,
+                    span,
+                    format!("module `{module}` has no member `{name}`"),
+                    "not found in that module",
+                ));
+            }
         }
     }
 
@@ -741,7 +902,7 @@ impl<'h> Resolver<'h> {
                 return Some(binding.res);
             }
         }
-        if let Some(binding) = self.module_types.get(name) {
+        if let Some(binding) = self.scopes[self.current].types.get(name) {
             return Some(binding.res);
         }
         builtin_type(name).map(TypeRes::Builtin)
@@ -883,9 +1044,14 @@ impl<'h> Resolver<'h> {
                     self.resolve_expr(arg);
                 }
             }
-            // Member names stay unresolved until the type checker knows
-            // the receiver's type (or module).
-            Expr::Field { recv, .. } => self.resolve_expr(*recv),
+            // A member of an imported file module is a name in that
+            // module's scope, so it resolves here. Every other member
+            // name stays unresolved until the type checker knows the
+            // receiver's type.
+            Expr::Field { recv, name } => {
+                self.resolve_expr(*recv);
+                self.resolve_module_member(id, *recv, name);
+            }
             Expr::Index { recv, index } => {
                 self.resolve_expr(*recv);
                 self.resolve_expr(*index);
@@ -1175,7 +1341,7 @@ impl<'h> Resolver<'h> {
             _ => {}
         }
 
-        for &enum_item in &self.enums {
+        for enum_item in self.scopes[self.current].enums.clone() {
             let Item::EnumDef(def) = hir.item(enum_item) else {
                 continue;
             };

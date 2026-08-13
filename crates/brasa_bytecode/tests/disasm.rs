@@ -112,6 +112,7 @@ fn arithmetic_and_calls() {
         structs: vec![],
         enums: vec![],
         globals: vec!["total".to_string()],
+        entry: None,
     };
 
     insta::assert_snapshot!("arithmetic_and_calls", brasa_bytecode::dump::dump(&module));
@@ -236,6 +237,7 @@ fn catch_shapes_and_iteration() {
             ],
         }],
         globals: vec![],
+        entry: None,
     };
 
     insta::assert_snapshot!(

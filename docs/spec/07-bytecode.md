@@ -41,14 +41,23 @@ that does not fit is rejected at compile time with a `C` diagnostic
 
 ### Module execution
 
-A compiled module is a `Module` (format below). Entry convention:
+A whole program — one file or many — compiles to a single `Module`
+(format below). The module graph is flattened at compile time: function,
+struct, enum and global indices are program-wide, so the VM has no module
+concept and no loader. Entry convention:
 
-- `functions[0]` is the synthetic `<toplevel>` function: top-level
-  statements and top-`let` initializers compiled in source order
-  (`docs/spec/01-syntax.md`, entry point). Top-`let`s store into global
-  slots.
-- After `<toplevel>` returns, the driver calls the module's `main` (a
-  regular function-table entry) if the executed file defines one.
+- `functions[0]` is the synthetic `<toplevel>` function: every module's
+  top-level statements and top-`let` initializers compiled in source
+  order, imported modules first, in the loader's post-order DFS. That
+  ordering is what makes a module's top level run once, the first time it
+  is imported, with its dependencies already initialized
+  (`docs/spec/01-syntax.md`, modules and entry point). Top-`let`s store
+  into global slots.
+- After `<toplevel>` returns, the driver calls `Module::entry` if it is
+  set. The code generator names it — the executed file's top-level `def
+  main`, if it declares one — rather than the VM finding it by name: an
+  imported module may define its own `main`, and only the executed
+  file's is an entry point.
 - Global slots start **unset**. Loading an unset global is a fatal
   runtime error ("used before initialization"), exactly like the walker
   — this can only happen when a function called from a top-level

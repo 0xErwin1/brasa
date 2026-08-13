@@ -46,6 +46,7 @@ Format: `<PhaseLetter><3 digits>` — e.g. `P001`, `R004`, `T012`.
 |--------|-------|
 | `L` | lexer |
 | `P` | parser |
+| `M` | module loading |
 | `R` | resolver |
 | `T` | type checker |
 | `E` | error-sets |
@@ -121,6 +122,26 @@ Notes on kind boundaries:
   built is bounded too. One limit, one code, one wording: the depth
   reported is the program's, not any one phase's.
 
+### Module loading (`M`)
+
+Emitted while building the module graph, before any name is resolved: a
+file named by an `import` could not be turned into a module.
+
+| Code | Kind | Example message |
+|------|------|-----------------|
+| `M001` | unreadable import | ``cannot read imported file `util.bras`: No such file or directory`` |
+| `M002` | import cycle | `import cycle: a -> b -> a` |
+| `M003` | imports too deep | `import chain is deeper than 128 files and was not followed` |
+
+Notes on kind boundaries:
+
+- `M002` names every file on the cycle, in the order the imports were
+  followed. The chain is the content of the error: without it the reader
+  reconstructs it by hand from the import statements.
+- The entry file's own read failure is not an `M` code. It never reached
+  the loader — the CLI refuses an unreadable script before compiling
+  anything, and exits 65 with a plain message.
+
 ### Resolver (`R`)
 
 | Code | Kind | Example message |
@@ -137,6 +158,7 @@ Notes on kind boundaries:
 | `R010` | constraint is not an interface | `` `Point` is not an interface`` |
 | `R011` | unknown panic | ``unknown panic `panics.Nope` `` |
 | `R012` | unknown stdlib error | ``unknown stdlib error `string.Nope` `` |
+| `R013` | unknown module member | ``` `slugify` is not exported by module `utils` ``` |
 
 Notes on kind boundaries:
 
@@ -157,6 +179,14 @@ Notes on kind boundaries:
   the same check. A field holding a callable stays
   a legitimate way to provide a member (`07-bytecode.md`, "Dispatch
   through a generic constraint") — only the collision is rejected.
+- `R013` covers both halves of a failed qualified lookup: the module
+  declares nothing by that name, and the module declares it without
+  `pub`. They are one kind because they are one question — "can I write
+  `stem.member` here?" — but the wording differs, and the non-exported
+  case labels the declaration so the missing keyword is visible. An
+  import is not re-exported, so reaching through one module's import to
+  another module is the first case, not the second: there is no `pub
+  import` to suggest.
 - `R008` (a `::` path whose root is not `std`) and `R009` (a `std::`
   path naming no known module) are distinct lookups and keep distinct
   codes.

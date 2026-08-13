@@ -103,7 +103,10 @@ fn format_one(path: &Path, args: &FmtArgs, color: bool) -> Outcome {
         // Never the file's fault: the formatter checked its own output
         // and refused it. Reported loudly, and the file is left alone.
         Err(brasa_fmt::FormatError::Unstable(reason)) => {
-            eprintln!("brasa: internal formatter error on {}: {reason}", path.display());
+            eprintln!(
+                "brasa: internal formatter error on {}: {reason}",
+                path.display()
+            );
             return Outcome::Failed(ExitCode::from(70));
         }
     };

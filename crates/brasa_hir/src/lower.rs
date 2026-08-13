@@ -73,21 +73,74 @@ pub struct LowerResult {
 /// parsed with zero errors; recovery placeholders from an errored parse
 /// are lowered structurally like everything else.
 pub fn lower(ast: &Ast, roots: &[ast::ItemId]) -> LowerResult {
-    let mut cx = LowerCtx {
-        ast,
-        hir: Hir::new(),
-        sugar_origins: HashMap::new(),
-        diagnostics: Vec::new(),
-        next_temp: 0,
-    };
+    let mut lowerer = Lowerer::new();
+    let roots = lowerer.lower_file(ast, roots);
 
-    let roots = roots.iter().map(|&root| cx.lower_item(root)).collect();
+    let (hir, sugar_origins, diagnostics) = lowerer.finish();
 
     LowerResult {
-        hir: cx.hir,
+        hir,
         roots,
-        sugar_origins: cx.sugar_origins,
-        diagnostics: cx.diagnostics,
+        sugar_origins,
+        diagnostics,
+    }
+}
+
+/// Lowers several parsed files into one shared [`Hir`].
+///
+/// A multi-file program is one arena, not one arena per file: `ItemId`
+/// and `ExprId` stay globally unique, so every downstream table keyed by
+/// a node ID keeps working across module boundaries without a
+/// (module, id) composite key. The temp counter is shared for the same
+/// reason — two modules must not both mint `$tmp0`.
+#[derive(Default)]
+pub struct Lowerer {
+    hir: Hir,
+    sugar_origins: HashMap<ExprId, SugarOrigin>,
+    diagnostics: Vec<Diagnostic>,
+    next_temp: u32,
+}
+
+impl Lowerer {
+    pub fn new() -> Self {
+        Self {
+            hir: Hir::new(),
+            sugar_origins: HashMap::new(),
+            diagnostics: Vec::new(),
+            next_temp: 0,
+        }
+    }
+
+    /// Lowers one file's top-level items, returning their HIR IDs in
+    /// source order.
+    pub fn lower_file(&mut self, ast: &Ast, roots: &[ast::ItemId]) -> Vec<ItemId> {
+        let mut cx = LowerCtx {
+            ast,
+            hir: std::mem::take(&mut self.hir),
+            sugar_origins: std::mem::take(&mut self.sugar_origins),
+            diagnostics: std::mem::take(&mut self.diagnostics),
+            next_temp: self.next_temp,
+        };
+
+        let roots = roots.iter().map(|&root| cx.lower_item(root)).collect();
+
+        self.hir = cx.hir;
+        self.sugar_origins = cx.sugar_origins;
+        self.diagnostics = cx.diagnostics;
+        self.next_temp = cx.next_temp;
+
+        roots
+    }
+
+    /// The arena as lowered so far. A caller that walks one file's items
+    /// before lowering the next — the module loader reading import
+    /// paths — needs to read the HIR mid-flight.
+    pub fn hir(&self) -> &Hir {
+        &self.hir
+    }
+
+    pub fn finish(self) -> (Hir, HashMap<ExprId, SugarOrigin>, Vec<Diagnostic>) {
+        (self.hir, self.sugar_origins, self.diagnostics)
     }
 }
 
