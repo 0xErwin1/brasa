@@ -67,7 +67,7 @@ The full specification lives in [`docs/spec/`](docs/spec/).
 ## Architecture
 
 ```
-files ─→ lexer ─→ parser ─→ HIR ─→ resolver ─→ type check ─→ error sets ─→ codegen ─→ VM
+files -> lexer -> parser -> HIR -> resolver -> type check -> error sets -> codegen -> VM
  graph   logos    Pratt+RD  desugar            inference     fixpoint      bytecode
 ```
 
