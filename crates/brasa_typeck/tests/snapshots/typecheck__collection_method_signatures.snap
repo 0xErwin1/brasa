@@ -14,14 +14,16 @@ item types
   i8 nested -> Vector<Vector<int>>
   i9 flat -> Vector<int>
   i10 unique -> Vector<int>
-  i11 stock -> Map<string, int>
-  i12 entries -> Vector<(string, int)>
-  i13 extra -> Map<string, int>
-  i14 merged -> Map<string, int>
-  i16 s -> Set<int>
-  i17 u -> Set<int>
-  i18 i -> Set<int>
-  i19 d -> Set<int>
+  i11 sliced -> Vector<int>
+  i12 glued -> string
+  i13 stock -> Map<string, int>
+  i14 entries -> Vector<(string, int)>
+  i15 extra -> Map<string, int>
+  i16 merged -> Map<string, int>
+  i18 s -> Set<int>
+  i19 u -> Set<int>
+  i20 i -> Set<int>
+  i21 d -> Set<int>
 local types
   l0 acc -> int
   l1 x -> int
@@ -109,49 +111,58 @@ expr types
   e71 -> Vector<int>
   e72 -> () -> Vector<int>
   e73 -> Vector<int>
-  e74 -> string
-  e75 -> int
-  e76 -> Map<string, int>
-  e77 -> Map<string, int>
-  e78 -> () -> Vector<(string, int)>
-  e79 -> Vector<(string, int)>
-  e80 -> string
-  e81 -> int
-  e82 -> Map<string, int>
-  e83 -> Map<string, int>
-  e84 -> (Map<string, int>) -> Map<string, int>
+  e74 -> Vector<int>
+  e75 -> (int, int) -> Vector<int>
+  e76 -> int
+  e77 -> int
+  e78 -> Vector<int>
+  e79 -> Vector<int>
+  e80 -> (string) -> string
+  e81 -> string
+  e82 -> string
+  e83 -> string
+  e84 -> int
   e85 -> Map<string, int>
   e86 -> Map<string, int>
-  e87 -> Map<string, int>
-  e88 -> ((string, int) -> unit) -> unit
-  e89 -> (unknown) -> unit
-  e90 -> string
-  e91 -> int
-  e92 -> () -> string
-  e93 -> string
-  e94 -> string
-  e95 -> unit
-  e96 -> (string, int) -> unit
-  e97 -> unit
-  e98 -> int
-  e99 -> int
-  e100 -> Vector<int>
-  e101 -> Set<int>
-  e102 -> Set<int>
-  e103 -> (Set<int>) -> Set<int>
-  e104 -> int
-  e105 -> Vector<int>
-  e106 -> Set<int>
-  e107 -> Set<int>
-  e108 -> Set<int>
-  e109 -> (Set<int>) -> Set<int>
-  e110 -> int
-  e111 -> Vector<int>
-  e112 -> Set<int>
-  e113 -> Set<int>
-  e114 -> Set<int>
-  e115 -> (Set<int>) -> Set<int>
-  e116 -> int
-  e117 -> Vector<int>
-  e118 -> Set<int>
-  e119 -> Set<int>
+  e87 -> () -> Vector<(string, int)>
+  e88 -> Vector<(string, int)>
+  e89 -> string
+  e90 -> int
+  e91 -> Map<string, int>
+  e92 -> Map<string, int>
+  e93 -> (Map<string, int>) -> Map<string, int>
+  e94 -> Map<string, int>
+  e95 -> Map<string, int>
+  e96 -> Map<string, int>
+  e97 -> ((string, int) -> unit) -> unit
+  e98 -> (unknown) -> unit
+  e99 -> string
+  e100 -> int
+  e101 -> () -> string
+  e102 -> string
+  e103 -> string
+  e104 -> unit
+  e105 -> (string, int) -> unit
+  e106 -> unit
+  e107 -> int
+  e108 -> int
+  e109 -> Vector<int>
+  e110 -> Set<int>
+  e111 -> Set<int>
+  e112 -> (Set<int>) -> Set<int>
+  e113 -> int
+  e114 -> Vector<int>
+  e115 -> Set<int>
+  e116 -> Set<int>
+  e117 -> Set<int>
+  e118 -> (Set<int>) -> Set<int>
+  e119 -> int
+  e120 -> Vector<int>
+  e121 -> Set<int>
+  e122 -> Set<int>
+  e123 -> Set<int>
+  e124 -> (Set<int>) -> Set<int>
+  e125 -> int
+  e126 -> Vector<int>
+  e127 -> Set<int>
+  e128 -> Set<int>

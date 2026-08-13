@@ -331,6 +331,73 @@ puts "a".split("")
     );
 }
 
+#[test]
+fn remove_prefix_is_total() {
+    assert_success(
+        r##"
+puts "src/main.bras".removePrefix("src/")
+puts "src/main.bras".removePrefix("lib/")
+puts "abc".removePrefix("")
+puts "abc".removePrefix("abc") + "|"
+puts "abc".removePrefix("abcd")
+puts "aab".removePrefix("a")
+puts "ñandú".removePrefix("ñ")
+puts "".removePrefix("a") + "|"
+"##,
+        "main.bras\nsrc/main.bras\nabc\n|\nabc\nab\nandú\n|\n",
+    );
+}
+
+// --- `slice`: one contract, two receivers ------------------------------
+
+/// The two `slice` members must agree case for case, so every pair of
+/// bounds is asserted as `s.chars().slice(a, b) == s.slice(a, b).chars()`
+/// — the vector and the string reaching the same elements, including
+/// where the bounds fall outside the receiver.
+#[test]
+fn vector_slice_mirrors_string_slice() {
+    assert_success(
+        r##"
+let s = "abcde"
+puts s.chars().slice(0, 2)
+puts s.slice(0, 2).chars()
+puts s.chars().slice(1, 3)
+puts s.slice(1, 3).chars()
+puts s.chars().slice(2, 2)
+puts s.slice(2, 2).chars()
+puts s.chars().slice(3, 1)
+puts s.slice(3, 1).chars()
+puts s.chars().slice(-5, 2)
+puts s.slice(-5, 2).chars()
+puts s.chars().slice(0, 99)
+puts s.slice(0, 99).chars()
+puts s.chars().slice(-9, -4)
+puts s.slice(-9, -4).chars()
+puts s.chars().slice(99, 100)
+puts s.slice(99, 100).chars()
+"##,
+        "['a', 'b']\n['a', 'b']\n['b', 'c']\n['b', 'c']\n[]\n[]\n[]\n[]\n['a', 'b']\n['a', 'b']\n\
+         ['a', 'b', 'c', 'd', 'e']\n['a', 'b', 'c', 'd', 'e']\n[]\n[]\n[]\n[]\n",
+    );
+}
+
+#[test]
+fn vector_slice_returns_a_new_vector() {
+    assert_success(
+        r##"
+let nums = [1, 2, 3]
+let part = nums.slice(1, 3)
+puts part
+part.push(9)
+puts nums
+let empty: Vector<int> = []
+puts empty.slice(0, 2)
+puts([["a"], ["b"]].slice(0, 1))
+"##,
+        "[2, 3]\n[1, 2, 3]\n[]\n[[\"a\"]]\n",
+    );
+}
+
 // --- built-in regex ----------------------------------------------------
 
 #[test]
@@ -439,6 +506,43 @@ puts stock.has?("ash")
 puts stock
 "##,
         "4\n[10, 6, 16, 2]\n[5, 3, 8]\n[1, 3, 5, 8]\n[1, 8, 3, 5]\n5\n1\ntrue\n13\n[5, 3, 8, 1]\n3\n0\n[\"ember\", \"ash\"]\n[3, 7]\n3\n7\nfalse\n{ \"ember\": 3, \"coal\": 1 }\n",
+    );
+}
+
+/// `join` renders every element through the derived `toString`, so a
+/// string element must still come out RAW — quoting it would be the
+/// regression that turns `join` into `toString` on the whole vector.
+#[test]
+fn join_renders_every_element_type() {
+    assert_success(
+        r##"
+struct Point
+  x: int
+end
+
+struct Tagged
+  n: int
+
+  def toString(self): string
+    "<#{self.n}>"
+  end
+end
+
+puts(["a", "b"].join(""))
+puts(["a", "b"].join(", "))
+puts([1, 2, 3].join(", "))
+puts([1.5, 2.0].join("|"))
+puts([true, false].join("-"))
+puts(['a', 'b'].join(","))
+puts([[1, 2], [3]].join(" "))
+puts([Point { x: 1 }, Point { x: 2 }].join("; "))
+puts([Tagged { n: 1 }, Tagged { n: 2 }].join(""))
+let empty: Vector<int> = []
+puts empty.join(",") + "|"
+puts([7].join(","))
+"##,
+        "ab\na, b\n1, 2, 3\n1.5|2.0\ntrue-false\na,b\n[1, 2] [3]\n\
+         Point { x: 1 }; Point { x: 2 }\n<1><2>\n|\n7\n",
     );
 }
 
@@ -4128,7 +4232,18 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "[\'a\', \'b\']\n",
         ),
         ("bytes", "puts \"ab\".bytes()\n".to_string(), "[97, 98]\n"),
-        ("slice", "puts \"abc\".slice(0, 2)\n".to_string(), "ab\n"),
+        // Both receivers, since `slice` is one registry entry serving a
+        // string and a Vector arm in the backend.
+        (
+            "slice",
+            "puts \"abc\".slice(0, 2)\nputs([1, 2, 3].slice(0, 2))\n".to_string(),
+            "ab\n[1, 2]\n",
+        ),
+        (
+            "removePrefix",
+            "puts \"src/main.bras\".removePrefix(\"src/\")\n".to_string(),
+            "main.bras\n",
+        ),
         ("repeat", "puts \"a\".repeat(2)\n".to_string(), "aa\n"),
         (
             "replace",
@@ -4205,10 +4320,12 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "let v = [1, 2]\nputs v.reverse()\n".to_string(),
             "[2, 1]\n",
         ),
+        // Both element kinds, since `join` renders a non-string element
+        // through the derived `toString` rather than rejecting it.
         (
             "join",
-            "let v = [\"a\", \"b\"]\nputs v.join(\",\")\n".to_string(),
-            "a,b\n",
+            "let v = [\"a\", \"b\"]\nputs v.join(\",\")\nputs([1, 2].join(\",\"))\n".to_string(),
+            "a,b\n1,2\n",
         ),
         (
             "map",

@@ -235,6 +235,7 @@ let lookup: Map<string, int> = { "one": 1 }
 let one = lookup["one"] ?? 0
 let keys = lookup.keys()
 let trimmed = "  hi  ".trim().toUpper()
+let stripped = "src/main.bras".removePrefix("src/")
 let parsed = "42".toInt()
 "#
 );
@@ -1079,7 +1080,6 @@ def misuse(p: Point, nums: Vector<int>): int
   let lit = Point { x: 1, z: 3 }
   let pushed = nums.push("no")
   let shoved = nums.shove(1)
-  let glued = nums.join(", ")
   a + b
 end
 
@@ -1438,6 +1438,8 @@ let pairs = nums.zip(["a", "b", "c"])
 let nested = [[1], [2, 3]]
 let flat = nested.flatten()
 let unique = nums.uniq()
+let sliced = nums.slice(0, 2)
+let glued = nums.join(", ")
 
 let stock: Map<string, int> = { "a": 1 }
 let entries = stock.entries()

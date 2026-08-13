@@ -7,7 +7,7 @@
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
 
-use crate::types::{Type, unify};
+use crate::types::Type;
 
 /// How a builtin method's result type is computed.
 pub enum RetRule {
@@ -98,6 +98,9 @@ fn string_method(name: &str) -> Option<MethodSig> {
         "repeat" => Some(sig(vec![Type::Int], Type::String)),
         "padStart" | "padEnd" => Some(sig(vec![Type::Int, Type::String], Type::String)),
         "replace" => Some(sig(vec![Type::String, Type::String], Type::String)),
+        // Total, unlike a `slice` the caller would have to guard: an
+        // absent prefix yields the string unchanged (BRS-53).
+        "removePrefix" => Some(sig(vec![Type::String], Type::String)),
         "find" => Some(sig(vec![Type::String], Type::option(Type::Int))),
         "toInt" => Some(sig(vec![], Type::Int)),
         "toFloat" => Some(sig(vec![], Type::Float)),
@@ -122,11 +125,14 @@ fn vector_method(elem: &Type, name: &str) -> Option<MethodSig> {
         "pop" | "first" | "last" => Some(sig(vec![], Type::option(elem.clone()))),
         "reverse" => Some(sig(vec![], Type::vector(elem.clone()))),
         "contains?" => Some(sig(vec![elem.clone()], Type::Bool)),
-        // `join` requires `Vector<string>` (decision recorded here; the
-        // checker reports a dedicated error for other element types).
-        "join" if unify(elem, &Type::String).is_some() => {
-            Some(sig(vec![Type::String], Type::String))
-        }
+        // `slice(from, to)` shares `string.slice`'s contract, including
+        // its clamping: two members named `slice` that disagreed on the
+        // out-of-range cases would be worse than one of them missing.
+        "slice" => Some(sig(vec![Type::Int, Type::Int], Type::vector(elem.clone()))),
+        // `join` accepts any element type: every value has the derived
+        // `toString`, so demanding `Vector<string>` only forced the
+        // caller to write the `map` the builtin can do itself (BRS-53).
+        "join" => Some(sig(vec![Type::String], Type::String)),
         "map" => Some(MethodSig {
             params: vec![Type::func(vec![elem.clone()], Type::Unknown)],
             ret: RetRule::VectorOfFnRet,
@@ -539,10 +545,37 @@ mod tests {
     use crate::types::Type;
 
     #[test]
-    fn join_requires_string_elements() {
-        assert!(method(&Type::vector(Type::String), "join").is_some());
-        assert!(method(&Type::vector(Type::Int), "join").is_none());
-        assert!(method(&Type::vector(Type::Unknown), "join").is_some());
+    fn join_accepts_any_element_type() {
+        for elem in [
+            Type::String,
+            Type::Int,
+            Type::Bool,
+            Type::Unknown,
+            Type::vector(Type::Int),
+        ] {
+            let sig = method(&Type::vector(elem), "join").expect("join exists");
+            assert_eq!(sig.params, vec![Type::String]);
+            assert!(matches!(&sig.ret, RetRule::Fixed(t) if *t == Type::String));
+        }
+    }
+
+    #[test]
+    fn vector_slice_matches_the_string_signature() {
+        let string_slice = method(&Type::String, "slice").expect("string slice exists");
+
+        let vector_slice = method(&Type::vector(Type::Int), "slice").expect("vector slice exists");
+        assert_eq!(vector_slice.params, string_slice.params);
+        assert!(
+            matches!(&vector_slice.ret, RetRule::Fixed(t) if *t == Type::vector(Type::Int)),
+            "slice preserves the element type"
+        );
+    }
+
+    #[test]
+    fn remove_prefix_takes_and_returns_a_string() {
+        let sig = method(&Type::String, "removePrefix").expect("removePrefix exists");
+        assert_eq!(sig.params, vec![Type::String]);
+        assert!(matches!(&sig.ret, RetRule::Fixed(t) if *t == Type::String));
     }
 
     #[test]

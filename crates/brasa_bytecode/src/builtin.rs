@@ -229,6 +229,10 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("paths"),
     method("unreadable"),
     free("fs.tryWalk"),
+    // BRS-53: appended, never reordered. `slice` and `join` grew a
+    // Vector arm rather than a new entry — ids are shared across
+    // receiver kinds — so only the new string method lands here.
+    method("removePrefix"),
 ];
 
 /// Looks up a builtin by its stable name.

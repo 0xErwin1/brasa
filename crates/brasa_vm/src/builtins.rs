@@ -971,6 +971,9 @@ impl Vm<'_> {
             ("replace", [Value::Str(from), Value::Str(to)]) => {
                 Ok(Value::str(s.replace(from.as_ref(), to.as_ref())))
             }
+            ("removePrefix", [Value::Str(prefix)]) => {
+                Ok(Value::str(s.strip_prefix(prefix.as_ref()).unwrap_or(s)))
+            }
             ("match?", [Value::Str(pattern)]) => {
                 let re = self.compile_regex(pattern)?;
                 Ok(Value::Bool(re.is_match(s)))
@@ -1057,19 +1060,35 @@ impl Vm<'_> {
                     .iter()
                     .any(|v| value_eq(&self.heap, v, value)),
             )),
-            ("join", [Value::Str(sep)]) => {
-                let items = self.heap.vector(items).borrow().clone();
-                let mut parts = Vec::with_capacity(items.len());
-                for item in &items {
-                    match item {
-                        Value::Str(s) => parts.push(s.to_string()),
-                        _ => {
-                            return Err(Signal::Fatal(
-                                "brasa: `join` requires a `Vector<string>`".to_string(),
-                            ));
-                        }
+            ("slice", [Value::Int(from), Value::Int(to)]) => {
+                let taken = {
+                    let source = self.heap.vector(items).borrow();
+                    let len = source.len() as i64;
+                    let from = (*from).clamp(0, len) as usize;
+                    let to = (*to).clamp(0, len) as usize;
+
+                    if from >= to {
+                        Vec::new()
+                    } else {
+                        source[from..to].to_vec()
                     }
-                }
+                };
+
+                Ok(self.heap.alloc_vector(taken))
+            }
+            // Rendering a struct element can reenter a user `toString`
+            // override, which allocates, so the traversal goes through
+            // the rooting helper like every other reentrant builtin.
+            // The rendered parts are plain `String`s, outside the heap.
+            ("join", [Value::Str(sep)]) => {
+                let snapshot = self.heap.vector(items).borrow().clone();
+
+                let mut parts = Vec::with_capacity(snapshot.len());
+                self.collect_rooted(recv, snapshot, |this, item| {
+                    parts.push(this.display(&item)?);
+                    Ok(None)
+                })?;
+
                 Ok(Value::str(parts.join(sep)))
             }
             ("map", [f]) => {

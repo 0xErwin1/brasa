@@ -131,9 +131,9 @@ Highest priority.
 - Cleanup: `trim`, `trimStart`, `trimEnd`, `padStart`, `padEnd`.
 - Search: `contains?`, `startsWith?`, `endsWith?`, `find` (-> Option),
   `count`.
-- Transformation: `replace`, `toUpper`, `toLower`, `toInt`, `toFloat`
-  (both throw `string.ParseError` on parse failure; `int.toFloat` is a
-  pure conversion).
+- Transformation: `replace`, `removePrefix`, `toUpper`, `toLower`,
+  `toInt`, `toFloat` (the last two throw `string.ParseError` on parse
+  failure; `int.toFloat` is a pure conversion).
 - Built-in regex: `match?(re)`, `captures(re)` (-> Option<Vector<string>>),
   `replaceRe(re, with)`, `scan(re)`.
 
@@ -159,6 +159,14 @@ Signatures closed in M4 (BRS-31):
   replacement expands `$1`/`${name}` group references, with `$$` as a
   literal `$` (the `regex` crate's `replace_all` semantics).
 - `scan(re)` returns every non-overlapping full match, in order.
+
+Signatures closed in BRS-53:
+
+- `removePrefix(p): string` is TOTAL: it removes `p` when the string
+  starts with it and returns the string unchanged otherwise, so
+  stripping a known prefix never needs a `startsWith?` guard around a
+  `slice` whose bounds the caller has to compute. An empty `p` removes
+  nothing. It throws nothing and panics on nothing.
 
 ## `int` and `float` (type methods, no import needed)
 
@@ -650,7 +658,7 @@ Signatures closed in M4 (BRS-35):
 
 - `Vector<T>`: `len`, `push`, `pop`, `map`, `filter`, `reduce`, `each`,
   `find`, `any?`, `all?`, `sort`, `sortBy`, `reverse`, `contains?`,
-  `first`/`last` (-> Option), `zip`, `flatten`, `uniq`, `join`.
+  `first`/`last` (-> Option), `zip`, `flatten`, `uniq`, `slice`, `join`.
 - `Map<K, V>`: `len`, `keys`, `values`, `entries`, `insert`, `remove`,
   `has?`, `get` (≡ `[k]`, -> Option), `merge`, `each`.
 - `Set<T>`: `add`, `remove`, `has?`, `union`, `intersect`, `diff`.
@@ -704,6 +712,27 @@ their order, and the receiver is never read again after the snapshot.
   types with the `Set(...)` constructor, ranges, every primitive and
   collection method above, and the predeclared `Json` type name
   (BRS-34; the `json` module members still need `import std::json`).
+
+Signatures closed in BRS-53:
+
+- **`Vector<T>.slice(from: int, to: int): Vector<T>`** is a NEW vector
+  holding the elements in `from..to`, and it is the SAME contract as
+  `string.slice` with element indices in place of scalar indices: both
+  bounds are clamped into `0..=len`, and a range that is empty after
+  clamping — `from >= to`, or bounds that fall entirely outside the
+  receiver — yields the empty vector. Neither member throws nor panics
+  on an out-of-range or negative index. There is deliberately no
+  `take`/`first(n)` alongside it: one member per idea.
+- **`Vector<T>.join(sep: string): string`** accepts ANY element type.
+  Every value has the derived `toString` (`docs/spec/03-types.md`), so
+  each element is rendered exactly as `puts` shows it and the
+  renderings are concatenated with `sep` between them. A `string`
+  element renders RAW, without the quotes it would get inside a
+  container — which is what `Vector<string>.join` always did, so the
+  string case is unchanged. A struct with a `toString` override is
+  rendered by that override. The empty vector joins to the empty
+  string. Restricting `join` to `Vector<string>` only forced the caller
+  to write the `.map(|x| x.toString())` the builtin can do itself.
 
 ## Out of v1
 
