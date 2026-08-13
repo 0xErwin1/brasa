@@ -165,6 +165,8 @@ impl<'a> Parser<'a> {
     /// `=`/`+=`/... are not part of the expression grammar, so
     /// [`Self::parse_expr`] naturally stops right before one.
     fn parse_expr_or_assign(&mut self, start: Span) -> StmtId {
+        self.command_call_slot = Some(start);
+
         let target = self.parse_expr();
         let target = self.maybe_apply_command_call(target, start);
 

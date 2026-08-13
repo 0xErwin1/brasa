@@ -262,9 +262,15 @@ impl<'a> Parser<'a> {
                         .alloc_expr(Expr::Call { callee: expr, args }, Span::merge(&start, &end));
                 }
                 TokenKind::LBracket => {
+                    // Resolved before descending: parsing the index can
+                    // open statement slots of its own (a trailing
+                    // `do`-block inside it), which moves the slot this
+                    // receiver has to be compared against.
+                    let command_callee = self.command_call_slot_callee(expr, start);
+
                     self.bump();
                     let index = self.parse_expr();
-                    self.expect(TokenKind::RBracket, "']' to close the index expression");
+                    self.expect_index_close(command_callee);
                     let end = self.prev_span();
                     expr = self
                         .ast
@@ -595,6 +601,44 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The name `recv` spells when it is a bare identifier opening a
+    /// statement slot, and therefore a possible command-call callee.
+    ///
+    /// `recv_start` is the span the postfix chain started at; matching it
+    /// against [`Parser::command_call_slot`] is what restricts this to the
+    /// statement-leading identifier itself, rather than any identifier
+    /// somewhere inside the statement.
+    fn command_call_slot_callee(&self, recv: ExprId, recv_start: Span) -> Option<String> {
+        if self.command_call_slot != Some(recv_start) || !self.is_bare_ident(recv) {
+            return None;
+        }
+
+        Some(self.ident_text(recv))
+    }
+
+    /// Closes an index expression, adding the command-call ambiguity note
+    /// when `command_callee` names a possible command-call callee.
+    ///
+    /// `docs/spec/02-grammar.md`'s ambiguity table rules that a `[` after
+    /// a callee binds as postfix indexing rather than as a vector-literal
+    /// first argument, so `puts [1, 2]` is `puts[1, 2]`. That ruling is
+    /// invisible in the bare "expected `]`" wording, which sends a reader
+    /// looking for a missing bracket in an index they never wrote; the
+    /// note states the ruling and the spelling that sidesteps it.
+    fn expect_index_close(&mut self, command_callee: Option<String>) {
+        if self.eat(TokenKind::RBracket).is_some() {
+            return;
+        }
+
+        let note = command_callee.map(|callee| {
+            format!(
+                "`{callee} [...]` parses as `{callee}[...]`: brackets right after a callee are indexing, not a vector-literal argument. Write `{callee}([...])`, or bind the vector first"
+            )
+        });
+
+        self.error_expected_with_note("']' to close the index expression", note);
+    }
+
     /// A constructor or struct literal. `module` is the stem of a
     /// qualified path, and `start` its span, so the node covers the
     /// whole path rather than just the type name; the two are joined
@@ -812,6 +856,8 @@ impl<'a> Parser<'a> {
             ArmBody::Block(vec![self.parse_stmt()])
         } else {
             let start = self.span();
+            self.command_call_slot = Some(start);
+
             let value = self.parse_expr();
             // An inline arm body is a single "statement slot" the same
             // way a top-level statement is (see the ruling this mirrors

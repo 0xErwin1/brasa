@@ -188,6 +188,16 @@ struct Parser<'a> {
     /// attempt. Suppressing a second diagnostic at the same span keeps
     /// exactly the first, most specific report for that root cause.
     last_error_span: Option<Span>,
+    /// Span of the token that opens the statement slot currently being
+    /// parsed — the one position where a bare identifier can still become
+    /// a parenless command call (see [`Parser::maybe_apply_command_call`]).
+    ///
+    /// Read only by [`Parser::command_call_slot_callee`], to tell the two
+    /// readings of `name [1, 2]` apart: an identifier that opens a
+    /// statement slot could have been meant as a command call taking a
+    /// vector literal, while anywhere else indexing is the only reading
+    /// the grammar ever offered.
+    command_call_slot: Option<Span>,
 }
 
 impl<'a> Parser<'a> {
@@ -202,6 +212,7 @@ impl<'a> Parser<'a> {
             recursion_depth: 0,
             poisoned: false,
             last_error_span: None,
+            command_call_slot: None,
         }
     }
 
@@ -332,6 +343,13 @@ impl<'a> Parser<'a> {
     }
 
     fn error_expected(&mut self, what: &str) {
+        self.error_expected_with_note(what, None);
+    }
+
+    /// [`Parser::error_expected`] with an extra note, for the productions
+    /// whose failure has a known second reading the plain "expected X,
+    /// found Y" wording cannot carry on its own.
+    fn error_expected_with_note(&mut self, what: &str, note: Option<String>) {
         if self.poisoned {
             return;
         }
@@ -339,16 +357,22 @@ impl<'a> Parser<'a> {
         if !self.should_report_at(span) {
             return;
         }
+
         let found = self.describe_current();
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Error,
-                format!("expected {what}, found {found}"),
-                codes::P_EXPECTED.to_string(),
-                span,
-            )
-            .with_label(span, format!("expected {what} here")),
-        );
+        let diagnostic = Diagnostic::new(
+            Severity::Error,
+            format!("expected {what}, found {found}"),
+            codes::P_EXPECTED.to_string(),
+            span,
+        )
+        .with_label(span, format!("expected {what} here"));
+
+        let diagnostic = match note {
+            Some(note) => diagnostic.with_note(note),
+            None => diagnostic,
+        };
+
+        self.diagnostics.push(diagnostic);
     }
 
     /// The diagnostic-cascade guard shared by [`Parser::error_expected`]

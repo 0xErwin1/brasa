@@ -239,3 +239,101 @@ fn parens_after_a_callee_stay_a_call_not_a_tuple_argument() {
         dump_source("puts (1, 2)\nputs((1, 2))")
     );
 }
+
+// -- (i) brackets after a command-position callee ---------------------------
+// The bracket half of the same ambiguity table: `[` after a callee binds
+// as indexing, never as a vector-literal first argument. The ruling stays;
+// only the diagnostic says so.
+
+fn diagnostic_notes(source: &str) -> Vec<String> {
+    let mut source_map = SourceMap::new();
+    let file = source_map.add_virtual("t", source.to_string());
+    let result = brasa_parser::parse(source, file);
+
+    assert!(
+        !result.diagnostics.is_empty(),
+        "expected {source:?} to fail to parse"
+    );
+    assert!(
+        result.diagnostics.iter().all(|d| d.error_code == "P001"),
+        "expected only P001 for {source:?}, got {:#?}",
+        result.diagnostics
+    );
+
+    result
+        .diagnostics
+        .into_iter()
+        .flat_map(|d| d.notes)
+        .collect()
+}
+
+#[test]
+fn brackets_after_a_command_position_callee_explain_the_index_ruling() {
+    for source in [
+        "puts [1, 2, 3].join(\",\")",
+        "puts [1, 2, 3]",
+        "match x\n  _ => puts [1, 2]\nend",
+    ] {
+        let notes = diagnostic_notes(source);
+
+        assert_eq!(
+            notes.len(),
+            1,
+            "expected exactly one note for {source:?}, got {notes:#?}"
+        );
+        assert_eq!(
+            notes[0],
+            "`puts [...]` parses as `puts[...]`: brackets right after a callee are indexing, \
+             not a vector-literal argument. Write `puts([...])`, or bind the vector first"
+        );
+    }
+}
+
+/// The note names the callee it actually saw: the parser resolves no
+/// names, so nothing here is special about `puts`.
+#[test]
+fn the_index_ruling_note_names_the_callee_it_saw() {
+    let notes = diagnostic_notes("rows [0, 1]");
+
+    assert_eq!(notes.len(), 1, "expected exactly one note, got {notes:#?}");
+    assert!(
+        notes[0].starts_with("`rows [...]` parses as `rows[...]`:"),
+        "expected the note to name `rows`, got {:?}",
+        notes[0]
+    );
+}
+
+/// A `do`-block inside the brackets opens statement slots of its own
+/// before the missing `]` is ever reached, so the receiver's own slot has
+/// to be settled on the way in rather than on the way out.
+#[test]
+fn the_index_ruling_note_survives_a_statement_slot_opened_inside_the_brackets() {
+    let notes = diagnostic_notes("rows [f(1) do |x| puts x end, 2]");
+
+    assert_eq!(notes.len(), 1, "expected exactly one note, got {notes:#?}");
+    assert!(
+        notes[0].starts_with("`rows [...]` parses as `rows[...]`:"),
+        "expected the note to name `rows`, got {:?}",
+        notes[0]
+    );
+}
+
+/// Outside a statement slot the vector-literal reading was never on the
+/// table — command-call sugar cannot reach there — so the plain "expected
+/// `]`" wording is already the whole story.
+#[test]
+fn the_index_ruling_note_stays_out_of_ordinary_index_errors() {
+    for source in [
+        "let x = v[0, 1]",
+        "s.len [1, 2]",
+        "puts v[0][1, 2]",
+        "-v [0, 1]",
+    ] {
+        let notes = diagnostic_notes(source);
+
+        assert!(
+            notes.is_empty(),
+            "expected no note for {source:?}, got {notes:#?}"
+        );
+    }
+}

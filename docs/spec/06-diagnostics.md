@@ -123,6 +123,15 @@ Notes on kind boundaries:
   parser walks that tree with real recursion, so the depth actually
   built is bounded too. One limit, one code, one wording: the depth
   reported is the program's, not any one phase's.
+- `P001` carries a note when an index expression fails to close and its
+  receiver is a bare identifier opening a statement slot: that is the one
+  position where command-call sugar could have taken a vector literal as
+  an argument, so `02-grammar.md`'s ruling that a `[` after a callee is
+  indexing is what turned `puts [1, 2]` into `puts[1, 2]`. Without the
+  note the message sends the reader looking for a `]` in an index they
+  never wrote. This is the bracket half of the pair `T007`'s note covers
+  for parentheses; the parser resolves no names, so the note fires on the
+  shape and names the callee it saw rather than asserting an intent.
 
 ### Module loading (`M`)
 
