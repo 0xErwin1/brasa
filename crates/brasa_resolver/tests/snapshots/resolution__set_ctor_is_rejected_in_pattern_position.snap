@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R004] Error: `Set(...)` is not a valid pattern
-   ╭─[ set_ctor_is_rejected_in_pattern_position.brs:3:3 ]
+   ╭─[ set_ctor_is_rejected_in_pattern_position.bras:3:3 ]
    │
  3 │   Set(x) => puts x
    │   ───┬──  

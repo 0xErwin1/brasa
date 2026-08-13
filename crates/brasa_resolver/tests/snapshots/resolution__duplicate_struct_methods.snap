@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R006] Error: duplicate definition of `label`
-   ╭─[ duplicate_struct_methods.brs:9:7 ]
+   ╭─[ duplicate_struct_methods.bras:9:7 ]
    │
  5 │   def label(self): string
    │       ──┬──  
@@ -14,7 +14,7 @@ expression: rendered
    │         ╰──── redefined here
 ───╯
 [R006] Error: duplicate definition of `a`
-    ╭─[ duplicate_struct_methods.brs:19:7 ]
+    ╭─[ duplicate_struct_methods.bras:19:7 ]
     │
  15 │   def a(self): int
     │       ┬  
@@ -25,7 +25,7 @@ expression: rendered
     │       ╰── redefined here
 ────╯
 [R006] Error: duplicate definition of `a`
-    ╭─[ duplicate_struct_methods.brs:23:7 ]
+    ╭─[ duplicate_struct_methods.bras:23:7 ]
     │
  15 │   def a(self): int
     │       ┬  

@@ -30,7 +30,7 @@ fn write_script(name: &str, source: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("brasa-limits-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
 
-    let script = dir.join(format!("{name}.brs"));
+    let script = dir.join(format!("{name}.bras"));
     std::fs::write(&script, source).expect("failed to write script");
     script
 }

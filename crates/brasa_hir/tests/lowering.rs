@@ -10,7 +10,7 @@ use brasa_source::SourceMap;
 
 fn lower_source(name: &str, source: &str) -> brasa_hir::LowerResult {
     let mut source_map = SourceMap::new();
-    let file = source_map.add_file(PathBuf::from(format!("{name}.brs")), source.to_string());
+    let file = source_map.add_file(PathBuf::from(format!("{name}.bras")), source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(
@@ -202,7 +202,7 @@ lowering_test!(
     no_sugar_passthrough,
     r#"
 import std::fs
-import "utils.brs"
+import "utils.bras"
 
 interface Printable
   def describe(self): string

@@ -36,7 +36,7 @@ fn run_with_timeout(script: &Path, timeout: Duration) -> Option<std::process::Ou
 fn normal_file_is_read_and_parsed() {
     let dir = std::env::temp_dir().join(format!("brasa-cli-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
-    let script = dir.join("ok.brs");
+    let script = dir.join("ok.bras");
     std::fs::write(&script, "let x = 1\n").expect("failed to write script");
 
     let output = run_with_timeout(&script, Duration::from_secs(5))
@@ -58,7 +58,7 @@ fn fifo_is_rejected_instead_of_hanging() {
 
     let dir = std::env::temp_dir().join(format!("brasa-cli-fifo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
-    let fifo = dir.join("evil.brs");
+    let fifo = dir.join("evil.bras");
 
     let status = Command::new("mkfifo")
         .arg(&fifo)

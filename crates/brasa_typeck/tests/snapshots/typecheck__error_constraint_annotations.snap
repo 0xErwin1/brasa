@@ -3,7 +3,7 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T027] Error: `bool` does not satisfy `Comparable`
-   ╭─[ error_constraint_annotations.brs:6:13 ]
+   ╭─[ error_constraint_annotations.bras:6:13 ]
    │
  6 │ def dist(p: Point<bool>): int
    │             ─────┬─────  
@@ -12,7 +12,7 @@ expression: rendered
    │ Note: `bool` has no member `cmp` with a compatible signature
 ───╯
 [T027] Error: `bool` does not satisfy `Comparable`
-    ╭─[ error_constraint_annotations.brs:10:13 ]
+    ╭─[ error_constraint_annotations.bras:10:13 ]
     │
  10 │ def make(): Point<bool>
     │             ─────┬─────  
@@ -21,7 +21,7 @@ expression: rendered
     │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
-    ╭─[ error_constraint_annotations.brs:11:3 ]
+    ╭─[ error_constraint_annotations.bras:11:3 ]
     │
  11 │   Point { x: true }
     │   ─────────┬────────  
@@ -30,7 +30,7 @@ expression: rendered
     │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
-    ╭─[ error_constraint_annotations.brs:14:8 ]
+    ╭─[ error_constraint_annotations.bras:14:8 ]
     │
  14 │ let q: Point<bool> = Point { x: true }
     │        ─────┬─────  
@@ -39,7 +39,7 @@ expression: rendered
     │ Note: `bool` has no member `cmp` with a compatible signature
 ────╯
 [T027] Error: `bool` does not satisfy `Comparable`
-    ╭─[ error_constraint_annotations.brs:14:22 ]
+    ╭─[ error_constraint_annotations.bras:14:22 ]
     │
  14 │ let q: Point<bool> = Point { x: true }
     │                      ─────────┬────────  

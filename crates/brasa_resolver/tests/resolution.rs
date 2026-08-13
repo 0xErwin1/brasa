@@ -17,7 +17,7 @@ fn resolve_source(
     SourceMap,
 ) {
     let mut source_map = SourceMap::new();
-    let file = source_map.add_file(PathBuf::from(format!("{name}.brs")), source.to_string());
+    let file = source_map.add_file(PathBuf::from(format!("{name}.bras")), source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(
@@ -145,7 +145,7 @@ resolution_test!(
     imports_ctors_and_catch,
     r#"
 import std::fs
-import "./helpers.brs"
+import "./helpers.bras"
 
 enum Status
   Active(since: int)
@@ -452,7 +452,7 @@ let early = 1
 resolution_test!(
     file_import_missing_target_still_binds_stem,
     r#"
-import "./tools/missing.brs"
+import "./tools/missing.bras"
 
 def run(path: string): string
   missing.transform(path)

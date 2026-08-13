@@ -3,14 +3,14 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T006] Error: cannot call a value of type `string`
-    ╭─[ a_field_alone_does_not_provide_a_method.brs:15:6 ]
+    ╭─[ a_field_alone_does_not_provide_a_method.bras:15:6 ]
     │
  15 │ puts b.tag()
     │      ────┬───  
     │          ╰───── not callable
 ────╯
 [T027] Error: `Both` does not satisfy `Tagged`
-    ╭─[ a_field_alone_does_not_provide_a_method.brs:16:6 ]
+    ╭─[ a_field_alone_does_not_provide_a_method.bras:16:6 ]
     │
  16 │ puts describe(b)
     │      ──────┬─────  

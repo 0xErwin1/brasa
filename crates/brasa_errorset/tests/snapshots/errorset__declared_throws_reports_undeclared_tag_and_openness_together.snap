@@ -3,14 +3,14 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E004] Error: `callThrough` throws `DiskError` but does not declare it
-    ╭─[ declared_throws_reports_undeclared_tag_and_openness_together.brs:10:5 ]
+    ╭─[ declared_throws_reports_undeclared_tag_and_openness_together.bras:10:5 ]
     │
  10 │ def callThrough(f: () -> int): int throws NetError
     │     ─────┬─────  
     │          ╰─────── this function can throw `DiskError`
 ────╯
 [E004] Error: cannot verify `throws`: `callThrough`'s error-set is open
-    ╭─[ declared_throws_reports_undeclared_tag_and_openness_together.brs:10:5 ]
+    ╭─[ declared_throws_reports_undeclared_tag_and_openness_together.bras:10:5 ]
     │
  10 │ def callThrough(f: () -> int): int throws NetError
     │     ─────┬─────  

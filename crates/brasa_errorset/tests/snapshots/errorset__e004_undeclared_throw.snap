@@ -3,14 +3,14 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E004] Error: `fetch` throws `DnsError` but does not declare it
-    ╭─[ e004_undeclared_throw.brs:10:5 ]
+    ╭─[ e004_undeclared_throw.bras:10:5 ]
     │
  10 │ def fetch(mode: int): string throws NetError
     │     ──┬──  
     │       ╰──── this function can throw `DnsError`
 ────╯
 [E004] Error: `relay` throws `DnsError` but does not declare it
-    ╭─[ e004_undeclared_throw.brs:19:5 ]
+    ╭─[ e004_undeclared_throw.bras:19:5 ]
     │
  19 │ def relay(mode: int): string throws NetError
     │     ──┬──  

@@ -3,7 +3,7 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T028] Error: `?.` requires an `Option` receiver, found `int`
-   ╭─[ error_options_sugar.brs:8:11 ]
+   ╭─[ error_options_sugar.bras:8:11 ]
    │
  8 │   let w = 1?.len()
    │           ┬  
@@ -12,7 +12,7 @@ expression: rendered
    │ Note: `?.` unwraps an `Option` and propagates `None`
 ───╯
 [T029] Error: `??` requires an `Option` on its left side, found `int`
-   ╭─[ error_options_sugar.brs:9:11 ]
+   ╭─[ error_options_sugar.bras:9:11 ]
    │
  9 │   let x = 1 ?? 2
    │           ┬  
@@ -21,14 +21,14 @@ expression: rendered
    │ Note: `??` supplies a fallback for when an `Option` is `None`
 ───╯
 [T030] Error: `??` fallback has type `string`, but the `Option` carries `int`
-    ╭─[ error_options_sugar.brs:10:16 ]
+    ╭─[ error_options_sugar.bras:10:16 ]
     │
  10 │   let y = a ?? "fallback"
     │                ─────┬─────  
     │                     ╰─────── expected `int`
 ────╯
 [T030] Error: `??` fallback has type `Option<int>`, but the `Option` carries `int`
-    ╭─[ error_options_sugar.brs:11:16 ]
+    ╭─[ error_options_sugar.bras:11:16 ]
     │
  11 │   let z = a ?? b
     │                ┬  
@@ -37,7 +37,7 @@ expression: rendered
     │ Note: an `Option` right side only chains: add another `??` with a plain `int` fallback to end the chain
 ────╯
 [T022] Error: missing field `nickname` in struct literal of `User`
-    ╭─[ error_options_sugar.brs:12:11 ]
+    ╭─[ error_options_sugar.bras:12:11 ]
     │
  12 │   let u = User { name: "ana" }
     │           ──────────┬──────────  

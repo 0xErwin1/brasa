@@ -8,7 +8,7 @@ signatures are closed module by module during M4.
 ## Conventions
 
 - **The stdlib is native**: written in Rust and exposed as VM builtins.
-  There are no `.brs` stdlib files to parse on every startup;
+  There are no `.bras` stdlib files to parse on every startup;
   `Option` and `Json` are types known to the compiler. A thin Brasa layer
   might exist in the future, never on the startup path.
 - Errors via `throw`, named by their dotted module-qualified name
@@ -297,7 +297,7 @@ let r = proc.tryRun(["grep", "-q", pattern, file]) # -> Output, no NonZeroExit
 if r.code == 0 ...
 
 let counted = proc.run(["wc", "-l"], text)        # optional trailing stdin
-proc.shell("ls *.brs | wc -l")                    # via explicit /bin/sh
+proc.shell("ls *.bras | wc -l")                   # via explicit /bin/sh
 ```
 
 - **The argv-array form is the primary API**: `run(Vector<string>)` passes

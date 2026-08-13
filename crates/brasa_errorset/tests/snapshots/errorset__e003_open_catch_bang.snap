@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E003] Error: catch! cannot be verified: the subject's error-set is open
-   ╭─[ e003_open_catch_bang.brs:3:3 ]
+   ╭─[ e003_open_catch_bang.bras:3:3 ]
    │
  3 │ ╭─▶   f() catch! (e)
    ┆ ┆   

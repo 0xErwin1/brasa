@@ -63,10 +63,10 @@ Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
 - No MIR: HIR lowers directly to bytecode. Do not introduce an extra IR.
 - All sugar (`|>`, `?.`, `??`, `for`, interpolation, `+=`) desugars in the
   AST→HIR lowering, exactly once. Later phases handle core HIR only.
-- The stdlib is native Rust builtins. No `.brs` files on the startup path.
+- The stdlib is native Rust builtins. No `.bras` files on the startup path.
 - Diagnostics: phases return structured errors; only the CLI renders them.
 
-## Language conventions (Brasa code, `.brs` files and examples)
+## Language conventions (Brasa code, `.bras` files and examples)
 
 - `camelCase` for functions/methods/variables, `PascalCase` for types,
   `?` suffix for predicates. Keywords lowercase (`catch!` is a keyword).
@@ -77,4 +77,4 @@ Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
 - `cargo check` clean, idiomatic Rust, edition 2024.
 - English-only code, comments, and commit messages. Conventional Commits.
 - Tests: unit tests next to code, snapshot tests with `insta` in the
-  parser, `.brs` golden programs (from M1) under `tests/programs/`.
+  parser, `.bras` golden programs (from M1) under `tests/programs/`.

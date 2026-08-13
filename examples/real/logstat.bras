@@ -3,8 +3,8 @@
 # many bytes went out, the status-class mix, the busiest paths and
 # clients, and every endpoint that returned a server error.
 #
-#   brasa logstat.brs data/access.log
-#   cat /var/log/nginx/access.log | brasa logstat.brs
+#   brasa logstat.bras data/access.log
+#   cat /var/log/nginx/access.log | brasa logstat.bras
 
 import std::env
 import std::fs

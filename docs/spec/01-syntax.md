@@ -289,14 +289,14 @@ end
 ## Modules
 
 ```ruby
-# file: utils.brs
+# file: utils.bras
 pub def slugify(s: string): string ... end
 def helper() ... end                        # private to the module
 
-# file: main.brs
+# file: main.bras
 import std::fs                              # stdlib: `std::` prefix
-import "utils.brs"                          # file relative to the importer
-import "./sub/helpers.brs"
+import "utils.bras"                         # file relative to the importer
+import "./sub/helpers.bras"
 
 utils.slugify("Hello World")                # binding = last segment / file stem
 fs.read("data.txt")
@@ -306,13 +306,13 @@ fs.read("data.txt")
   enums, interfaces, top-level `let`).
 - Stdlib with `::` path: `import std::fs`, `import std::proc`. The binding
   in scope is the last segment (`fs`, `proc`).
-- File imports with a string: `import "foo.brs"`, `import "./foo/bar.brs"` —
+- File imports with a string: `import "foo.bras"`, `import "./foo/bar.bras"` —
   resolved relative to the importing file. The binding is the stem
-  (`bar.brs` → `bar`).
+  (`bar.bras` → `bar`).
 - **No selective import** (`import x.{y}` does not exist). All access is
   qualified: `utils.slugify(...)`.
-- **Import cycles are a compile error** (`a.brs` imports
-  `b.brs` which imports `a.brs`): top-level `let`s evaluate on
+- **Import cycles are a compile error** (`a.bras` imports
+  `b.bras` which imports `a.bras`): top-level `let`s evaluate on
   import and a cycle has no sound order.
 - Future (requires a project file): user-defined path aliases in
   `std::` style (e.g. `import lib::helpers`), and

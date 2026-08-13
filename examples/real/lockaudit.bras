@@ -4,8 +4,8 @@
 # pinned to a revision, and which ones are locked twice to the same
 # revision (a `follows` opportunity).
 #
-#   brasa lockaudit.brs           # audits the current directory
-#   brasa lockaudit.brs ~/dev
+#   brasa lockaudit.bras           # audits the current directory
+#   brasa lockaudit.bras ~/dev
 
 import std::env
 import std::fs

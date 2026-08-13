@@ -39,7 +39,7 @@ pub enum Outcome {
         message: String,
     },
     /// The output stream's read end closed mid-write (`EPIPE`, e.g.
-    /// `brasa script.brs | head`). Standard Unix tools treat this as a
+    /// `brasa script.bras | head`). Standard Unix tools treat this as a
     /// silent, successful exit, so the CLI reports nothing and exits 0.
     BrokenPipe,
     /// `env.exit(code)`: the script chose its own status. The CLI

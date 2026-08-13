@@ -24,7 +24,7 @@ FuncDef main()
         Field(eprint)
           Ident(io)
         StringLit
-          Text(raw=false) "usage: stars.brs <repos.json>\n"
+          Text(raw=false) "usage: stars.bras <repos.json>\n"
       Call
         Field(exit)
           Ident(env)

@@ -82,7 +82,7 @@ pub(crate) fn is_bare_ident_callee(ast: &brasa_ast::Ast, expr: ExprId) -> bool {
 /// states plainly that "parentheses are mandatory in calls... there is
 /// no call without parentheses". It is applied anyway (ruled: statement
 /// position only, see `Parser::maybe_apply_command_call` in `stmt.rs`)
-/// because every one of the bundled `examples/*.brs` fixtures (and every
+/// because every one of the bundled `examples/*.bras` fixtures (and every
 /// `puts ...` line in `docs/spec/01-syntax.md`) relies on exactly this
 /// shape and could not otherwise parse. Scoping it to statement position
 /// keeps `(...)` mandatory everywhere else: `let x = puts "a"` still

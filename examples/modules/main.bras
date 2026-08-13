@@ -1,6 +1,6 @@
 # File imports bind by stem; top-level runs first, then main().
 
-import "utils.brs"
+import "utils.bras"
 
 let banner = utils.shout("brasa modules")
 

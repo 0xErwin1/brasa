@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-/// Every `.brs` under `root`, recursively, as paths relative to it.
+/// Every `.bras` under `root`, recursively, as paths relative to it.
 ///
 /// Four rules, each of which was a defect before it was a rule:
 ///
@@ -31,7 +31,7 @@ use std::path::Path;
 ///   an example added as a symlink still counts. Refusing to follow
 ///   here would leave an unpinned example one `ln -s` away from
 ///   invisible, which is the condition these guards exist to prevent.
-/// - A `.brs` symlink that resolves to nothing is refused too. Skipping
+/// - A `.bras` symlink that resolves to nothing is refused too. Skipping
 ///   it would leave a name that looks like an example in `ls` and is
 ///   exercised by nothing, which is the invisibility the rule below was
 ///   made loud to prevent.
@@ -74,7 +74,7 @@ fn walk(dir: &Path, prefix: &str, found: &mut Vec<String>) {
 
         if kind.is_dir() {
             walk(&entry.path(), &format!("{prefix}{name}/"), found);
-        } else if name.ends_with(".brs") {
+        } else if name.ends_with(".bras") {
             assert!(
                 entry.path().is_file(),
                 "{prefix}{name} does not resolve to a file; it would look like an example \

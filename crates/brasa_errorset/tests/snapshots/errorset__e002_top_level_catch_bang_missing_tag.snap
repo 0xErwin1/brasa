@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E002] Error: catch! does not handle `ParseError`
-    ╭─[ e002_top_level_catch_bang_missing_tag.brs:19:12 ]
+    ╭─[ e002_top_level_catch_bang_missing_tag.bras:19:12 ]
     │
  19 │ ╭─▶ let page = risky(1) catch! (e)
     ┆ ┆   

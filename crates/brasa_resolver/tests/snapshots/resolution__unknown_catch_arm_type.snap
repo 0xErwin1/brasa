@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R003] Error: unknown type `ParseError`
-   ╭─[ unknown_catch_arm_type.brs:4:5 ]
+   ╭─[ unknown_catch_arm_type.bras:4:5 ]
    │
  4 │     ParseError => 0
    │     ─────┬────  

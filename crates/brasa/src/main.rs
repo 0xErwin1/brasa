@@ -1,4 +1,4 @@
-//! Brasa CLI: run a `.brs` script, or drop into tooling subcommands.
+//! Brasa CLI: run a `.bras` script, or drop into tooling subcommands.
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 

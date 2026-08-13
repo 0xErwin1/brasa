@@ -51,24 +51,24 @@ macro_rules! example_tests {
 }
 
 example_tests! {
-    example_errors => "errors.brs",
-    example_fib => "fib.brs",
-    example_fizzbuzz => "fizzbuzz.brs",
-    example_hello => "hello.brs",
-    example_modules_main => "modules/main.brs",
-    example_modules_utils => "modules/utils.brs",
-    example_pipeline => "pipeline.brs",
-    example_real_gitreport => "real/gitreport.brs",
-    example_real_lockaudit => "real/lockaudit.brs",
-    example_real_logstat => "real/logstat.brs",
-    example_shapes => "shapes.brs",
-    example_stars => "stars.brs",
-    example_strings => "strings.brs",
+    example_errors => "errors.bras",
+    example_fib => "fib.bras",
+    example_fizzbuzz => "fizzbuzz.bras",
+    example_hello => "hello.bras",
+    example_modules_main => "modules/main.bras",
+    example_modules_utils => "modules/utils.bras",
+    example_pipeline => "pipeline.bras",
+    example_real_gitreport => "real/gitreport.bras",
+    example_real_lockaudit => "real/lockaudit.bras",
+    example_real_logstat => "real/logstat.bras",
+    example_shapes => "shapes.bras",
+    example_stars => "stars.bras",
+    example_strings => "strings.bras",
 }
 
 /// The list above claims to be every example, so it is checked rather
 /// than trusted: the three `real/` scripts were missing from it, which
-/// is the same way `stars.brs` was left uncompiled for a whole
+/// is the same way `stars.bras` was left uncompiled for a whole
 /// milestone (BRS-63).
 #[test]
 fn every_example_is_snapshotted() {

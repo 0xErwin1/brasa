@@ -3,21 +3,21 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E001] Error: unreachable `catch` arm: `ParseError` is not in the error-set here
-    ╭─[ e001_unreachable_arms.brs:19:5 ]
+    ╭─[ e001_unreachable_arms.bras:19:5 ]
     │
  19 │     ParseError => "never thrown"
     │     ─────┬────  
     │          ╰────── this expression cannot throw `ParseError`
 ────╯
 [E001] Error: unreachable `catch` arm: `ParseError` is not in the error-set here
-    ╭─[ e001_unreachable_arms.brs:27:5 ]
+    ╭─[ e001_unreachable_arms.bras:27:5 ]
     │
  27 │     ParseError => "never thrown"
     │     ─────┬────  
     │          ╰────── this expression cannot throw `ParseError`
 ────╯
 [E001] Error: `_` is unreachable: every error is already handled
-    ╭─[ e001_unreachable_arms.brs:34:5 ]
+    ╭─[ e001_unreachable_arms.bras:34:5 ]
     │
  34 │     _ => "unreachable"
     │     ┬  

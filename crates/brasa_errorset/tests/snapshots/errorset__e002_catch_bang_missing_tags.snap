@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E002] Error: catch! does not handle `ParseError`
-    ╭─[ e002_catch_bang_missing_tags.brs:20:3 ]
+    ╭─[ e002_catch_bang_missing_tags.bras:20:3 ]
     │
  20 │ ╭─▶   risky(mode) catch! (e)
     ┆ ┆   
@@ -12,7 +12,7 @@ expression: rendered
     │ ╰─────────── add arms or `_`
 ────╯
 [E002] Error: catch! does not handle `NetError`
-    ╭─[ e002_catch_bang_missing_tags.brs:26:3 ]
+    ╭─[ e002_catch_bang_missing_tags.bras:26:3 ]
     │
  26 │ ╭─▶   risky(mode) catch! (e)
     ┆ ┆   

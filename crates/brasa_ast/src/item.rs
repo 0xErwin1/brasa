@@ -10,7 +10,7 @@ pub enum ImportPath {
     /// `import std::fs`: `["std", "fs"]`, in source order (the leading
     /// `std` segment is part of `std_path` itself, per the grammar).
     Std(Vec<String>),
-    /// `import "utils.brs"` / `import "./sub/helpers.brs"`, resolved
+    /// `import "utils.bras"` / `import "./sub/helpers.bras"`, resolved
     /// relative to the importing file.
     File(String),
 }

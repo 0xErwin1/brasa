@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E005] Error: `sneaky` declares `throws never` but can throw `MapError`
-    ╭─[ e005_throws_never_with_throwing_hof_lambda.brs:13:5 ]
+    ╭─[ e005_throws_never_with_throwing_hof_lambda.bras:13:5 ]
     │
  13 │ def sneaky(values: Vector<int>): Vector<int> throws never
     │     ───┬──  

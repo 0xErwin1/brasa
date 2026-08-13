@@ -519,7 +519,7 @@ Benchmark contract (M3 acceptance, epic BRS-4) — met, and recorded
 here as history. It required the tree-walker to stay in-tree as the
 reference interpreter, the full golden-program suite to run against
 both backends with byte-identical output, and a criterion harness over
-a shared set of `.brs` programs covering at least arithmetic loops,
+a shared set of `.bras` programs covering at least arithmetic loops,
 collection traversal, closure-heavy code, and catch-on-the-happy-path,
 with acceptance being a statistically significant VM speedup on every
 one. The walker was retired in BRS-108 once that gate had been passed;

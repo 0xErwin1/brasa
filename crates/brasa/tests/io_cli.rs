@@ -34,7 +34,7 @@ fn run_script(script: &Path, stdin: &[u8]) -> std::process::Output {
 fn run_cli(tag: &str, source: &str, stdin: &[u8]) -> (String, String, Option<i32>) {
     let dir = std::env::temp_dir().join(format!("brasa-io-cli-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
-    let script = dir.join("io.brs");
+    let script = dir.join("io.bras");
     std::fs::write(&script, source).expect("failed to write script");
 
     let run = run_script(&script, stdin);

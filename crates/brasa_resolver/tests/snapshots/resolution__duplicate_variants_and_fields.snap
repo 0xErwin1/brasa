@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R006] Error: duplicate definition of `Circle`
-   ╭─[ duplicate_variants_and_fields.brs:4:3 ]
+   ╭─[ duplicate_variants_and_fields.bras:4:3 ]
    │
  3 │   Circle(radius: float)
    │   ───┬──  
@@ -13,7 +13,7 @@ expression: rendered
    │      ╰──── redefined here
 ───╯
 [R006] Error: duplicate definition of `w`
-   ╭─[ duplicate_variants_and_fields.brs:5:18 ]
+   ╭─[ duplicate_variants_and_fields.bras:5:18 ]
    │
  5 │   Rect(w: float, w: float)
    │        ┬         ┬  
@@ -22,7 +22,7 @@ expression: rendered
    │                  ╰── redefined here
 ───╯
 [R006] Error: duplicate definition of `x`
-    ╭─[ duplicate_variants_and_fields.brs:11:3 ]
+    ╭─[ duplicate_variants_and_fields.bras:11:3 ]
     │
  10 │   x: int
     │   ┬  

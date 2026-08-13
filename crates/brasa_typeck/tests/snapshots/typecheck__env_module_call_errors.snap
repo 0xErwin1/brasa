@@ -3,21 +3,21 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T005] Error: wrong number of arguments: expected 1, found 0
-   ╭─[ env_module_call_errors.brs:4:1 ]
+   ╭─[ env_module_call_errors.bras:4:1 ]
    │
  4 │ env.get()
    │ ─────┬────  
    │      ╰────── expected 1 argument(s)
 ───╯
 [T001] Error: mismatched types: expected `string`, found `int`
-   ╭─[ env_module_call_errors.brs:5:14 ]
+   ╭─[ env_module_call_errors.bras:5:14 ]
    │
  5 │ env.set("A", 1)
    │              ┬  
    │              ╰── expected `string`
 ───╯
 [T007] Error: module `env` has no member `unknown`
-   ╭─[ env_module_call_errors.brs:6:1 ]
+   ╭─[ env_module_call_errors.bras:6:1 ]
    │
  6 │ env.unknown("x")
    │ ────────┬────────  

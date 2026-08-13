@@ -3,28 +3,28 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T004] Error: `T` does not support ordering with `>`
-    ╭─[ error_generics.brs:15:3 ]
+    ╭─[ error_generics.bras:15:3 ]
     │
  15 │   a > b
     │   ───┬──  
     │      ╰──── only `int`, `float`, `string`, `char`, and `Comparable` generics are ordered
 ────╯
 [T025] Error: interfaces cannot be used as types in v1; use a generic constraint
-    ╭─[ error_generics.brs:18:17 ]
+    ╭─[ error_generics.bras:18:17 ]
     │
  18 │ def describe(x: Printable): string
     │                 ────┬────  
     │                     ╰────── interfaces only constrain generics
 ────╯
 [T024] Error: wrong number of type arguments for `Box`: expected 0, found 1
-    ╭─[ error_generics.brs:22:15 ]
+    ╭─[ error_generics.bras:22:15 ]
     │
  22 │ def unwrap(b: Box<int>): int
     │               ────┬───  
     │                   ╰───── expected 0 type argument(s)
 ────╯
 [T007] Error: `T` is only known to satisfy `Comparable`; no method `shout`
-    ╭─[ error_generics.brs:27:3 ]
+    ╭─[ error_generics.bras:27:3 ]
     │
  27 │   value.shout()
     │   ───────┬──────  
@@ -33,7 +33,7 @@ expression: rendered
     │ Note: only the constraint's members and the universal `toString` are available on a generic value
 ────╯
 [T027] Error: `Box` does not satisfy `Comparable`
-    ╭─[ error_generics.brs:30:13 ]
+    ╭─[ error_generics.bras:30:13 ]
     │
  30 │ let clash = maxOf(Box { value: 1 }, Box { value: 2 })
     │             ─────────────────────┬────────────────────  
@@ -42,14 +42,14 @@ expression: rendered
     │ Note: `Box` has no member `cmp` with a compatible signature
 ────╯
 [T026] Error: cannot infer type parameter `T` of `emptyOf`
-    ╭─[ error_generics.brs:31:15 ]
+    ╭─[ error_generics.bras:31:15 ]
     │
  31 │ let nothing = emptyOf()
     │               ─────┬────  
     │                    ╰────── no argument determines it
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
-    ╭─[ error_generics.brs:32:25 ]
+    ╭─[ error_generics.bras:32:25 ]
     │
  32 │ let conflict = maxOf(1, "x")
     │                         ──┬─  

@@ -170,10 +170,10 @@ mod tests {
     fn add_file_interns_by_path() {
         let mut source_map = SourceMap::new();
 
-        let first = source_map.add_file("a.brs", "let x = 1".to_string());
-        let second = source_map.add_file("a.brs", "let x = 1".to_string());
+        let first = source_map.add_file("a.bras", "let x = 1".to_string());
+        let second = source_map.add_file("a.bras", "let x = 1".to_string());
 
         assert_eq!(first, second);
-        assert_eq!(source_map.lookup_by_path("a.brs"), Some(first));
+        assert_eq!(source_map.lookup_by_path("a.bras"), Some(first));
     }
 }

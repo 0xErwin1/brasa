@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R006] Error: duplicate definition of `n`
-   ╭─[ duplicate_definitions.brs:2:19 ]
+   ╭─[ duplicate_definitions.bras:2:19 ]
    │
  2 │ def twice(n: int, n: int): int
    │           ┬       ┬  
@@ -12,7 +12,7 @@ expression: rendered
    │                   ╰── redefined here
 ───╯
 [R006] Error: duplicate definition of `a`
-   ╭─[ duplicate_definitions.brs:4:3 ]
+   ╭─[ duplicate_definitions.bras:4:3 ]
    │
  3 │   let a = 1
    │   ─────┬────  
@@ -22,7 +22,7 @@ expression: rendered
    │        ╰────── redefined here
 ───╯
 [R006] Error: duplicate definition of `twice`
-   ╭─[ duplicate_definitions.brs:8:1 ]
+   ╭─[ duplicate_definitions.bras:8:1 ]
    │
  2 │ ╭───▶ def twice(n: int, n: int): int
    ┆ ┆     
@@ -36,7 +36,7 @@ expression: rendered
    │   ╰───────── redefined here
 ───╯
 [R006] Error: duplicate definition of `twice`
-    ╭─[ duplicate_definitions.brs:11:1 ]
+    ╭─[ duplicate_definitions.bras:11:1 ]
     │
   2 │ ╭─▶ def twice(n: int, n: int): int
     ┆ ┆   
@@ -49,7 +49,7 @@ expression: rendered
     │            ╰──────── redefined here
 ────╯
 [R006] Error: duplicate definition of `x`
-    ╭─[ duplicate_definitions.brs:18:10 ]
+    ╭─[ duplicate_definitions.bras:18:10 ]
     │
  18 │   Two(x, x) => puts x
     │       ┬  ┬  

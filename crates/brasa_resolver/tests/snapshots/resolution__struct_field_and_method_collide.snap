@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R006] Error: duplicate definition of `tag`
-   ╭─[ struct_field_and_method_collide.brs:5:7 ]
+   ╭─[ struct_field_and_method_collide.bras:5:7 ]
    │
  3 │   tag: () -> string
    │   ─┬─  
@@ -14,7 +14,7 @@ expression: rendered
    │        ╰─── redefined here
 ───╯
 [R006] Error: duplicate definition of `name`
-    ╭─[ struct_field_and_method_collide.brs:15:3 ]
+    ╭─[ struct_field_and_method_collide.bras:15:3 ]
     │
  11 │   def name(self): string
     │       ──┬─  

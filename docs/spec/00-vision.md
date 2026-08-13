@@ -5,8 +5,16 @@ Ruby-inspired syntax, and a bytecode VM with GC implemented in Rust.
 Goal: replace Python and bash in ~90% of scripting use cases: text
 manipulation, command invocation, files, JSON, automation.
 
-Extension: `.brs`. Execution: `brasa script.brs` or shebang
+Extension: `.bras`. Execution: `brasa script.bras` or shebang
 `#!/usr/bin/env brasa`. A standalone file runs without a project or manifest.
+
+It was `.brs` until M6, and the reason for the change is worth keeping:
+`.brs` is BrightScript's, so editors, linguist, and syntax-highlighting
+registries already claim it. Sharing an extension with an unrelated
+language means a Brasa file opens as BrightScript in a stock editor and
+a repository reports the wrong language — a problem no amount of
+tooling on this side can fix, and one that only gets more expensive to
+undo the longer the extension is in the wild.
 
 ## Principles
 
@@ -38,7 +46,7 @@ Extension: `.brs`. Execution: `brasa script.brs` or shebang
 | Generics | Monomorphization not required in v1 (dynamic VM under static types); structural constraints, no unions |
 | OOP | No inheritance or classes; structs + methods + structural interfaces |
 | Errors | Throw values, error-set inference, catch-match |
-| Modules | One file = one module; `import std::fs` (stdlib), `import "./foo.brs"` (files); no selective import; explicit `pub` |
+| Modules | One file = one module; `import std::fs` (stdlib), `import "./foo.bras"` (files); no selective import; explicit `pub` |
 | Stdlib | Native in Rust (VM builtins); never written in Brasa on the startup path |
 | Concurrency | Out of v1; future design oriented toward a multi-threaded event loop |
 

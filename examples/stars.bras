@@ -1,7 +1,7 @@
 #!/usr/bin/env brasa
 # The core scripting loop: read a file, walk JSON, shell out.
 #
-#   brasa examples/stars.brs examples/data/repos.json
+#   brasa examples/stars.bras examples/data/repos.json
 
 import std::env
 import std::fs
@@ -16,7 +16,7 @@ import std::proc
 def main()
   let args = env.args()
   if args.len() == 0
-    io.eprint("usage: stars.brs <repos.json>\n")
+    io.eprint("usage: stars.bras <repos.json>\n")
     env.exit(2)
   end
   let file = args[0]

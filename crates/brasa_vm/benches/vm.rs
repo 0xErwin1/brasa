@@ -33,7 +33,7 @@ fn frontend(
     brasa_typeck::TypeckResult,
 ) {
     let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file("bench.brs", source.to_string());
+    let file = sources.add_file("bench.bras", source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -92,12 +92,12 @@ fn run_vm(compiled: &Compiled) -> brasa_vm::Outcome {
 /// loops, collection traversal, closure-heavy code, catch on the happy
 /// path, call-heavy recursion, and string building.
 const PROGRAMS: &[(&str, &str)] = &[
-    ("arith_loop", include_str!("programs/arith.brs")),
-    ("collections", include_str!("programs/collections.brs")),
-    ("closures", include_str!("programs/closures.brs")),
-    ("catch_happy", include_str!("programs/catch_happy.brs")),
-    ("fib", include_str!("programs/fib.brs")),
-    ("strings", include_str!("programs/strings.brs")),
+    ("arith_loop", include_str!("programs/arith.bras")),
+    ("collections", include_str!("programs/collections.bras")),
+    ("closures", include_str!("programs/closures.bras")),
+    ("catch_happy", include_str!("programs/catch_happy.bras")),
+    ("fib", include_str!("programs/fib.bras")),
+    ("strings", include_str!("programs/strings.bras")),
 ];
 
 fn program_benches(criterion: &mut Criterion) {
@@ -113,8 +113,8 @@ fn program_benches(criterion: &mut Criterion) {
 /// Handler tables must make a never-taken `catch` free: the same loop
 /// with and without the `catch`, both on the VM.
 fn catch_overhead(criterion: &mut Criterion) {
-    let with_catch = compile(include_str!("programs/catch_happy.brs"));
-    let without_catch = compile(include_str!("programs/catch_free.brs"));
+    let with_catch = compile(include_str!("programs/catch_happy.bras"));
+    let without_catch = compile(include_str!("programs/catch_free.bras"));
 
     let mut group = criterion.benchmark_group("catch_overhead_vm");
     group.bench_function("catch", |b| b.iter(|| run_vm(&with_catch)));
@@ -123,7 +123,7 @@ fn catch_overhead(criterion: &mut Criterion) {
 }
 
 fn cold_start(criterion: &mut Criterion) {
-    let source = include_str!("programs/cold_start.brs");
+    let source = include_str!("programs/cold_start.bras");
 
     let mut group = criterion.benchmark_group("cold_start");
     group.bench_function("frontend_only", |b| b.iter(|| frontend(source)));

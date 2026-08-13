@@ -3,14 +3,14 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T001] Error: mismatched types: expected `int`, found `string`
-   ╭─[ error_let_and_assign.brs:6:16 ]
+   ╭─[ error_let_and_assign.bras:6:16 ]
    │
  6 │   let n: int = "no"
    │                ──┬──  
    │                  ╰──── expected `int`
 ───╯
 [T009] Error: cannot assign to immutable binding `s`
-   ╭─[ error_let_and_assign.brs:8:3 ]
+   ╭─[ error_let_and_assign.bras:8:3 ]
    │
  7 │   let s = "hi"
    │   ──────┬──────  
@@ -22,21 +22,21 @@ expression: rendered
    │ Note: declare it with `let mut` to allow reassignment
 ───╯
 [T001] Error: mismatched types: expected `int`, found `string`
-    ╭─[ error_let_and_assign.brs:10:7 ]
+    ╭─[ error_let_and_assign.bras:10:7 ]
     │
  10 │   m = "one"
     │       ───┬──  
     │          ╰──── expected `int`
 ────╯
 [T001] Error: mismatched types: expected `int`, found `bool`
-    ╭─[ error_let_and_assign.brs:11:13 ]
+    ╭─[ error_let_and_assign.bras:11:13 ]
     │
  11 │   counter = false
     │             ──┬──  
     │               ╰──── expected `int`
 ────╯
 [T009] Error: cannot assign to immutable binding `top`
-    ╭─[ error_let_and_assign.brs:12:3 ]
+    ╭─[ error_let_and_assign.bras:12:3 ]
     │
   2 │ let top = 1
     │ ──────┬─────  
@@ -49,14 +49,14 @@ expression: rendered
     │ Note: declare it with `let mut` to allow reassignment
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
-    ╭─[ error_let_and_assign.brs:13:10 ]
+    ╭─[ error_let_and_assign.bras:13:10 ]
     │
  13 │   return "text"
     │          ───┬───  
     │             ╰───── expected `int`
 ────╯
 [T019] Error: `return` outside a function
-    ╭─[ error_let_and_assign.brs:16:1 ]
+    ╭─[ error_let_and_assign.bras:16:1 ]
     │
  16 │ return 5
     │ ────┬────  

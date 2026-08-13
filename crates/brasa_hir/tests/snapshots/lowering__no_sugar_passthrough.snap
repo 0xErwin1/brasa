@@ -3,7 +3,7 @@ source: crates/brasa_hir/tests/lowering.rs
 expression: dump
 ---
 Import::Std(std::fs)
-Import::File("utils.brs")
+Import::File("utils.bras")
 InterfaceDef Printable
   def describe(self)
 EnumDef Shape

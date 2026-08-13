@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E001] Error: unreachable `catch` arm: `string.ParseError` is not in the error-set here
-   ╭─[ e001_unreachable_native_arm.brs:4:5 ]
+   ╭─[ e001_unreachable_native_arm.bras:4:5 ]
    │
  4 │     string.ParseError => -1
    │     ────────┬────────  

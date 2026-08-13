@@ -3,49 +3,49 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T001] Error: mismatched types: expected `string`, found `int`
-   ╭─[ json_and_io_module_call_errors.brs:5:12 ]
+   ╭─[ json_and_io_module_call_errors.bras:5:12 ]
    │
  5 │ json.parse(42)
    │            ─┬  
    │             ╰── expected `string`
 ───╯
 [T001] Error: mismatched types: expected `Json`, found `string`
-   ╭─[ json_and_io_module_call_errors.brs:6:16 ]
+   ╭─[ json_and_io_module_call_errors.bras:6:16 ]
    │
  6 │ json.stringify("not json")
    │                ─────┬─────  
    │                     ╰─────── expected `Json`
 ───╯
 [T007] Error: module `json` has no member `decode`
-   ╭─[ json_and_io_module_call_errors.brs:7:1 ]
+   ╭─[ json_and_io_module_call_errors.bras:7:1 ]
    │
  7 │ json.decode("typed bridge is v2")
    │ ─────────────────┬────────────────  
    │                  ╰────────────────── unknown member
 ───╯
 [T005] Error: wrong number of arguments: expected 0, found 1
-   ╭─[ json_and_io_module_call_errors.brs:8:1 ]
+   ╭─[ json_and_io_module_call_errors.bras:8:1 ]
    │
  8 │ io.readLine("no args")
    │ ───────────┬───────────  
    │            ╰───────────── expected 0 argument(s)
 ───╯
 [T007] Error: module `io` has no member `nope`
-   ╭─[ json_and_io_module_call_errors.brs:9:1 ]
+   ╭─[ json_and_io_module_call_errors.bras:9:1 ]
    │
  9 │ io.nope()
    │ ─────┬────  
    │      ╰────── unknown member
 ───╯
 [T001] Error: mismatched types: expected `string` or `int`, found `bool`
-    ╭─[ json_and_io_module_call_errors.brs:12:6 ]
+    ╭─[ json_and_io_module_call_errors.bras:12:6 ]
     │
  12 │ data[true]
     │      ──┬─  
     │        ╰─── expected `string` or `int`
 ────╯
 [T007] Error: no method `asChar` on `Json`
-    ╭─[ json_and_io_module_call_errors.brs:13:1 ]
+    ╭─[ json_and_io_module_call_errors.bras:13:1 ]
     │
  13 │ data.asChar()
     │ ───────┬──────  

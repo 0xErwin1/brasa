@@ -3,14 +3,14 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T007] Error: struct `ParseError` has no field or method `line`
-    ╭─[ error_catch_narrowing.brs:11:17 ]
+    ╭─[ error_catch_narrowing.bras:11:17 ]
     │
  11 │   ParseError => e.line
     │                 ───┬───  
     │                    ╰───── unknown member
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
-    ╭─[ error_catch_narrowing.brs:12:8 ]
+    ╭─[ error_catch_narrowing.bras:12:8 ]
     │
  12 │   _ => "not an int"
     │        ──────┬──────  

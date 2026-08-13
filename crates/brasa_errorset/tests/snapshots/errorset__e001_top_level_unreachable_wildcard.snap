@@ -3,7 +3,7 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E001] Error: `_` is unreachable: every error is already handled
-    ╭─[ e001_top_level_unreachable_wildcard.brs:15:3 ]
+    ╭─[ e001_top_level_unreachable_wildcard.bras:15:3 ]
     │
  15 │   _ => "unreachable"
     │   ┬  

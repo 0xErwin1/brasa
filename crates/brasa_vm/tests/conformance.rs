@@ -44,7 +44,7 @@ struct Run {
 /// CLI can reject a program on must be able to reject it here too.
 fn compile_frontend(source: &str) -> Frontend {
     let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file("parity.brs", source.to_string());
+    let file = sources.add_file("parity.bras", source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -2920,7 +2920,7 @@ fn fs_walk_prunes_subtrees_by_directory_name() {
     std::fs::write(tmp.join(".git/config"), "x").expect("fixture written");
     std::fs::write(tmp.join(".git/objects/ab/deadbeef"), "y").expect("fixture written");
     std::fs::write(tmp.join("node_modules/left-pad/index.js"), "z").expect("fixture written");
-    std::fs::write(tmp.join("src/main.brs"), "s").expect("fixture written");
+    std::fs::write(tmp.join("src/main.bras"), "s").expect("fixture written");
     std::fs::write(tmp.join("README.md"), "r").expect("fixture written");
 
     let t = tmp.display();
@@ -2942,7 +2942,7 @@ puts(fs.walk(root, ["README.md"]).len())
 puts(fs.walk(root, [fs.base(root)]).len())
 "##
         ),
-        "2\nREADME.md\nmain.brs\ntrue\n5\n5\n",
+        "2\nREADME.md\nmain.bras\ntrue\n5\n5\n",
     );
 
     let _ = std::fs::remove_dir_all(&tmp);

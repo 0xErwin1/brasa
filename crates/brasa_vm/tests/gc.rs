@@ -16,7 +16,7 @@ const TINY_GC_THRESHOLD: usize = 8;
 /// stdout; returns the run statistics.
 fn run_hot_gc(source: &str, expected_stdout: &str) -> RunStats {
     let mut sources = brasa_source::SourceMap::new();
-    let file = sources.add_file("gc.brs", source.to_string());
+    let file = sources.add_file("gc.bras", source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

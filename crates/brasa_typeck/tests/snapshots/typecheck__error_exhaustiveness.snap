@@ -3,7 +3,7 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T017] Error: non-exhaustive match: `Rect(_, _)` and `Dot` are not covered
-    ╭─[ error_exhaustiveness.brs:17:3 ]
+    ╭─[ error_exhaustiveness.bras:17:3 ]
     │
  17 │ ╭─▶   match shape
     ┆ ┆   
@@ -12,7 +12,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `None` is not covered
-    ╭─[ error_exhaustiveness.brs:23:3 ]
+    ╭─[ error_exhaustiveness.bras:23:3 ]
     │
  23 │ ╭─▶   match o
     ┆ ┆   
@@ -21,7 +21,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `false` is not covered
-    ╭─[ error_exhaustiveness.brs:29:3 ]
+    ╭─[ error_exhaustiveness.bras:29:3 ]
     │
  29 │ ╭─▶   match b
     ┆ ┆   
@@ -30,7 +30,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `(true, None)` is not covered
-    ╭─[ error_exhaustiveness.brs:35:3 ]
+    ╭─[ error_exhaustiveness.bras:35:3 ]
     │
  35 │ ╭─▶   match pair
     ┆ ┆   
@@ -39,7 +39,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `_` is not covered
-    ╭─[ error_exhaustiveness.brs:42:3 ]
+    ╭─[ error_exhaustiveness.bras:42:3 ]
     │
  42 │ ╭─▶   match n
     ┆ ┆   
@@ -48,7 +48,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `Circle(_)` is not covered
-    ╭─[ error_exhaustiveness.brs:49:3 ]
+    ╭─[ error_exhaustiveness.bras:49:3 ]
     │
  49 │ ╭─▶   match shape
     ┆ ┆   
@@ -57,7 +57,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `E`, `S`, `W`, and 1 more are not covered
-    ╭─[ error_exhaustiveness.brs:57:3 ]
+    ╭─[ error_exhaustiveness.bras:57:3 ]
     │
  57 │ ╭─▶   match c
     ┆ ┆   
@@ -66,7 +66,7 @@ expression: rendered
     │ ╰─────────── add arms for the missing cases or a `_` arm
 ────╯
 [T017] Error: non-exhaustive match: `_` is not covered
-    ╭─[ error_exhaustiveness.brs:63:3 ]
+    ╭─[ error_exhaustiveness.bras:63:3 ]
     │
  63 │ ╭─▶   match value
     ┆ ┆   

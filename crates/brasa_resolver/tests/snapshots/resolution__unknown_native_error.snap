@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R012] Error: unknown stdlib error `string.Nope`
-   ╭─[ unknown_native_error.brs:4:5 ]
+   ╭─[ unknown_native_error.bras:4:5 ]
    │
  4 │     string.Nope => 0
    │     ─────┬─────  

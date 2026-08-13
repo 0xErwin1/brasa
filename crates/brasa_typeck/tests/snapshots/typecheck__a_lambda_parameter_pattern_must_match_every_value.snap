@@ -3,14 +3,14 @@ source: crates/brasa_typeck/tests/typecheck.rs
 expression: rendered
 ---
 [T017] Error: this lambda parameter does not match every value: `(None, _)` is not covered
-   ╭─[ a_lambda_parameter_pattern_must_match_every_value.brs:7:26 ]
+   ╭─[ a_lambda_parameter_pattern_must_match_every_value.bras:7:26 ]
    │
  7 │ let bad = refutable.map(|(Some(a), b)| a + b)
    │                          ──────┬─────  
    │                                ╰─────── bind the parameter by name and `match` on it instead
 ───╯
 [T018] Error: tuple pattern does not match type `P`
-    ╭─[ a_lambda_parameter_pattern_must_match_every_value.brs:10:26 ]
+    ╭─[ a_lambda_parameter_pattern_must_match_every_value.bras:10:26 ]
     │
  10 │ let wrong = structs.map(|(a, b)| a)
     │                          ───┬──  

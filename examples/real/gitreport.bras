@@ -3,8 +3,8 @@
 # types are waiting since the last tag, which of them are breaking,
 # whether the target tag is still free, and whether the worktree is clean.
 #
-#   brasa gitreport.brs           # defaults to the v0.1.0 tag
-#   brasa gitreport.brs v0.2.0
+#   brasa gitreport.bras           # defaults to the v0.1.0 tag
+#   brasa gitreport.bras v0.2.0
 
 import std::env
 import std::fs

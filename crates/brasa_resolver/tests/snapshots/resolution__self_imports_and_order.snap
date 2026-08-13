@@ -3,7 +3,7 @@ source: crates/brasa_resolver/tests/resolution.rs
 expression: rendered
 ---
 [R009] Error: unknown std module `teleport`
-   ╭─[ self_imports_and_order.brs:2:1 ]
+   ╭─[ self_imports_and_order.bras:2:1 ]
    │
  2 │ import std::teleport
    │ ──────────┬──────────  
@@ -12,7 +12,7 @@ expression: rendered
    │ Note: known std modules: env, fs, io, json, math, proc, rand, time
 ───╯
 [R007] Error: `self` outside a method
-   ╭─[ self_imports_and_order.brs:5:3 ]
+   ╭─[ self_imports_and_order.bras:5:3 ]
    │
  5 │   self.x
    │   ──┬─  
@@ -21,7 +21,7 @@ expression: rendered
    │ Note: `self` is only valid inside a method taking a `self` parameter
 ───╯
 [R002] Error: `early` is used before its definition
-   ╭─[ self_imports_and_order.brs:8:6 ]
+   ╭─[ self_imports_and_order.bras:8:6 ]
    │
  8 │ puts early
    │      ──┬──  

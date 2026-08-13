@@ -2,7 +2,7 @@
 source: crates/brasa_parser/tests/examples.rs
 expression: dump
 ---
-Import::File("utils.brs")
+Import::File("utils.bras")
 Let banner
   Call
     Field(shout)

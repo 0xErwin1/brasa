@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 fn compile_source(name: &str, source: &str) -> String {
     let mut source_map = brasa_source::SourceMap::new();
-    let file = source_map.add_file(PathBuf::from(format!("{name}.brs")), source.to_string());
+    let file = source_map.add_file(PathBuf::from(format!("{name}.bras")), source.to_string());
 
     let parsed = brasa_parser::parse(source, file);
     assert!(

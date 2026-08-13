@@ -1,4 +1,4 @@
-//! Golden `.brs` program suite, run through the CLI.
+//! Golden `.bras` program suite, run through the CLI.
 //!
 //! Success programs under `tests/programs/` pin their exact stdout in a
 //! sibling `.out` file; failure programs assert the exit code and
@@ -43,7 +43,7 @@ fn assert_golden(name: &str) {
     let expected = std::fs::read_to_string(program_path(&format!("{name}.out")))
         .expect("missing expected-output file");
 
-    let output = run_program(&program_path(&format!("{name}.brs")));
+    let output = run_program(&program_path(&format!("{name}.bras")));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
@@ -103,7 +103,7 @@ fn golden_errors() {
 
 #[test]
 fn uncaught_throw_exits_70_with_the_error_message() {
-    let output = run_program(&program_path("throw_uncaught.brs"));
+    let output = run_program(&program_path("throw_uncaught.bras"));
 
     assert_eq!(output.status.code(), Some(70));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
@@ -120,7 +120,7 @@ fn uncaught_throw_exits_70_with_the_error_message() {
 /// itself wrote.
 #[test]
 fn env_exit_sets_the_status_without_a_runtime_banner() {
-    let output = run_program(&program_path("exit_status.brs"));
+    let output = run_program(&program_path("exit_status.bras"));
 
     assert_eq!(output.status.code(), Some(4));
     assert_eq!(
@@ -136,7 +136,7 @@ fn env_exit_sets_the_status_without_a_runtime_banner() {
 
 #[test]
 fn uncaught_panic_exits_70_with_type_and_call_chain() {
-    let output = run_program(&program_path("panic_uncaught.brs"));
+    let output = run_program(&program_path("panic_uncaught.bras"));
 
     assert_eq!(output.status.code(), Some(70));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "start\n");
@@ -155,7 +155,7 @@ fn uncaught_panic_exits_70_with_type_and_call_chain() {
 fn check_flag_stops_after_typeck_without_output() {
     let output = Command::new(env!("CARGO_BIN_EXE_brasa"))
         .arg("--check")
-        .arg(example_path("hello.brs"))
+        .arg(example_path("hello.bras"))
         .output()
         .expect("failed to run brasa");
 
@@ -168,7 +168,7 @@ fn check_flag_stops_after_typeck_without_output() {
 fn dump_bytecode_compiles_a_golden_program() {
     let output = Command::new(env!("CARGO_BIN_EXE_brasa"))
         .arg("--dump-bytecode")
-        .arg(program_path("basics.brs"))
+        .arg(program_path("basics.bras"))
         .output()
         .expect("failed to run brasa");
 
@@ -185,7 +185,7 @@ fn dump_bytecode_compiles_a_golden_program() {
 
 #[test]
 fn example_hello() {
-    assert_example("hello.brs", "hello, world!\n1 + 1 = 2\n");
+    assert_example("hello.bras", "hello, world!\n1 + 1 = 2\n");
 }
 
 #[test]
@@ -204,7 +204,7 @@ fib(9) = 34
 fib(10) = 55
 iterative fib(40) = 102334155
 ";
-    assert_example("fib.brs", expected);
+    assert_example("fib.bras", expected);
 }
 
 #[test]
@@ -231,7 +231,7 @@ Fizz
 19
 Buzz
 ";
-    assert_example("fizzbuzz.brs", expected);
+    assert_example("fizzbuzz.bras", expected);
 }
 
 #[test]
@@ -245,7 +245,7 @@ brasa is warm
 ignis is hot
 dbflux is warm
 ";
-    assert_example("pipeline.brs", expected);
+    assert_example("pipeline.bras", expected);
 }
 
 #[test]
@@ -268,7 +268,7 @@ d
 ú
 parsed: -1
 ";
-    assert_example("strings.brs", expected);
+    assert_example("strings.bras", expected);
 }
 
 #[test]
@@ -278,7 +278,7 @@ recovered: timeout
 parsed: 42
 out of range gives 0
 ";
-    assert_example("errors.brs", expected);
+    assert_example("errors.bras", expected);
 }
 
 #[test]
@@ -310,7 +310,7 @@ server errors by endpoint:
      1  GET /health
 ";
     assert_example_args(
-        "real/logstat.brs",
+        "real/logstat.bras",
         &[example_path("real/data/access.log")],
         expected,
     );
@@ -335,13 +335,13 @@ flake.lock  (lock version 7, 4 direct inputs, 5 locked nodes, 1 follows edge)
     a1b2c3d  helpers nixpkgs
 ";
     assert_example_args(
-        "real/lockaudit.brs",
+        "real/lockaudit.bras",
         &[example_path("real/data/lockfixture")],
         expected,
     );
 }
 
-/// `gitreport.brs` reports on the live repository, so its counts move
+/// `gitreport.bras` reports on the live repository, so its counts move
 /// with every commit and cannot be pinned. What IS deterministic is the
 /// shape: the script always exits 0 and produces exactly one of two
 /// well-formed outputs — the report skeleton on stdout, or the refusal
@@ -362,7 +362,7 @@ fn example_real_gitreport() {
             .to_string_lossy()
     );
 
-    let output = run_program(&example_path("real/gitreport.brs"));
+    let output = run_program(&example_path("real/gitreport.bras"));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -403,7 +403,7 @@ dot: area 0.0
 biggest is a circle
 distance: 5.0
 ";
-    assert_example("shapes.brs", expected);
+    assert_example("shapes.bras", expected);
 }
 
 /// Pinned whole, `wc` line included — the trailing path too, since this
@@ -434,7 +434,7 @@ toolbelt: 337
 
     let fixture = example_path("data/repos.json");
     let expected = format!("{expected_repos}12 lines read from {}\n", fixture.display());
-    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
+    let output = run_program_args(&example_path("stars.bras"), std::slice::from_ref(&fixture));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -453,7 +453,7 @@ toolbelt: 337
 /// whose `None` has two sources: an absent `repos` key, and a `repos`
 /// that is present but not an array. Both are driven, each against its
 /// own small fixture rather than a document borrowed from another test
-/// — a borrowed one being renamed would fail this as `stars.brs`
+/// — a borrowed one being renamed would fail this as `stars.bras`
 /// exiting 70, which reads as a stars regression.
 ///
 /// The field-level fallbacks are already pinned by `example_stars`,
@@ -462,7 +462,7 @@ toolbelt: 337
 #[test]
 fn example_stars_reads_a_document_without_repos() {
     let fixture = example_path("data/no-repos.json");
-    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
+    let output = run_program_args(&example_path("stars.bras"), std::slice::from_ref(&fixture));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
@@ -478,7 +478,7 @@ fn example_stars_reads_a_document_without_repos() {
     // exactly as it does for an absent key, which is what the example's
     // own comment claims and what this fixture is for.
     let fixture = example_path("data/repos-scalar.json");
-    let output = run_program_args(&example_path("stars.brs"), std::slice::from_ref(&fixture));
+    let output = run_program_args(&example_path("stars.bras"), std::slice::from_ref(&fixture));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
@@ -497,17 +497,17 @@ fn example_stars_reads_a_document_without_repos() {
 /// alongside the happy one.
 #[test]
 fn example_stars_reports_bad_input() {
-    let no_args = run_program(&example_path("stars.brs"));
+    let no_args = run_program(&example_path("stars.bras"));
     assert_eq!(no_args.status.code(), Some(2), "expected a refusal");
     assert_eq!(
         String::from_utf8_lossy(&no_args.stderr),
-        "usage: stars.brs <repos.json>\n",
+        "usage: stars.bras <repos.json>\n",
         "unexpected refusal"
     );
     assert!(no_args.stdout.is_empty(), "expected no stdout");
 
     let missing = run_program_args(
-        &example_path("stars.brs"),
+        &example_path("stars.bras"),
         std::slice::from_ref(&example_path("data/does-not-exist.json")),
     );
     assert_eq!(missing.status.code(), Some(70), "expected a failure");
@@ -520,11 +520,11 @@ fn example_stars_reports_bad_input() {
 
     // A file that certainly exists and certainly is not JSON, so no
     // fixture has to exist only in order to be broken. Deliberately
-    // not another `.brs`: `every_example_is_pinned` counts any
+    // not another `.bras`: `every_example_is_pinned` counts any
     // quoted example name in this file, so naming one as an INPUT
     // here would stand in for pinning it.
     let not_json = run_program_args(
-        &example_path("stars.brs"),
+        &example_path("stars.bras"),
         std::slice::from_ref(&example_path("README.md")),
     );
     assert_eq!(not_json.status.code(), Some(70), "expected a failure");
@@ -543,7 +543,7 @@ fn example_stars_reports_bad_input() {
 /// it loads clean and stays silent.
 #[test]
 fn example_modules_utils() {
-    assert_example("modules/utils.brs", "");
+    assert_example("modules/utils.bras", "");
 }
 
 /// Pinned as the failure it is. File-import module loading does not
@@ -553,7 +553,7 @@ fn example_modules_utils() {
 /// what to replace it with.
 #[test]
 fn example_modules_main_is_not_runnable_yet() {
-    let output = run_program(&example_path("modules/main.brs"));
+    let output = run_program(&example_path("modules/main.bras"));
 
     assert_eq!(
         output.status.code(),
@@ -567,7 +567,7 @@ fn example_modules_main_is_not_runnable_yet() {
     );
 }
 
-/// Every `.brs` under `examples/` must be exercised by a test in this
+/// Every `.bras` under `examples/` must be exercised by a test in this
 /// file.
 ///
 /// The set of exercised examples is read out of this file's own CODE
@@ -577,7 +577,7 @@ fn example_modules_main_is_not_runnable_yet() {
 /// the guard is to write the test. It is not airtight — dead code
 /// naming the file would pass — but the cheap routes are closed.
 ///
-/// This is the finding, not the fixture: `stars.brs` stopped compiling
+/// This is the finding, not the fixture: `stars.bras` stopped compiling
 /// when the stdlib it previewed landed for real, three separate work
 /// units reported it independently, and CI never noticed because
 /// nothing ran it. An unpinned example rots silently and is read as
@@ -611,7 +611,7 @@ fn every_example_is_pinned() {
 /// example in a comment cannot stand in for exercising it.
 ///
 /// Both forms means both: a block, and a line comment wherever it
-/// starts — a trailing `// pin "orphan.brs" later` is the cheapest
+/// starts — a trailing `// pin "orphan.bras" later` is the cheapest
 /// route of all, and dropping only whole comment lines would leave it
 /// open.
 fn uncommented_source() -> String {
