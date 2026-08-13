@@ -325,16 +325,23 @@ VM collects with mark & sweep. Design, as implemented:
   is the only thing holding it.
 - **Trigger and pause behavior**: two conditions, both required, tested
   at every instruction boundary, nested dispatch loops included. The
-  live arena count must reach a threshold (default 1024, and
-  `max(initial, 2 × live)` after each collection), and the allocation
-  since the last collection must reach a marking allowance of
-  `max(initial, (roots + surviving cells) / 4)`. Nested loops are not
+  measure is **bytes, not objects** — a threshold counting cells
+  collects constantly under many small values and never under a few
+  huge ones. Live bytes must reach a budget (default 1 MiB, and
+  `max(initial, 2 × live bytes)` after each collection), and the bytes
+  allocated since the last collection must reach a marking allowance of
+  `max(initial, (root slots × sizeof(value) + surviving bytes) / 4)`.
+  A container's growth after allocation is charged to both, so a vector
+  built by `push` is not accounted as free; drift is bounded to one
+  cycle either way, because a collection re-measures the whole live set
+  exactly. Nested loops are not
   exempt from the boundary: a long-running callback never reaches a
   top-level one, so exempting them would make a builtin traversal hold
   the whole run's garbage. The allowance is what keeps that affordable —
   marking costs one visit per reachable value, and a traversal parks the
-  whole receiver as roots, so the live threshold alone would re-trace it
-  every 1024 allocations, quadratic in the receiver's length. The
+  whole receiver as roots, so the live budget alone would re-trace it
+  every budget's worth of allocation, quadratic in the receiver's
+  length. The
   allowance is measured against live data only, never against the
   garbage it permitted. Once the native root stack is empty again the
   allowance is lowered to the arena's own measure, if that is lower —

@@ -12,8 +12,8 @@
 //! catches divergence between two things written from the same
 //! misunderstanding, and demands the work twice.
 //!
-//! Each program still runs TWICE — once at the default allocation
-//! threshold and once at a pathologically low one, with both required
+//! Each program still runs TWICE — once at the default heap budget
+//! and once at a pathologically low one, with both required
 //! to produce identical observable behavior. That leg outlived its
 //! original purpose: it is the only automated defense the collector
 //! has.
@@ -123,14 +123,15 @@ fn assert_parity_io(source: &str, max_depth: usize, args: &[String], stdin: &[u8
     let run = run_vm(
         &front,
         max_depth,
-        brasa_vm::DEFAULT_GC_THRESHOLD,
+        brasa_vm::DEFAULT_GC_BUDGET_BYTES,
         args,
         stdin,
     );
 
-    // Hot-GC leg (BRS-30): the same module under a tiny allocation
-    // threshold, so collections fire constantly mid-run. GC pressure
-    // must never change observable behavior.
+    // Hot-GC leg (BRS-30): the same module under a heap budget smaller
+    // than a single arena cell, so collections fire at essentially
+    // every allocation. GC pressure must never change observable
+    // behavior.
     let hot = run_vm(&front, max_depth, 8, args, stdin);
     assert_eq!(run, hot, "hot-GC parity failed");
 
@@ -140,7 +141,7 @@ fn assert_parity_io(source: &str, max_depth: usize, args: &[String], stdin: &[u8
 fn run_vm(
     front: &Frontend,
     max_depth: usize,
-    gc_threshold: usize,
+    gc_budget_bytes: usize,
     args: &[String],
     stdin: &[u8],
 ) -> Run {
@@ -156,7 +157,7 @@ fn run_vm(
             input: &mut input,
         },
         max_depth,
-        gc_threshold,
+        gc_budget_bytes,
         args,
     );
 
@@ -2463,7 +2464,7 @@ fn run_vm_into<W: std::io::Write + Send>(source: &str, out: &mut W) -> Outcome {
             input: &mut input,
         },
         brasa_vm::DEFAULT_MAX_CALL_DEPTH,
-        brasa_vm::DEFAULT_GC_THRESHOLD,
+        brasa_vm::DEFAULT_GC_BUDGET_BYTES,
         &[],
     )
     .0
@@ -4645,7 +4646,7 @@ fn every_builtin_crosses_all_three_stdlib_layers() {
         let run = run_vm(
             &front,
             brasa_vm::DEFAULT_MAX_CALL_DEPTH,
-            brasa_vm::DEFAULT_GC_THRESHOLD,
+            brasa_vm::DEFAULT_GC_BUDGET_BYTES,
             &[],
             CROSS_CHECK_STDIN,
         );

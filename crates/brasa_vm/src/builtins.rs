@@ -775,10 +775,11 @@ impl Vm<'_> {
         match (name, args.as_slice()) {
             ("len", []) => Ok(Value::Int(self.heap.vector(items).borrow().len() as i64)),
             ("push", [value]) => {
-                self.heap.vector(items).borrow_mut().push(value.clone());
+                self.heap
+                    .edit_vector(items, |items| items.push(value.clone()));
                 Ok(Value::Unit)
             }
-            ("pop", []) => Ok(match self.heap.vector(items).borrow_mut().pop() {
+            ("pop", []) => Ok(match self.heap.edit_vector(items, Vec::pop) {
                 Some(value) => Value::some(value),
                 None => Value::NONE,
             }),
@@ -1024,19 +1025,18 @@ impl Vm<'_> {
                 Ok(self.heap.alloc_vector(values))
             }
             ("insert", [key, value]) => {
-                self.heap
-                    .map(entries)
-                    .borrow_mut()
-                    .insert(key.clone(), value.clone(), |a, b| {
+                self.heap.edit_map(entries, |entries| {
+                    entries.insert(key.clone(), value.clone(), |a, b| {
                         value_eq(&self.heap, a, b)
                     });
+                });
                 Ok(Value::Unit)
             }
             ("remove", [key]) => Ok(self
                 .heap
-                .map(entries)
-                .borrow_mut()
-                .remove(key, |a, b| value_eq(&self.heap, a, b))
+                .edit_map(entries, |entries| {
+                    entries.remove(key, |a, b| value_eq(&self.heap, a, b))
+                })
                 .map(Value::some)
                 .unwrap_or(Value::NONE)),
             ("has?", [key]) => Ok(Value::Bool(
@@ -1095,18 +1095,14 @@ impl Vm<'_> {
         match (name, args) {
             ("len", []) => Ok(Value::Int(self.heap.set(items).borrow().len() as i64)),
             ("add", [value]) => {
-                self.heap
-                    .set(items)
-                    .borrow_mut()
-                    .add(value.clone(), |a, b| value_eq(&self.heap, a, b));
+                self.heap.edit_set(items, |items| {
+                    items.add(value.clone(), |a, b| value_eq(&self.heap, a, b));
+                });
                 Ok(Value::Unit)
             }
-            ("remove", [value]) => Ok(Value::Bool(
-                self.heap
-                    .set(items)
-                    .borrow_mut()
-                    .remove(value, |a, b| value_eq(&self.heap, a, b)),
-            )),
+            ("remove", [value]) => Ok(Value::Bool(self.heap.edit_set(items, |items| {
+                items.remove(value, |a, b| value_eq(&self.heap, a, b))
+            }))),
             ("has?", [value]) => Ok(Value::Bool(
                 self.heap
                     .set(items)

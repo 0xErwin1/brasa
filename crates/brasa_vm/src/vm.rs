@@ -125,7 +125,7 @@ impl<'a> Vm<'a> {
         module: &'a Module,
         streams: brasa_runtime::Streams<'a>,
         max_depth: usize,
-        gc_threshold: usize,
+        gc_budget_bytes: usize,
         args: &[String],
     ) -> Vm<'a> {
         let mut interner = Interner::default();
@@ -146,7 +146,7 @@ impl<'a> Vm<'a> {
             stack: Vec::new(),
             frames: Vec::new(),
             native_roots: Vec::new(),
-            heap: Heap::new(gc_threshold),
+            heap: Heap::new(gc_budget_bytes),
             interner,
             consts,
             out: streams.out,
@@ -172,6 +172,8 @@ impl<'a> Vm<'a> {
             gc_collections: heap.collections,
             live_heap_objects: heap.live,
             peak_heap_objects: self.heap.arena_slots(),
+            live_heap_bytes: self.heap.live_bytes(),
+            peak_heap_bytes: self.heap.peak_bytes(),
             interned_strings: self.interner.len(),
             intern_hits: self.interner.hits(),
         }
@@ -1355,10 +1357,9 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             Value::Map(entries) => {
-                self.heap
-                    .map(*entries)
-                    .borrow_mut()
-                    .insert(index, value, |a, b| value_eq(&self.heap, a, b));
+                self.heap.edit_map(*entries, |entries| {
+                    entries.insert(index, value, |a, b| value_eq(&self.heap, a, b));
+                });
                 Ok(())
             }
             _ => Err(Self::fatal(

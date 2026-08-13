@@ -1,20 +1,39 @@
 //! End-to-end GC tests (BRS-29): programs run on the VM with an
-//! artificially low allocation threshold, forcing many mark-and-sweep
+//! artificially low heap budget, forcing many mark-and-sweep
 //! collections mid-program. Output is pinned — a collector that frees
 //! live data or misses roots corrupts it — and the run statistics
 //! prove collections actually happened and garbage was reclaimed.
 
 use brasa_runtime::Outcome;
-use brasa_vm::{RunStats, run_with_gc_threshold};
+use brasa_vm::{RunStats, run_with_gc_budget};
 
-/// Threshold low enough that every test triggers collections while the
-/// program is still running.
-const TINY_GC_THRESHOLD: usize = 8;
+/// Heap budget low enough that every test triggers collections while
+/// the program is still running: a single one-element vector already
+/// retains more than this, so the collector arms at essentially every
+/// allocation.
+const TINY_GC_BUDGET: usize = 8;
+
+/// Peak-object bound for the programs whose every allocation dies in
+/// the iteration that made it. It was `4 × the threshold` while the
+/// trigger counted objects; BRS-100 made the trigger a byte budget, so
+/// the two are no longer the same unit, and the bound is spelled out at
+/// the value it always had.
+const TIGHT_OBJECT_BOUND: usize = 32;
+
+/// [`TIGHT_OBJECT_BOUND`] for the programs whose reentrant call holds a
+/// snapshot as well, formerly `8 × the threshold`.
+const NESTED_OBJECT_BOUND: usize = 64;
 
 /// Compiles `source` through the whole frontend (it must be clean) and
-/// runs it on the VM with a tiny GC threshold, asserting the expected
+/// runs it on the VM with a tiny GC budget, asserting the expected
 /// stdout; returns the run statistics.
 fn run_hot_gc(source: &str, expected_stdout: &str) -> RunStats {
+    run_at_budget(source, expected_stdout, TINY_GC_BUDGET)
+}
+
+/// [`run_hot_gc`] at an explicit heap budget, for the tests that are
+/// about the budget itself rather than about surviving collection.
+fn run_at_budget(source: &str, expected_stdout: &str, budget: usize) -> RunStats {
     let mut sources = brasa_source::SourceMap::new();
     let file = sources.add_file("gc.bras", source.to_string());
 
@@ -53,7 +72,7 @@ fn run_hot_gc(source: &str, expected_stdout: &str) -> RunStats {
     let module = compiled.module;
 
     let mut out = Vec::new();
-    let (outcome, stats) = run_with_gc_threshold(&module, &mut out, TINY_GC_THRESHOLD);
+    let (outcome, stats) = run_with_gc_budget(&module, &mut out, budget);
     let stdout = String::from_utf8(out).expect("VM output is UTF-8");
 
     assert_eq!(outcome, Outcome::Success, "stdout: {stdout:?}");
@@ -108,7 +127,7 @@ puts table["b"] ?? -1
 fn cyclic_garbage_is_reclaimed() {
     // Every iteration closes a struct-vector cycle and drops it: plain
     // reference counting would retain all 800 pairs; the sweeper must
-    // keep the live count bounded near the threshold instead.
+    // keep the live count bounded near the budget instead.
     let stats = run_hot_gc(
         r##"
 struct Node
@@ -126,7 +145,7 @@ puts "done"
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
     assert!(
-        stats.live_heap_objects <= 4 * TINY_GC_THRESHOLD,
+        stats.live_heap_objects <= TIGHT_OBJECT_BOUND,
         "cyclic garbage leaked: {stats:?}"
     );
 }
@@ -216,7 +235,7 @@ puts total
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
     assert!(
-        stats.peak_heap_objects <= 4 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= TIGHT_OBJECT_BOUND,
         "callback garbage accumulated: {stats:?}"
     );
 }
@@ -253,7 +272,7 @@ puts seen
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -297,7 +316,7 @@ puts(board.toString())
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -334,7 +353,7 @@ puts([1, 2, 3].map(counter()))
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -391,10 +410,10 @@ puts total
 #[test]
 fn a_large_snapshot_does_not_make_collection_quadratic() {
     // The traversal parks the whole snapshot as roots, so marking costs
-    // one visit per element. Arming on the live count alone would
-    // re-trace all of it every `threshold` allocations — quadratic in
-    // the receiver's length, since the elements here are ints and
-    // nothing survives the callback to raise `live`.
+    // one visit per element. Arming on the live measure alone would
+    // re-trace all of it every budget's worth of allocation — quadratic
+    // in the receiver's length, since the elements here are ints and
+    // nothing survives the callback to raise the live measure.
     let stats = run_hot_gc(
         r##"
 let mut src: Vector<int> = []
@@ -490,7 +509,7 @@ puts rounds
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "early exit leaked its snapshot: {stats:?}"
     );
 }
@@ -533,7 +552,7 @@ puts rounds
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "the error path leaked its snapshot: {stats:?}"
     );
 }
@@ -613,7 +632,7 @@ puts([1, 2, 3, 4, 5].map(make()).map(|v| v.toString()).join("-"))
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -658,7 +677,7 @@ puts rounds
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "the failing key path leaked its regions: {stats:?}"
     );
 }
@@ -732,7 +751,7 @@ puts(Some(Tag { size: 8 }))
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -778,7 +797,7 @@ puts node
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -820,7 +839,7 @@ puts board
     // program, so on its own it would not notice the nested safepoint
     // going away. Everything allocated here dies in its own iteration.
     assert!(
-        stats.peak_heap_objects <= 8 * TINY_GC_THRESHOLD,
+        stats.peak_heap_objects <= NESTED_OBJECT_BOUND,
         "collection did not run inside the reentrant call: {stats:?}"
     );
 }
@@ -864,4 +883,119 @@ puts held.unreadable.len()
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --- the byte budget (BRS-100) ----------------------------------------
+
+/// Allocates `count` vectors, one per iteration, each grown to `width`
+/// elements and then dropped. The allocation COUNT is `count` whatever
+/// `width` is, so two programs from this template differ only in how
+/// much memory they retain — which is the whole distinction a byte
+/// budget makes and an object count cannot.
+fn dying_vectors(count: usize, width: usize) -> String {
+    format!(
+        r##"
+let mut total = 0
+let mut n = 0
+while n < {count}
+  let mut block: Vector<int> = []
+  let mut i = 0
+  while i < {width}
+    block.push(i)
+    i = i + 1
+  end
+  total = total + block.len()
+  n = n + 1
+end
+puts total
+"##
+    )
+}
+
+/// Allocations per leg of [`dying_vectors`]; small enough that the
+/// narrow leg stays far under the default budget.
+const BLOCKS: usize = 200;
+
+/// Elements in each of the wide leg's vectors. At 200 blocks this is
+/// tens of megabytes of dead data, and it is reached entirely through
+/// `push` — so a budget that only charged the allocation itself, and
+/// not the growth after it, would see the two legs below as identical.
+const WIDE: usize = 5000;
+
+#[test]
+fn the_budget_measures_allocation_size_not_allocation_count() {
+    let wide = run_at_budget(
+        &dying_vectors(BLOCKS, WIDE),
+        &format!("{}\n", BLOCKS * WIDE),
+        brasa_vm::DEFAULT_GC_BUDGET_BYTES,
+    );
+    let narrow = run_at_budget(
+        &dying_vectors(BLOCKS, 1),
+        &format!("{BLOCKS}\n"),
+        brasa_vm::DEFAULT_GC_BUDGET_BYTES,
+    );
+
+    assert_eq!(
+        wide.heap_allocations, narrow.heap_allocations,
+        "the two legs must differ in size only: {wide:?} / {narrow:?}"
+    );
+
+    assert!(
+        wide.gc_collections > 0,
+        "a heap of large dead vectors never collected: {wide:?}"
+    );
+    assert_eq!(
+        narrow.gc_collections, 0,
+        "the same number of tiny allocations must stay under the budget: {narrow:?}"
+    );
+}
+
+#[test]
+fn the_budget_bounds_what_a_large_dead_heap_retains() {
+    // Without a byte budget these 200 blocks are 200 live arena
+    // objects — two orders of magnitude under any object threshold — so
+    // every one of them is retained to the end of the run. What the
+    // budget bounds is the figure that actually matters, the bytes.
+    let stats = run_at_budget(
+        &dying_vectors(BLOCKS, WIDE),
+        &format!("{}\n", BLOCKS * WIDE),
+        brasa_vm::DEFAULT_GC_BUDGET_BYTES,
+    );
+
+    let uncollected = BLOCKS * WIDE * size_of::<brasa_vm::Value>();
+    assert!(
+        stats.peak_heap_bytes < uncollected / 8,
+        "the dead blocks were retained: {stats:?}"
+    );
+}
+
+#[test]
+fn growth_after_allocation_is_charged_to_the_budget() {
+    // One allocation, grown by `push` long after it was made, next to a
+    // second that is dropped at once. Charging only at allocation time
+    // would leave the budget at two objects' worth for the whole run.
+    let stats = run_at_budget(
+        r##"
+let mut sink: Vector<int> = []
+let mut n = 0
+while n < 20000
+  sink.push(n)
+  n = n + 1
+end
+
+let dead = [0]
+puts sink.len()
+"##,
+        "20000\n",
+        64 * 1024,
+    );
+
+    assert_eq!(
+        stats.heap_allocations, 2,
+        "unexpected allocations: {stats:?}"
+    );
+    assert!(
+        stats.gc_collections > 0,
+        "growth never armed the collector: {stats:?}"
+    );
 }

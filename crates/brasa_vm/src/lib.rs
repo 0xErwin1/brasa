@@ -33,7 +33,7 @@ mod value;
 mod vm;
 
 pub use brasa_runtime::{Outcome, Streams};
-pub use heap::{DEFAULT_GC_THRESHOLD, GcRef};
+pub use heap::{DEFAULT_GC_BUDGET_BYTES, GcRef};
 pub use value::Value;
 
 use std::io::{BufReader, Write};
@@ -66,6 +66,13 @@ pub struct RunStats {
     /// growth records a moment when the live count equalled the arena's
     /// size.
     pub peak_heap_objects: usize,
+    /// Bytes the live arena objects retained when the program ended.
+    pub live_heap_bytes: usize,
+    /// High-water mark of the retained bytes (BRS-100), which is the
+    /// figure the heap budget actually bounds. An upper bound, not an
+    /// exact one: between two collections it still counts objects that
+    /// have already become unreachable.
+    pub peak_heap_bytes: usize,
     /// Distinct interned strings (the module's string constants).
     pub interned_strings: usize,
     /// Intern lookups served by an existing allocation.
@@ -101,7 +108,7 @@ pub fn run_with_depth<W: Write + Send>(
             input: &mut input,
         },
         max_depth,
-        DEFAULT_GC_THRESHOLD,
+        DEFAULT_GC_BUDGET_BYTES,
         args,
     )
     .0
@@ -110,24 +117,26 @@ pub fn run_with_depth<W: Write + Send>(
 /// [`run_with_depth`] with every stream wired explicitly: the one entry
 /// point through which `io.eprint` and `io.readLine`/`io.readAll` are
 /// observable to a caller (the parity harness runs both backends this
-/// way, including its hot-GC leg — hence the explicit threshold).
+/// way, including its hot-GC leg — hence the explicit budget).
 pub fn run_with_streams<'a>(
     module: &'a Module,
     streams: Streams<'a>,
     max_depth: usize,
-    gc_threshold: usize,
+    gc_budget_bytes: usize,
     args: &[String],
 ) -> (Outcome, RunStats) {
-    run_configured(module, streams, max_depth, gc_threshold, args)
+    run_configured(module, streams, max_depth, gc_budget_bytes, args)
 }
 
-/// [`run`] with an explicit GC allocation threshold: the collector arms
-/// after this many live arena objects. Exists for the GC test suite and
-/// BRS-30's benchmarks; programs use the default.
-pub fn run_with_gc_threshold<W: Write + Send>(
+/// [`run`] with an explicit GC heap budget: the collector arms once the
+/// live arena objects retain this many bytes. A budget of a few bytes
+/// therefore collects at essentially every allocation, which is how the
+/// GC test suite and the conformance corpus's hot leg force pathological
+/// collection pressure; programs use the default.
+pub fn run_with_gc_budget<W: Write + Send>(
     module: &Module,
     out: &mut W,
-    gc_threshold: usize,
+    gc_budget_bytes: usize,
 ) -> (Outcome, RunStats) {
     let mut err = std::io::stderr();
     let mut input = BufReader::new(std::io::stdin());
@@ -140,7 +149,7 @@ pub fn run_with_gc_threshold<W: Write + Send>(
             input: &mut input,
         },
         DEFAULT_MAX_CALL_DEPTH,
-        gc_threshold,
+        gc_budget_bytes,
         &[],
     )
 }
@@ -149,7 +158,7 @@ fn run_configured<'a>(
     module: &'a Module,
     streams: Streams<'a>,
     max_depth: usize,
-    gc_threshold: usize,
+    gc_budget_bytes: usize,
     args: &[String],
 ) -> (Outcome, RunStats) {
     std::thread::scope(|scope| {
@@ -157,7 +166,7 @@ fn run_configured<'a>(
             .name("brasa-vm".to_string())
             .stack_size(VM_STACK_SIZE)
             .spawn_scoped(scope, move || {
-                let mut vm = vm::Vm::new(module, streams, max_depth, gc_threshold, args);
+                let mut vm = vm::Vm::new(module, streams, max_depth, gc_budget_bytes, args);
                 let outcome = vm.run();
                 (outcome, vm.run_stats())
             })

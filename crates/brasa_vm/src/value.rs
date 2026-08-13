@@ -415,7 +415,7 @@ mod tests {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
     use super::*;
-    use crate::heap::DEFAULT_GC_THRESHOLD;
+    use crate::heap::DEFAULT_GC_BUDGET_BYTES;
 
     fn hash_of(key: &HashKey) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -457,7 +457,7 @@ mod tests {
     /// projection keyed on the handle instead of the content.
     #[test]
     fn hash_key_agrees_with_value_eq() {
-        let mut heap = Heap::new(DEFAULT_GC_THRESHOLD);
+        let mut heap = Heap::new(DEFAULT_GC_BUDGET_BYTES);
         for a in corpus(&mut heap) {
             for b in corpus(&mut heap) {
                 let (Some(ka), Some(kb)) = (a.hash_key(), b.hash_key()) else {
@@ -492,7 +492,7 @@ mod tests {
     /// the linear fallback rather than being silently mis-keyed.
     #[test]
     fn only_hashable_values_project() {
-        let mut heap = Heap::new(DEFAULT_GC_THRESHOLD);
+        let mut heap = Heap::new(DEFAULT_GC_BUDGET_BYTES);
         for value in corpus(&mut heap) {
             let expected = matches!(
                 value,
