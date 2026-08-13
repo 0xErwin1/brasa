@@ -85,7 +85,9 @@ Rules:
   parameters carry dedicated name spans; `throws`-contract diagnostics
   (`E004`/`E005`) point at the declaring function's name, while `E006`,
   which is about one written name rather than the contract as a whole,
-  points at that name.)
+  points at that name. `T034` points at the `throws` clause itself: the
+  method is legitimate and only its contract is not, so the span covers
+  exactly what has to be deleted.)
 
 ## Code registry
 
@@ -258,6 +260,7 @@ Notes on kind boundaries:
 | `T031` | key/element not `Hashable` | `` `float` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those `` |
 | `T032` | loop jump outside a loop | `` `break` outside a loop `` |
 | `T033` | name is not a value | ``module `fs` is not a value`` |
+| `T034` | `toString` declares `throws` | ``` `toString` cannot declare `throws`: rendering a value has to be infallible ``` |
 
 Notes on kind boundaries:
 
@@ -308,6 +311,17 @@ Notes on kind boundaries:
   where a non-value name is legitimate — a module handle as the receiver
   of a member access, a prelude function as a call target — are not
   reports; `fs.read(p)` and `puts(x)` stay accepted.
+- `T034` is reported once, where the method is declared, and points at
+  the `throws` clause rather than at the method: the clause is what has
+  to go. `throws never` and an absent clause never fire — neither
+  declares that anything can be thrown. It is a `T`, not an `E`: nothing
+  about the body's inferred error-set is being judged, only the
+  contract's shape, and the rule holds even for a `toString` no call site
+  reaches. A throwing `cmp` is the sibling rule but reuses `T027`, not a
+  code of its own: there the method is fine in isolation and only fails
+  a constraint, so the report belongs where conformance is decided. Its
+  note says the member exists and throws — reporting a missing `cmp` on a
+  type that visibly declares one would mislead.
 
 ### Error-sets (`E`)
 

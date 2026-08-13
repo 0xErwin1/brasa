@@ -193,6 +193,10 @@ pub const T_LOOP_JUMP_OUTSIDE_LOOP: &str = "T032";
 /// A name that resolves to something that is not a first-class value —
 /// a module handle, or a prelude function — used as one.
 pub const T_NOT_A_VALUE: &str = "T033";
+/// A `toString` override declaring `throws`. Rendering has to be
+/// infallible: `toString` is reached from the paths that report a
+/// failure, so a throw there has nowhere left to go.
+pub const T_TO_STRING_CANNOT_THROW: &str = "T034";
 
 // --- error-sets (E) ---
 
@@ -310,6 +314,7 @@ mod tests {
         super::T_KEY_NOT_HASHABLE,
         super::T_LOOP_JUMP_OUTSIDE_LOOP,
         super::T_NOT_A_VALUE,
+        super::T_TO_STRING_CANNOT_THROW,
         super::E_UNREACHABLE_ARM,
         super::E_CATCH_ALL_NOT_EXHAUSTIVE,
         super::E_UNVERIFIABLE_EXHAUSTIVENESS,

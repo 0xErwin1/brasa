@@ -1,0 +1,15 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T034] Error: `toString` cannot declare `throws`: rendering a value has to be infallible
+   ╭─[ a_to_string_override_cannot_declare_throws.bras:6:37 ]
+   │
+ 6 │   def toString(self): string throws Boom
+   │                                     ──┬─  
+   │                                       ╰─── remove this contract
+   │ 
+   │ Note 1: `toString` is reached from `puts`, string interpolation, and every container, `Option`, tuple, and enum that renders its elements, as well as from error reporting itself — a failure there has nowhere left to be reported
+   │ 
+   │ Note 2: handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name
+───╯

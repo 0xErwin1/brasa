@@ -513,6 +513,112 @@ let sorted = [Money { cents: 2 }, Money { cents: 1 }].sort()
 "#
 );
 
+// `< <= > >=` on a constrained parameter compile to a `cmp` call, and an
+// operator cannot report a failure, so a throwing `cmp` fails
+// conformance rather than escaping the caller's `throws never`. The note
+// says the member is there and throws — reporting it as missing would be
+// worse than the bug on a struct that visibly declares one.
+typecheck_error_test!(
+    comparable_is_not_satisfied_by_a_throwing_cmp,
+    r#"
+struct CmpError
+end
+
+struct Ver
+  major: int
+
+  def cmp(self, other: Ver): int throws CmpError
+    throw CmpError {}
+  end
+end
+
+def biggest<T: Comparable>(a: T, b: T): T throws never
+  if a > b
+    a
+  else
+    b
+  end
+end
+
+let newest = biggest(Ver { major: 1 }, Ver { major: 2 })
+"#
+);
+
+// The same rule through member-set entailment: an interface member may
+// declare `throws`, so a parameter constrained by a throwing `Ord` does
+// not carry the non-throwing `cmp` `Comparable` needs.
+typecheck_error_test!(
+    comparable_is_not_satisfied_transitively_by_a_throwing_constraint,
+    r#"
+struct CmpError
+end
+
+interface Ord
+  def cmp(self, other: Self): int throws CmpError
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+def viaOrd<U: Ord>(a: U, b: U): U
+  maxOf(a, b)
+end
+"#
+);
+
+// Rendering has to be infallible: a `toString` override cannot declare
+// `throws`, because `puts`, interpolation, and every container that
+// renders its elements reach it — and so does error reporting itself.
+// The report points at the clause, which is what has to go.
+typecheck_error_test!(
+    a_to_string_override_cannot_declare_throws,
+    r#"
+struct Boom
+end
+
+struct Loud
+  def toString(self): string throws Boom
+    throw Boom {}
+  end
+end
+
+def render(): string throws never
+  [Loud {}].join(",")
+end
+"#
+);
+
+// What the two contracts still accept: `throws never` on `toString`
+// declares nothing thrown, and an ordinary `cmp` conforms as before.
+typecheck_test!(
+    an_infallible_to_string_and_cmp_still_conform,
+    r#"
+struct Quiet
+  n: int
+
+  def toString(self): string throws never
+    "Quiet"
+  end
+end
+
+struct Money
+  cents: int
+
+  def cmp(self, other: Money): int
+    self.cents - other.cents
+  end
+end
+
+def maxOf<T: Comparable>(a: T, b: T): T
+  if a > b then a else b end
+end
+
+let shown = Quiet { n: 1 }.toString()
+let richest = maxOf(Money { cents: 1 }, Money { cents: 2 })
+"#
+);
+
 // A method may reuse the struct's parameter name without capturing it:
 // the two are different owners, so `Holder<int>.echo<T>("a")` returns a
 // string while the receiver still holds an int.

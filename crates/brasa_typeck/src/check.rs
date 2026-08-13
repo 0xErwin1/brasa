@@ -26,8 +26,8 @@ use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, BinaryOp, CatchArm, CatchType, Constraint, EnumDef, Expr, ExprId, FuncDef,
     GenericParam, Hir, IfNode, IfaceMember, Item, ItemId, LambdaBody, LambdaParam, Literal,
-    MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp,
-    Variant,
+    MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, Throws, TypeExpr, TypeExprId,
+    UnaryOp, Variant,
 };
 use brasa_resolver::{BuiltinType, BuiltinValue, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
@@ -87,6 +87,39 @@ enum ConstraintKind<'h> {
     Builtin(BuiltinType),
     Iface(ItemId, &'h [IfaceMember]),
     Inline(&'h [IfaceMember]),
+}
+
+/// Why a candidate failed its constraint, for T027's note.
+enum Unsatisfied {
+    /// The candidate is outside a closed builtin list, so there is no
+    /// single member to point at.
+    Closed,
+    /// No member of that name has a compatible signature.
+    Missing(String),
+    /// The member is there with a compatible signature, but it declares
+    /// `throws`. Only builtin `Comparable` reports this: its member is
+    /// reached through `< <= > >=`, which have no channel to report a
+    /// failure on. A user interface may declare throwing members
+    /// (`docs/spec/04-errors.md`), so structural satisfaction never
+    /// fails this way.
+    Throwing(String),
+}
+
+/// The span of a declared, non-`never` `throws` clause: the smallest
+/// span covering every name it lists.
+///
+/// `throws never` and an absent clause both yield `None` — neither
+/// declares that anything can be thrown, so neither is something a
+/// diagnostic could ask the author to remove.
+fn thrown_names_span(throws: &Option<Throws>) -> Option<Span> {
+    let Some(Throws::Types(names)) = throws else {
+        return None;
+    };
+
+    names
+        .iter()
+        .map(|name| name.span)
+        .reduce(|acc, span| Span::merge(&acc, &span))
 }
 
 struct Checker<'a> {
@@ -219,6 +252,7 @@ impl<'a> Checker<'a> {
                         .collect();
 
                     for (index, method) in def.methods.iter().enumerate() {
+                        self.check_render_contract(method);
                         self.check_func(
                             DefRef::Method { owner: root, index },
                             method,
@@ -244,6 +278,47 @@ impl<'a> Checker<'a> {
                 Item::Import(_) | Item::EnumDef(_) | Item::InterfaceDef(_) | Item::TopLet(_) => {}
             }
         }
+    }
+
+    /// Rejects a `toString` override that declares `throws` (T034).
+    ///
+    /// Rendering has to be infallible. `toString` is not only called
+    /// where the author wrote it: `puts`, string interpolation,
+    /// `Vector.join`, and every container, `Option`, tuple, and enum
+    /// that renders its elements reach it too, and so does the runtime
+    /// while it reports a failure. The repo already takes this stance
+    /// where it costs the most — `assert`/`assertEq` deliberately refuse
+    /// to render their operands, because a failing assertion is exactly
+    /// where an unreliable `toString` must not run
+    /// (`crates/brasa_codegen/src/expr.rs`, `assertion`).
+    ///
+    /// `throws never` and an absent clause are both fine: neither
+    /// declares that anything can be thrown.
+    fn check_render_contract(&mut self, method: &FuncDef) {
+        if method.name != "toString" {
+            return;
+        }
+        let Some(span) = thrown_names_span(&method.throws) else {
+            return;
+        };
+
+        self.error(
+            err_at(
+                codes::T_TO_STRING_CANNOT_THROW,
+                span,
+                "`toString` cannot declare `throws`: rendering a value has to be infallible"
+                    .to_string(),
+                "remove this contract",
+            )
+            .with_note(
+                "`toString` is reached from `puts`, string interpolation, and every container, `Option`, tuple, and enum that renders its elements, as well as from error reporting itself — a failure there has nowhere left to be reported"
+                    .to_string(),
+            )
+            .with_note(
+                "handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name"
+                    .to_string(),
+            ),
+        );
     }
 
     /// Checks one function or method body against its declared
@@ -1952,8 +2027,8 @@ impl<'a> Checker<'a> {
             };
 
             let solved = solved.clone();
-            if let Err(missing) = self.satisfies(&solved, &kind) {
-                self.report_constraint_violation(span, &solved, &kind, generic, missing);
+            if let Err(reason) = self.satisfies(&solved, &kind) {
+                self.report_constraint_violation(span, &solved, &kind, generic, reason);
             }
         }
     }
@@ -1967,13 +2042,14 @@ impl<'a> Checker<'a> {
     /// tuples of those. A generic candidate satisfies a constraint only
     /// when its own constraint entails it: the same interface, the same
     /// builtin, `Printable` always, or its member set structurally
-    /// covers the required members. `Err` carries the first missing or
-    /// mismatched member name when there is one to point at.
+    /// covers the required members. `Err` carries why it failed, so the
+    /// report can name the member that is missing — or the one that is
+    /// there but throws.
     fn satisfies(
         &mut self,
         candidate: &Type,
         kind: &ConstraintKind<'a>,
-    ) -> Result<(), Option<String>> {
+    ) -> Result<(), Unsatisfied> {
         match kind {
             ConstraintKind::Builtin(BuiltinType::Printable) => Ok(()),
             ConstraintKind::Builtin(BuiltinType::Comparable) => {
@@ -1993,17 +2069,27 @@ impl<'a> Checker<'a> {
                 // find; that carve-out is what the closed list is for,
                 // not a rule that non-primitives are excluded.
                 let required = Type::func(vec![candidate.clone()], Type::Int);
-                if self.member_matches(candidate, "cmp", &required) {
-                    Ok(())
-                } else {
-                    Err(Some("cmp".to_string()))
+                if !self.member_matches(candidate, "cmp", &required) {
+                    return Err(Unsatisfied::Missing("cmp".to_string()));
                 }
+
+                // `< <= > >=` on a constrained parameter compile to a
+                // call to this `cmp` and a comparison of its result
+                // against `0`. An operator has no way to report a
+                // failure, so a throwing `cmp` would escape the caller's
+                // `throws` contract; conformance is where that is
+                // decided (`docs/spec/03-types.md`).
+                if self.member_declares_throws(candidate, "cmp") {
+                    return Err(Unsatisfied::Throwing("cmp".to_string()));
+                }
+
+                Ok(())
             }
             ConstraintKind::Builtin(BuiltinType::Hashable) => {
                 if self.hashable(candidate) {
                     Ok(())
                 } else {
-                    Err(None)
+                    Err(Unsatisfied::Closed)
                 }
             }
             // The resolver only records interface builtins as
@@ -2028,13 +2114,40 @@ impl<'a> Checker<'a> {
         &mut self,
         candidate: &Type,
         members: &'a [IfaceMember],
-    ) -> Result<(), Option<String>> {
+    ) -> Result<(), Unsatisfied> {
         for member in members {
             if !self.member_satisfied(candidate, member) {
-                return Err(Some(member.name.clone()));
+                return Err(Unsatisfied::Missing(member.name.clone()));
             }
         }
         Ok(())
+    }
+
+    /// Whether the member `candidate` would supply for `name` declares a
+    /// non-`never` `throws` clause.
+    ///
+    /// Two sources answer this: a struct's own method, and — for a
+    /// generic candidate, which is satisfied through member-set
+    /// entailment — the member of its constraint that stands in for it.
+    /// Builtin and derived members never declare one.
+    fn member_declares_throws(&self, candidate: &Type, name: &str) -> bool {
+        let declared = match candidate {
+            Type::Struct(item, _) => match self.hir.item(*item) {
+                Item::StructDef(def) => def
+                    .methods
+                    .iter()
+                    .find(|method| method.name == name)
+                    .and_then(|method| thrown_names_span(&method.throws)),
+                _ => None,
+            },
+            Type::Generic { owner, index } => self
+                .generic_constraint_members(*owner, *index)
+                .and_then(|members| members.iter().find(|member| member.name == name))
+                .and_then(|member| thrown_names_span(&member.throws)),
+            _ => None,
+        };
+
+        declared.is_some()
     }
 
     /// Whether `candidate` provides one interface member with a
@@ -2126,7 +2239,7 @@ impl<'a> Checker<'a> {
         solved: &Type,
         kind: &ConstraintKind<'a>,
         generic: &GenericParam,
-        missing: Option<String>,
+        reason: Unsatisfied,
     ) {
         let shown = solved.display(self.hir);
         let message = match kind {
@@ -2145,17 +2258,26 @@ impl<'a> Checker<'a> {
             ),
         };
 
-        let mut diag = err_at(
+        let diag = err_at(
             codes::T_CONSTRAINT_NOT_SATISFIED,
             span,
             message,
             "constraint not satisfied",
         );
-        if let Some(member) = missing {
-            diag = diag.with_note(format!(
+        let diag = match reason {
+            Unsatisfied::Closed => diag,
+            Unsatisfied::Missing(member) => diag.with_note(format!(
                 "`{shown}` has no member `{member}` with a compatible signature"
-            ));
-        }
+            )),
+            Unsatisfied::Throwing(member) => diag
+                .with_note(format!(
+                    "`{shown}` has a member `{member}`, but it declares `throws`"
+                ))
+                .with_note(format!(
+                    "`< <= > >=` call `{member}` and compare its result against `0`; an operator has no way to report a failure, so a throwing `{member}` cannot satisfy `Comparable`"
+                )),
+        };
+
         self.error(diag);
     }
 

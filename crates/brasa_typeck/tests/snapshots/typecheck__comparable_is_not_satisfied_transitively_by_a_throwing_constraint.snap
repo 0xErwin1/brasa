@@ -1,0 +1,15 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T027] Error: `U` does not satisfy `Comparable`
+    ╭─[ comparable_is_not_satisfied_transitively_by_a_throwing_constraint.bras:14:3 ]
+    │
+ 14 │   maxOf(a, b)
+    │   ─────┬─────  
+    │        ╰─────── constraint not satisfied
+    │ 
+    │ Note 1: `U` has a member `cmp`, but it declares `throws`
+    │ 
+    │ Note 2: `< <= > >=` call `cmp` and compare its result against `0`; an operator has no way to report a failure, so a throwing `cmp` cannot satisfy `Comparable`
+────╯

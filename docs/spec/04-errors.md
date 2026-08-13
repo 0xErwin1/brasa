@@ -91,6 +91,20 @@ end
   is a contract and contracts are not inferred.
 - Without a declaration, pure inference — the default for scripts.
 
+Two members are excluded from `throws` because the language calls them
+where a failure would have no channel to travel on. Both are rejected at
+the declaration or conformance site, in the type checker, so the error
+never has to be inferred out of a call the user did not write:
+
+- **`toString` cannot declare `throws`** (`T034`, `03-types.md`).
+  Rendering is reached from `puts`, interpolation, `Vector.join`, and
+  every container that renders its elements — and from error reporting
+  itself, which is why `assert`/`assertEq` deliberately do not render
+  their operands. `throws never` stays legal; it declares nothing thrown.
+- **A `cmp` that declares `throws` does not satisfy `Comparable`**
+  (`T027`, `03-types.md`). `<`/`>`/`<=`/`>=` on a constrained parameter
+  compile to a `cmp` call, and an operator cannot report a failure.
+
 ## Catching: `catch` as a match
 
 `catch` attaches to an expression (typically a call):

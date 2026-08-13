@@ -100,6 +100,12 @@ end
   `Comparable`, that every type is `Printable`, etc. Without this,
   `max<T: Comparable>(1, 2)` would not type-check — a primitive has no
   `cmp` method to find.
+- `Printable` needs no conformance check of its own, and satisfying it
+  unconditionally stays correct: every type has a `toString` (derived, or
+  an override that cannot declare `throws` — see below), so the member
+  `Printable` requires is always present and always infallible. It has no
+  counterpart to `Comparable`'s throwing-`cmp` rule because the
+  declaration site already settled the question.
 - **`Comparable` is otherwise structural, like any interface**: a type
   with `cmp(self, other: Self): int` satisfies it, so
   `max<T: Comparable>(a, b)` works on a user struct. The ordering
@@ -109,6 +115,17 @@ end
   struct values is still an error (the operator table below lists only
   primitives and a constrained parameter), and `Vector.sort()` is still
   limited to vectors of orderable primitives (`docs/spec/05-stdlib.md`).
+- **A `cmp` that declares `throws` does not satisfy `Comparable`.** The
+  ordering operators call it and compare its result against `0`, and an
+  operator has no channel to report a failure on: a throwing `cmp`
+  reached through `<`/`>`/`<=`/`>=` would escape the `throws` contract of
+  the function that only compared two values. The member is rejected
+  where conformance is decided, so the diagnostic (`T027`) says the
+  method is there and throws rather than reporting it as missing. This is
+  a rule about the declared contract; the same reasoning applies to
+  interface members, where `throws` must be declared if the method
+  throws (`docs/spec/04-errors.md`), so a parameter constrained by a
+  throwing `Ord` does not entail `Comparable` either.
 - **`Hashable` is closed in v1**: only `int`, `string`, `char`, `bool` and
   tuples of those. Structs and collections are NOT Map/Set keys — they are
   mutable references with structural equality, and mutating a key after
@@ -158,6 +175,16 @@ the read and the write separately.
   `Printable`. Defining a custom `toString` on a struct replaces it. Floats
   always show the decimal point (`1.0`, never `1`) — the int/float
   separation stays visible.
+- **A `toString` override cannot declare `throws`** (`T034`). Rendering
+  has to be infallible. `toString` is not only called where the author
+  wrote it: `puts`, string interpolation, `Vector.join`, and every
+  container, `Option`, tuple, and enum that renders its elements reach
+  it, and so does the runtime while it is already reporting a failure —
+  an uncaught error, a stack trace, a failing assertion. A throw from
+  there has nowhere left to be reported. `throws never` and an absent
+  clause are both accepted: neither declares that anything can be thrown.
+  The repair is a `catch` inside `toString` that renders a fallback, or a
+  differently-named method for the fallible work.
 
 ## Cyclic values
 
