@@ -3,7 +3,7 @@
 
 use brasa_ast::{
     Constraint, EnumDef, Field, FuncDef, GenericParam, IfaceMember, ImportPath, InterfaceDef, Item,
-    ItemId, Param, Pattern, PatternId, StructDef, Throws, TopLet, TypeExpr, TypeExprId,
+    ItemId, Param, Pattern, PatternId, StructDef, TestDef, Throws, TopLet, TypeExpr, TypeExprId,
 };
 
 use crate::{INDENT, Lines, Printer, indent_of};
@@ -74,6 +74,7 @@ impl<'a> Printer<'a> {
                 let head = format!("{}{prefix}", indent_of(level));
                 self.let_stmt(let_stmt, &head, level)
             }
+            Item::TestDef(def) => self.test_def(def, level, self.body_region_end(span)),
             Item::Stmt(stmt) => self.stmt(*stmt, level),
         }
     }
@@ -106,6 +107,34 @@ impl<'a> Printer<'a> {
         let region_end = self.next_token_pos(after_body).min(bound);
 
         let body = self.block(&func.body, level + INDENT, region_end);
+        if !body.is_empty() {
+            lines.push(&body);
+        }
+
+        lines.push(&format!("{}end", indent_of(level)));
+        lines.finish()
+    }
+
+    /// `test "name"` plus the body and `end`.
+    ///
+    /// The name is printed from the source rather than from the parsed
+    /// value, so its own escapes survive — the same rule literals follow
+    /// everywhere else in this printer.
+    fn test_def(&mut self, def: &TestDef, level: usize, bound: u32) -> String {
+        let mut lines = Lines::new();
+        lines.push(&format!(
+            "{}test {}",
+            indent_of(level),
+            self.slice(def.name_span)
+        ));
+
+        let after_body = match def.body.last() {
+            Some(stmt) => self.ast.span_of_stmt(*stmt).end.0,
+            None => self.line_end(def.name_span.end.0),
+        };
+        let region_end = self.next_token_pos(after_body).min(bound);
+
+        let body = self.block(&def.body, level + INDENT, region_end);
         if !body.is_empty() {
             lines.push(&body);
         }

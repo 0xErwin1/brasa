@@ -34,7 +34,7 @@ use brasa_source::Span;
 use crate::{
     ArmBody, Block, CatchArm, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, InterfaceDef, Item, ItemId, LambdaBody, LambdaParam, LetStmt, MatchArm,
-    Param, Pattern, PatternId, Stmt, StructDef, TopLet, TypeExpr, TypeExprId, Variant,
+    Param, Pattern, PatternId, Stmt, StructDef, TestDef, TopLet, TypeExpr, TypeExprId, Variant,
 };
 
 /// The sugar construct a synthesized `match` expression was desugared
@@ -201,6 +201,11 @@ impl LowerCtx<'_> {
             ast::Item::TopLet(top_let) => Item::TopLet(TopLet {
                 is_pub: top_let.is_pub,
                 let_stmt: self.lower_let_stmt(&top_let.let_stmt),
+            }),
+            ast::Item::TestDef(def) => Item::TestDef(TestDef {
+                name: def.name.clone(),
+                name_span: def.name_span,
+                body: self.lower_block(&def.body),
             }),
             ast::Item::Stmt(stmt) => {
                 let mut out = Vec::new();

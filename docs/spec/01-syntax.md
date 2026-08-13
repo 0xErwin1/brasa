@@ -346,6 +346,27 @@ fs.read("data.txt")
   for a `lib`. Both are additive later; neither would be removable.
 - Future: `import ... as alias` for name collisions. Out of v1.
 
+## Tests
+
+```ruby
+def slugify(s: string): string ... end
+
+test "slugify lowercases and hyphenates"
+  let got = slugify("Hola Mundo")
+  # assertions land with the runner (BRS-110)
+end
+```
+
+- A `test` item is a named body and nothing else: no parameters, no
+  return type, no `throws` clause. Nothing can call it, and two tests may
+  share a title without colliding.
+- Its name is a plain string literal, never interpolated: a runner has to
+  be able to name what it is about to run, before running it.
+- **Tests are not part of a normal run.** `brasa script.bras` does not
+  compile them, so they cost nothing at startup; `brasa test` does.
+- The body sees the whole module, like a function body — every top-level
+  `let` is initialized by the time a test runs.
+
 ## Entry point and execution
 
 - A module's top-level statements run **the first time it is

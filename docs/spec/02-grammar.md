@@ -25,7 +25,7 @@ Reserved keywords:
 ```
 def end if then elsif else while for in do match enum struct interface
 import pub let mut return break continue throw throws catch catch!
-never true false self unit and or not
+never true false self unit and or not test
 spawn                                  # reserved, no semantics in v1
 ```
 
@@ -53,13 +53,14 @@ Operators and punctuation:
 ```
 program     = NL? item ( NL item )* NL? EOF
 item        = import | func_def | struct_def | enum_def | interface_def
-            | top_let | stmt
+            | top_let | test_def | stmt
 
 import      = "import" ( module_path | STRING )
 module_path = IDENT ( "::" IDENT )+        # std::fs is the stdlib; any other root is
                                             # a module on the search path
                                             # STRING: file path, relative to the importer
 
+test_def    = "test" STRING NL block "end"   # no params, no return, no throws
 top_let     = "pub"? let_stmt
 ```
 

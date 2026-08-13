@@ -917,3 +917,33 @@ fn strip_comments_drops_comments_and_keeps_literals() {
         );
     }
 }
+
+/// `test` items exist for `brasa test`, so a normal run must not compile
+/// or execute them (BRS-110). Cold start is the differentiator, and a
+/// test body is dead weight in it.
+#[test]
+fn test_items_are_not_part_of_a_normal_run() {
+    let dir = std::env::temp_dir().join(format!("brasa-testitems-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    let script = dir.join("withtests.bras");
+    std::fs::write(
+        &script,
+        "def double(x: int): int\n  x * 2\nend\n\n\
+         test \"double doubles\"\n  puts double(21)\nend\n\n\
+         puts \"ran\"\n",
+    )
+    .expect("write");
+
+    let output = run_program(&script);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "ran\n",
+        "the test body must not run"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

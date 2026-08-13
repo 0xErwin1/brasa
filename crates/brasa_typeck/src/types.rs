@@ -158,6 +158,7 @@ pub(crate) fn item_name(hir: &Hir, item: ItemId) -> String {
         Item::EnumDef(def) => def.name.clone(),
         Item::InterfaceDef(def) => def.name.clone(),
         Item::TopLet(top_let) => top_let.let_stmt.name.clone(),
+        Item::TestDef(def) => def.name.clone(),
         Item::Import(_) | Item::Stmt(_) => "<item>".to_string(),
     }
 }

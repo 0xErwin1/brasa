@@ -181,6 +181,21 @@ pub struct TopLet {
     pub let_stmt: LetStmt,
 }
 
+/// A `test "name" ... end` item.
+///
+/// A test is a body with a human-readable name and nothing else: no
+/// parameters, no return type, no `throws` clause. It is not a function
+/// — nothing can call it — and it is compiled only by `brasa test`, so a
+/// normal run never pays for one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestDef {
+    pub name: String,
+    /// The span of the name literal, so a failure points at the test
+    /// rather than at the whole item.
+    pub name_span: Span,
+    pub body: Block,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Import(Import),
@@ -189,5 +204,6 @@ pub enum Item {
     EnumDef(EnumDef),
     InterfaceDef(InterfaceDef),
     TopLet(TopLet),
+    TestDef(TestDef),
     Stmt(StmtId),
 }

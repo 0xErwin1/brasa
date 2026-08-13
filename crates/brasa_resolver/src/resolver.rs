@@ -327,7 +327,9 @@ impl<'h> Resolver<'h> {
                     self.declare_module_type(&mut scope, &def.name, root, span, def.is_pub);
                     self.check_member_hygiene(&def.methods);
                 }
-                Item::Stmt(_) => {}
+                // A test binds no name: nothing can call it, and two
+                // tests may share a title without colliding.
+                Item::TestDef(_) | Item::Stmt(_) => {}
             }
         }
 
@@ -555,6 +557,14 @@ impl<'h> Resolver<'h> {
                     self.resolve_expr(top_let.let_stmt.value);
 
                     self.top_let_watermark = None;
+                }
+                // A test body runs after the whole module is
+                // initialized, like a function body, so every top-level
+                // `let` is visible to it and no watermark applies.
+                Item::TestDef(def) => {
+                    self.value_scopes.push(HashMap::new());
+                    self.resolve_block(&def.body);
+                    self.value_scopes.pop();
                 }
                 Item::Stmt(block) => {
                     self.top_let_watermark = Some(top_lets_before[i]);

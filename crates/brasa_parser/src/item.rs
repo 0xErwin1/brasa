@@ -3,7 +3,7 @@
 
 use brasa_ast::{
     Constraint, EnumDef, Field, FuncDef, GenericParam, IfaceMember, Import, ImportPath,
-    InterfaceDef, Item, ItemId, Param, StructDef, Throws, TopLet, Variant,
+    InterfaceDef, Item, ItemId, Param, StructDef, TestDef, Throws, TopLet, Variant,
 };
 use brasa_diagnostics::codes;
 use brasa_source::Span;
@@ -24,6 +24,7 @@ impl<'a> Parser<'a> {
             TokenKind::Enum => self.parse_enum_item(is_pub, start),
             TokenKind::Interface => self.parse_interface_item(is_pub, start),
             TokenKind::Let => self.parse_top_let(is_pub, start),
+            TokenKind::Test if !is_pub => self.parse_test_item(start),
             _ => {
                 if is_pub {
                     self.error_expected("'def', 'struct', 'enum', 'interface', or 'let' after pub");
@@ -453,6 +454,33 @@ impl<'a> Parser<'a> {
                 name,
                 generics,
                 methods,
+            }),
+            Span::merge(&start, &end),
+        )
+    }
+
+    /// `test = "test" STRING NL block "end"`.
+    ///
+    /// A test has no parameters, no return type and no `throws` clause:
+    /// nothing calls it, so there is nothing to declare. The name is a
+    /// plain string literal — interpolation would make a test's identity
+    /// depend on runtime state, and a test runner has to be able to name
+    /// what it ran before it runs it.
+    fn parse_test_item(&mut self, start: Span) -> ItemId {
+        self.bump(); // 'test'
+
+        let (name, name_span) = self.parse_plain_string();
+
+        self.skip_stmt_seps();
+        let body = self.parse_block(&[TokenKind::End]);
+        let end_tok = self.expect(TokenKind::End, "'end' to close the test");
+        let end = end_tok.map(|t| t.span).unwrap_or_else(|| self.span());
+
+        self.ast.alloc_item(
+            Item::TestDef(TestDef {
+                name,
+                name_span,
+                body,
             }),
             Span::merge(&start, &end),
         )

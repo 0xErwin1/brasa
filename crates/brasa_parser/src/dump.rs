@@ -51,6 +51,10 @@ fn dump_item(ast: &Ast, id: ItemId, depth: usize, out: &mut String) {
         Item::EnumDef(def) => dump_enum(ast, def, depth, out),
         Item::InterfaceDef(def) => dump_interface(ast, def, depth, out),
         Item::TopLet(top_let) => dump_top_let(ast, top_let, depth, out),
+        Item::TestDef(def) => {
+            line(out, depth, &format!("TestDef({:?})", def.name));
+            dump_block(ast, &def.body, depth + 1, out);
+        }
         Item::Stmt(stmt) => dump_stmt(ast, *stmt, depth, out),
     }
 }

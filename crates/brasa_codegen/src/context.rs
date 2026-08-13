@@ -237,7 +237,10 @@ impl<'a> Cx<'a> {
                     self.global_of_item.insert(item_id, ix);
                     self.globals.push(top_let.let_stmt.name.clone());
                 }
-                Item::Import(_) | Item::InterfaceDef(_) | Item::Stmt(_) => {}
+                // A test is not part of a normal run: `brasa test`
+                // compiles them and `brasa script.bras` never sees one,
+                // so they cost nothing at cold start.
+                Item::TestDef(_) | Item::Import(_) | Item::InterfaceDef(_) | Item::Stmt(_) => {}
             }
         }
     }

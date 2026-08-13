@@ -64,6 +64,7 @@ fn item_name(hir: &Hir, id: ItemId) -> String {
         Item::EnumDef(def) => def.name.clone(),
         Item::InterfaceDef(def) => def.name.clone(),
         Item::TopLet(top_let) => top_let.let_stmt.name.clone(),
+        Item::TestDef(def) => format!("test {:?}", def.name),
         Item::Stmt(_) => "<stmt>".to_string(),
     }
 }

@@ -57,6 +57,7 @@ pub enum TokenKind {
     Or,
     Not,
     Spawn,
+    Test,
 
     // Operators
     Plus,
@@ -196,6 +197,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "or" => TokenKind::Or,
         "not" => TokenKind::Not,
         "spawn" => TokenKind::Spawn,
+        "test" => TokenKind::Test,
         _ => return None,
     })
 }

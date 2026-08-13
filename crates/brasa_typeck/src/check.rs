@@ -229,6 +229,18 @@ impl<'a> Checker<'a> {
                 Item::Stmt(block) => {
                     self.check_block(block, None, false);
                 }
+                // A test body is checked like a function body that
+                // returns nothing: `return` is an error inside it, and
+                // its own `break`/`continue` need their own loop.
+                Item::TestDef(def) => {
+                    let saved_ret = self.ret_ty.replace(Type::Unit);
+                    let saved_loops = std::mem::take(&mut self.loop_depth);
+
+                    self.check_block(&def.body, None, false);
+
+                    self.ret_ty = saved_ret;
+                    self.loop_depth = saved_loops;
+                }
                 Item::Import(_) | Item::EnumDef(_) | Item::InterfaceDef(_) | Item::TopLet(_) => {}
             }
         }
