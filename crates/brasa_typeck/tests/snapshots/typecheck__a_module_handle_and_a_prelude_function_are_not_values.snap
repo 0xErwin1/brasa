@@ -1,0 +1,31 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T033] Error: module `math` is not a value
+   ╭─[ a_module_handle_and_a_prelude_function_are_not_values.bras:4:6 ]
+   │
+ 4 │ puts math
+   │      ──┬─  
+   │        ╰─── a module cannot be passed or stored
+   │ 
+   │ Note: access its members instead: `math.member`
+───╯
+[T033] Error: `puts` is not a value
+   ╭─[ a_module_handle_and_a_prelude_function_are_not_values.bras:5:6 ]
+   │
+ 5 │ puts puts
+   │      ──┬─  
+   │        ╰─── the prelude functions can only be called
+   │ 
+   │ Note: call it instead: `puts(x)`
+───╯
+[T033] Error: `print` is not a value
+   ╭─[ a_module_handle_and_a_prelude_function_are_not_values.bras:6:9 ]
+   │
+ 6 │ let f = print
+   │         ──┬──  
+   │           ╰──── the prelude functions can only be called
+   │ 
+   │ Note: call it instead: `print(x)`
+───╯

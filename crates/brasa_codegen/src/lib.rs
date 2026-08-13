@@ -34,12 +34,18 @@
 //! - **Returns** compile to a direct `ret` at each `return` site (no
 //!   shared epilogue); functions without a declared return type emit
 //!   `load_unit` before `ret`.
-//! - **Statically-detected walker fatals** (an unavailable module
-//!   member, a builtin used as a value) compile to the internal
-//!   `<fatal>` registry builtin with the walker's exact message;
-//!   runtime match fall-through and a `for` pattern mismatch compile to
-//!   `<assert-failed>` (`panics.AssertionFailed`), keeping the
-//!   instruction set unchanged (`brasa_bytecode::builtin`).
+//! - **Statically-detected fatals** (an unavailable module member, a
+//!   builtin used as a value, `break` outside a loop) compile to the
+//!   internal `<fatal>` registry builtin; runtime match fall-through
+//!   and a `for` pattern mismatch compile to `<assert-failed>`
+//!   (`panics.AssertionFailed`), keeping the instruction set unchanged
+//!   (`brasa_bytecode::builtin`).
+//!
+//!   Every one of these is unreachable in a checked program: the
+//!   frontend rejects the condition first, with `T032`/`T033` for the
+//!   three that used to reach run time (BRS-109). They are kept as
+//!   defence in depth — a frontend gap should surface as a clean fatal
+//!   rather than as miscompiled code.
 
 mod captures;
 mod catch;

@@ -182,6 +182,12 @@ pub const T_COALESCE_TYPE_MISMATCH: &str = "T030";
 /// A `Map` key or `Set` element type outside the closed `Hashable`
 /// list (`int`, `string`, `char`, `bool`, and tuples of those).
 pub const T_KEY_NOT_HASHABLE: &str = "T031";
+/// `break` or `continue` with no enclosing loop in the same function or
+/// lambda.
+pub const T_LOOP_JUMP_OUTSIDE_LOOP: &str = "T032";
+/// A name that resolves to something that is not a first-class value —
+/// a module handle, or a prelude function — used as one.
+pub const T_NOT_A_VALUE: &str = "T033";
 
 // --- error-sets (E) ---
 
@@ -292,6 +298,8 @@ mod tests {
         super::T_COALESCE_NEEDS_OPTION,
         super::T_COALESCE_TYPE_MISMATCH,
         super::T_KEY_NOT_HASHABLE,
+        super::T_LOOP_JUMP_OUTSIDE_LOOP,
+        super::T_NOT_A_VALUE,
         super::E_UNREACHABLE_ARM,
         super::E_CATCH_ALL_NOT_EXHAUSTIVE,
         super::E_UNVERIFIABLE_EXHAUSTIVENESS,

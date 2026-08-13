@@ -234,6 +234,8 @@ Notes on kind boundaries:
 | `T029` | `??` needs an `Option` left side | `` `??` requires an `Option` on its left side, found `int` `` |
 | `T030` | `??` fallback type mismatch | `` `??` fallback has type `string`, but the `Option` carries `int` `` |
 | `T031` | key/element not `Hashable` | `` `float` cannot be a `Map` key: `Hashable` is closed to `int`, `string`, `char`, `bool`, and tuples of those `` |
+| `T032` | loop jump outside a loop | `` `break` outside a loop `` |
+| `T033` | name is not a value | ``module `fs` is not a value`` |
 
 Notes on kind boundaries:
 
@@ -269,6 +271,15 @@ Notes on kind boundaries:
   literal, or the `Set` constructor. Key-taking methods (`insert`,
   `get`, `has?`, `remove`, `add`) check against that established type
   and never re-report.
+- `T032` is the loop counterpart of `T019`: both name a construct that
+  only means something inside another one, and both are decidable
+  statically. The enclosing loop must be in the SAME function or lambda —
+  a lambda compiles to its own frame with its own loop stack, so a loop
+  the lambda merely appears inside is not one its `break` can reach.
+- `T033` fires only where the name is used AS a value. The positions
+  where a non-value name is legitimate — a module handle as the receiver
+  of a member access, a prelude function as a call target — are not
+  reports; `fs.read(p)` and `puts(x)` stay accepted.
 
 ### Error-sets (`E`)
 

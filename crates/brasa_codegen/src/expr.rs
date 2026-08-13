@@ -148,14 +148,13 @@ fn ident(f: &mut FuncCx, id: ExprId, name: &str, span: Span) {
             _ => f.emit_fatal(&format!("brasa: `{name}` is not a value"), span),
         },
         Some(Res::SelfParam) => f.load_self(span),
+        // Both rejected by `T033` before code generation runs; the
+        // fatals are defence in depth, not behaviour.
         Some(Res::Module(_)) => f.emit_fatal(
             &format!("brasa: module `{name}` is not a value; access members as `{name}.member`"),
             span,
         ),
-        Some(Res::Builtin(_)) => f.emit_fatal(
-            &format!("brasa: `{name}` cannot be used as a value in M1"),
-            span,
-        ),
+        Some(Res::Builtin(_)) => f.emit_fatal(&format!("brasa: `{name}` is not a value"), span),
         None => f.emit_fatal(&format!("brasa: unresolved name `{name}`"), span),
     }
 }

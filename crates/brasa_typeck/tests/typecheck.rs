@@ -1526,3 +1526,58 @@ puts b.tag()
 puts describe(b)
 "#
 );
+
+// BRS-109: `break`/`continue` with no enclosing loop is decidable here,
+// exactly like `return` outside a function (T019). Reported at every
+// depth the code generator would have failed at, including inside a
+// lambda: a lambda compiles to its own frame with its own loop stack, so
+// a loop it merely appears inside is not one its `break` can reach.
+typecheck_error_test!(
+    loop_jumps_outside_a_loop_are_rejected,
+    r#"
+break
+
+def top()
+  continue
+end
+
+def inside_a_lambda()
+  for i in 0..3
+    let f = |x: int| do
+      break
+      x
+    end
+    puts f(i)
+  end
+end
+
+def legal()
+  for i in 0..3
+    if i == 1
+      continue
+    end
+    break
+  end
+  while true
+    break
+  end
+end
+"#
+);
+
+// BRS-109: a name that resolves to something which is not a first-class
+// value. The legitimate positions — a module handle as a member
+// receiver, a prelude function as a call target — type themselves
+// without reaching the reporting path, so both stay accepted here.
+typecheck_error_test!(
+    a_module_handle_and_a_prelude_function_are_not_values,
+    r#"
+import std::math
+
+puts math
+puts puts
+let f = print
+let ok = math.abs(-1)
+puts ok
+"#
+);

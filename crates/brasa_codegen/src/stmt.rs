@@ -32,6 +32,8 @@ pub(crate) fn compile_stmt(f: &mut FuncCx, id: StmtId) {
         Stmt::Assign { target, value } => assign(f, target, value, span),
         Stmt::Return(value) => compile_return(f, value, span),
         Stmt::Break => {
+            // `T032` rejects this before code generation runs; the
+            // fatal is defence in depth, not behaviour.
             let Some(pops_iterator) = f.loops.last().map(|l| l.pops_iterator_on_break) else {
                 f.emit_fatal("brasa: `break` outside a loop", span);
                 f.emit(Op::Pop, span);
@@ -51,6 +53,7 @@ pub(crate) fn compile_stmt(f: &mut FuncCx, id: StmtId) {
             Some(head) => {
                 f.emit(Op::Jump(head), span);
             }
+            // Rejected by `T032`; see the `break` arm above.
             None => {
                 f.emit_fatal("brasa: `continue` outside a loop", span);
                 f.emit(Op::Pop, span);

@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T032] Error: `break` outside a loop
+   ╭─[ loop_jumps_outside_a_loop_are_rejected.bras:2:1 ]
+   │
+ 2 │ break
+   │ ──┬──  
+   │   ╰──── no loop to act on
+───╯
+[T032] Error: `continue` outside a loop
+   ╭─[ loop_jumps_outside_a_loop_are_rejected.bras:5:3 ]
+   │
+ 5 │   continue
+   │   ────┬───  
+   │       ╰───── no loop to act on
+───╯
+[T032] Error: `break` outside a loop
+    ╭─[ loop_jumps_outside_a_loop_are_rejected.bras:11:7 ]
+    │
+ 11 │       break
+    │       ──┬──  
+    │         ╰──── no loop to act on
+────╯

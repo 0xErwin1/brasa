@@ -102,6 +102,15 @@ struct Checker<'a> {
     ret_ty: Option<Type>,
     /// The enclosing method's receiver type.
     self_ty: Option<Type>,
+    /// How many loops enclose the statement being checked, within the
+    /// current function or lambda. Zero means `break`/`continue` has no
+    /// loop to act on, which is an error.
+    ///
+    /// Reset at every function and lambda boundary, because that is
+    /// where code generation resets too: a lambda gets its own frame and
+    /// its own loop stack, so a `break` written inside a lambda cannot
+    /// reach a loop the lambda merely appears in.
+    loop_depth: usize,
     /// When non-zero, `error` drops diagnostics. Used while converting
     /// interface member signatures for satisfaction checks and member
     /// lookups: those conversions run once per use site, and any type
@@ -123,6 +132,7 @@ pub(crate) fn run(
         diagnostics: Vec::new(),
         ret_ty: None,
         self_ty: None,
+        loop_depth: 0,
         suppressed: 0,
     };
 
@@ -244,6 +254,7 @@ impl<'a> Checker<'a> {
 
         let ret = func.ret.map(|ty| self.conv(ty)).unwrap_or(Type::Unit);
         let saved_ret = self.ret_ty.replace(ret.clone());
+        let saved_loops = std::mem::take(&mut self.loop_depth);
 
         if ret == Type::Unit {
             self.check_block(&func.body, None, false);
@@ -256,6 +267,7 @@ impl<'a> Checker<'a> {
         }
 
         self.ret_ty = saved_ret;
+        self.loop_depth = saved_loops;
         self.self_ty = saved_self;
     }
 
@@ -351,7 +363,8 @@ impl<'a> Checker<'a> {
                 self.check_assign(id, *target, *value);
             }
             Stmt::Return(value) => self.check_return(id, *value),
-            Stmt::Break | Stmt::Continue => {}
+            Stmt::Break => self.check_loop_jump(id, "break"),
+            Stmt::Continue => self.check_loop_jump(id, "continue"),
             Stmt::Throw(value) => {
                 // The operand may be any value for now; error-set
                 // inference is M2 (`docs/spec/04-errors.md`).
@@ -368,7 +381,10 @@ impl<'a> Checker<'a> {
             }
             Stmt::While { cond, body } => {
                 self.check_expect(*cond, &Type::Bool);
+
+                self.loop_depth += 1;
                 self.check_block(body, None, false);
+                self.loop_depth -= 1;
             }
             Stmt::For {
                 pattern,
@@ -377,12 +393,33 @@ impl<'a> Checker<'a> {
             } => {
                 let elem = self.check_iterable(*iterable);
                 self.check_pattern(*pattern, &elem);
+
+                self.loop_depth += 1;
                 self.check_block(body, None, false);
+                self.loop_depth -= 1;
             }
             Stmt::Expr(value) => {
                 self.check_expr_used(*value, None, false);
             }
         }
+    }
+
+    /// `break`/`continue` with no enclosing loop, the counterpart of
+    /// `return` outside a function (T019). Both name a construct that
+    /// only means something inside another one, and both are decidable
+    /// here rather than at run time.
+    fn check_loop_jump(&mut self, id: StmtId, keyword: &str) {
+        if self.loop_depth > 0 {
+            return;
+        }
+
+        let span = self.hir.span_of_stmt(id);
+        self.error(err_at(
+            codes::T_LOOP_JUMP_OUTSIDE_LOOP,
+            span,
+            format!("`{keyword}` outside a loop"),
+            "no loop to act on",
+        ));
     }
 
     fn check_return(&mut self, id: StmtId, value: Option<ExprId>) {
@@ -715,6 +752,14 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// The source name behind an `Expr::Ident`, for diagnostics.
+    fn ident_name(&self, id: ExprId) -> String {
+        match self.hir.expr(id) {
+            Expr::Ident(name) => name.clone(),
+            _ => String::new(),
+        }
+    }
+
     fn check_ident(&mut self, id: ExprId) -> Type {
         match self.res.expr_res.get(&id).copied() {
             Some(Res::Local(local)) => self
@@ -730,10 +775,37 @@ impl<'a> Checker<'a> {
                 .cloned()
                 .unwrap_or(Type::Unknown),
             Some(Res::SelfParam) => self.self_ty.clone().unwrap_or(Type::Unknown),
-            // Module handles have no type of their own, and `puts`/
-            // `print` accept any value (universal `toString`,
-            // `docs/spec/05-stdlib.md`), so neither gets a `Fn` type.
-            Some(Res::Module(_) | Res::Builtin(_)) => Type::Unknown,
+            // Reaching here means the name is being used AS A VALUE: the
+            // legitimate positions type themselves without calling in
+            // (a module handle as a member receiver, `puts`/`print` as a
+            // call target). Neither is a first-class value, and both are
+            // decidable here rather than at run time.
+            Some(Res::Module(_)) => {
+                let name = self.ident_name(id);
+                self.error(
+                    err_at(
+                        codes::T_NOT_A_VALUE,
+                        self.hir.span_of_expr(id),
+                        format!("module `{name}` is not a value"),
+                        "a module cannot be passed or stored",
+                    )
+                    .with_note(format!("access its members instead: `{name}.member`")),
+                );
+                Type::Unknown
+            }
+            Some(Res::Builtin(builtin)) => {
+                let name = builtin.name();
+                self.error(
+                    err_at(
+                        codes::T_NOT_A_VALUE,
+                        self.hir.span_of_expr(id),
+                        format!("`{name}` is not a value"),
+                        "the prelude functions can only be called",
+                    )
+                    .with_note(format!("call it instead: `{name}(x)`")),
+                );
+                Type::Unknown
+            }
             None => Type::Unknown,
         }
     }
@@ -989,7 +1061,7 @@ impl<'a> Checker<'a> {
         args: &[ExprId],
     ) -> Type {
         if self.is_module_ref(recv) {
-            self.check_expr(recv, None);
+            self.type_module_handle(recv);
             return self.check_module_call(span, callee, recv, name, args);
         }
 
@@ -1382,7 +1454,7 @@ impl<'a> Checker<'a> {
         }
 
         if self.is_module_ref(recv) {
-            self.check_expr(recv, None);
+            self.type_module_handle(recv);
 
             // Module constants (`math.pi`, BRS-35) are the only typed
             // plain-value members; every other member read stays
@@ -1417,6 +1489,18 @@ impl<'a> Checker<'a> {
                 Type::Unknown
             }
         }
+    }
+
+    /// Records the type of a module handle appearing where it is
+    /// legitimate: as the receiver of a member access.
+    ///
+    /// Deliberately not routed through [`Checker::check_ident`], which
+    /// reports a module used as a value. Typing it here is what leaves
+    /// that report free to fire on every OTHER position an identifier
+    /// can appear in, without a context flag threaded through the
+    /// checker.
+    fn type_module_handle(&mut self, recv: ExprId) {
+        self.tables.expr_types.insert(recv, Type::Unknown);
     }
 
     fn is_module_ref(&self, expr: ExprId) -> bool {
@@ -2282,10 +2366,17 @@ impl<'a> Checker<'a> {
         expected: Option<&Type>,
         used: bool,
     ) -> Type {
-        match body {
+        // A lambda compiles to its own frame with its own loop stack, so
+        // a loop it is written inside is not one its `break` can reach.
+        let saved_loops = std::mem::take(&mut self.loop_depth);
+
+        let ty = match body {
             LambdaBody::Expr(expr) => self.check_value(*expr, expected, used),
             LambdaBody::Block(block) => self.check_block(block, expected, used),
-        }
+        };
+
+        self.loop_depth = saved_loops;
+        ty
     }
 
     /// `if` is an expression when there is an `else`; without one it is
