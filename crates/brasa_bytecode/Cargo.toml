@@ -9,4 +9,5 @@ edition.workspace = true
 brasa_source = { workspace = true }
 
 [dev-dependencies]
+brasa_stdlib = { workspace = true }
 insta = { workspace = true }

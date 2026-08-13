@@ -262,6 +262,23 @@ mod tests {
         }
     }
 
+    /// The registry mints ids; `brasa_stdlib` declares what the members
+    /// are. A declared member with no id could not be called at all, so
+    /// the two halves must cover each other (BRS-96).
+    #[test]
+    fn every_declared_vector_method_holds_a_receiver_id() {
+        for decl in brasa_stdlib::VECTOR_METHODS {
+            let id = builtin_id(decl.name)
+                .unwrap_or_else(|| panic!("`{}` is declared but has no id", decl.name));
+
+            assert!(
+                builtin_def(id).is_some_and(|def| def.has_receiver),
+                "`{}` is a method, so its entry must take a receiver",
+                decl.name
+            );
+        }
+    }
+
     #[test]
     fn unknown_names_do_not_resolve() {
         assert_eq!(builtin_id("definitelyNotABuiltin"), None);

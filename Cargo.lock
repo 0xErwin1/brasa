@@ -147,6 +147,7 @@ name = "brasa_bytecode"
 version = "0.1.0"
 dependencies = [
  "brasa_source",
+ "brasa_stdlib",
  "insta",
 ]
 
@@ -273,6 +274,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "brasa_stdlib"
+version = "0.1.0"
+
+[[package]]
 name = "brasa_token"
 version = "0.1.0"
 dependencies = [
@@ -289,6 +294,7 @@ dependencies = [
  "brasa_parser",
  "brasa_resolver",
  "brasa_source",
+ "brasa_stdlib",
  "insta",
 ]
 
@@ -304,6 +310,7 @@ dependencies = [
  "brasa_resolver",
  "brasa_runtime",
  "brasa_source",
+ "brasa_stdlib",
  "brasa_typeck",
  "criterion",
  "regex",

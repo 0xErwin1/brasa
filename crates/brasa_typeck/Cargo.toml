@@ -10,6 +10,7 @@ brasa_arena = { workspace = true }
 brasa_source = { workspace = true }
 brasa_hir = { workspace = true }
 brasa_resolver = { workspace = true }
+brasa_stdlib = { workspace = true }
 brasa_diagnostics = { workspace = true }
 
 [dev-dependencies]

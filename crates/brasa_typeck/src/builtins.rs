@@ -6,6 +6,12 @@
 //! `string.toInt`/`toFloat` return the parsed number directly and
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
+//!
+//! The `Vector<T>` surface no longer lives here: it is declared once in
+//! `brasa_stdlib::vector` and lowered below (BRS-96). The remaining
+//! receivers still carry their signatures in this file.
+
+use brasa_stdlib::{RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -118,76 +124,63 @@ fn string_method(name: &str) -> Option<MethodSig> {
     }
 }
 
+/// Lowers a declared type against the receiver it was declared for:
+/// [`TyDesc::Elem`] becomes the receiver's element type, everything else
+/// is fixed.
+fn lower(desc: &TyDesc, elem: &Type) -> Type {
+    match desc {
+        TyDesc::Int => Type::Int,
+        TyDesc::String => Type::String,
+        TyDesc::Bool => Type::Bool,
+        TyDesc::Unit => Type::Unit,
+        TyDesc::Unknown => Type::Unknown,
+        TyDesc::Elem => elem.clone(),
+        TyDesc::Vector(inner) => Type::vector(lower(inner, elem)),
+        TyDesc::Option(inner) => Type::option(lower(inner, elem)),
+        TyDesc::Tuple(items) => Type::Tuple(items.iter().map(|item| lower(item, elem)).collect()),
+        TyDesc::Fn(params, ret) => Type::func(
+            params.iter().map(|param| lower(param, elem)).collect(),
+            lower(ret, elem),
+        ),
+    }
+}
+
+/// The `Vector<T>` methods, derived from their declarations
+/// (`brasa_stdlib::vector`, BRS-96).
 fn vector_method(elem: &Type, name: &str) -> Option<MethodSig> {
-    match name {
-        "len" => Some(sig(vec![], Type::Int)),
-        "push" => Some(sig(vec![elem.clone()], Type::Unit)),
-        "pop" | "first" | "last" => Some(sig(vec![], Type::option(elem.clone()))),
-        "reverse" => Some(sig(vec![], Type::vector(elem.clone()))),
-        "contains?" => Some(sig(vec![elem.clone()], Type::Bool)),
-        // `slice(from, to)` shares `string.slice`'s contract, including
-        // its clamping: two members named `slice` that disagreed on the
-        // out-of-range cases would be worse than one of them missing.
-        "slice" => Some(sig(vec![Type::Int, Type::Int], Type::vector(elem.clone()))),
-        // `join` accepts any element type: every value has the derived
-        // `toString`, so demanding `Vector<string>` only forced the
-        // caller to write the `map` the builtin can do itself (BRS-53).
-        "join" => Some(sig(vec![Type::String], Type::String)),
-        "map" => Some(MethodSig {
-            params: vec![Type::func(vec![elem.clone()], Type::Unknown)],
+    let member = VectorMember::from_name(name)?;
+    let decl = member.decl();
+
+    let params = || decl.params.iter().map(|param| lower(param, elem)).collect();
+
+    match decl.ret {
+        RetDesc::Ty(ret) => Some(MethodSig {
+            params: params(),
+            ret: RetRule::Fixed(lower(&ret, elem)),
+        }),
+        RetDesc::VectorOfFnRet => Some(MethodSig {
+            params: params(),
             ret: RetRule::VectorOfFnRet,
         }),
-        "filter" => Some(sig(
-            vec![Type::func(vec![elem.clone()], Type::Bool)],
-            Type::vector(elem.clone()),
-        )),
-        "each" => Some(sig(
-            vec![Type::func(vec![elem.clone()], Type::Unit)],
-            Type::Unit,
-        )),
-        "sortBy" => Some(sig(
-            vec![Type::func(vec![elem.clone()], Type::Unknown)],
-            Type::vector(elem.clone()),
-        )),
-        // `reduce(init, f)` folds left: `(U, (U, T) -> U) -> U`. This
-        // table cannot see the `init` argument, so the entry here only
-        // serves the bound-value form; the call form is special-cased
-        // in the checker, which infers `U` from `init` (BRS-35).
-        "reduce" => Some(sig(
-            vec![
-                Type::Unknown,
-                Type::func(vec![Type::Unknown, elem.clone()], Type::Unknown),
-            ],
-            Type::Unknown,
-        )),
-        "find" => Some(sig(
-            vec![Type::func(vec![elem.clone()], Type::Bool)],
-            Type::option(elem.clone()),
-        )),
-        "any?" | "all?" => Some(sig(
-            vec![Type::func(vec![elem.clone()], Type::Bool)],
-            Type::Bool,
-        )),
-        // `sort` is natural ascending order, so it only exists on
-        // vectors of orderable elements — the same key rule `sortBy`
-        // enforces at runtime (decision recorded here, BRS-35).
-        "sort" if orderable(elem) => Some(sig(vec![], Type::vector(elem.clone()))),
-        // `zip(other)`'s pair type depends on the argument; like
-        // `reduce`, the entry serves the bound-value form and the call
-        // form is special-cased in the checker (BRS-35).
-        "zip" => Some(sig(
-            vec![Type::vector(Type::Unknown)],
-            Type::vector(Type::Tuple(vec![elem.clone(), Type::Unknown])),
-        )),
-        // `flatten` removes exactly one nesting level, so it only
-        // exists on `Vector<Vector<T>>` (decision recorded here).
-        "flatten" => match elem {
+        RetDesc::Custom => vector_custom_method(elem, member),
+    }
+}
+
+/// The two `Vector` members whose declaration delegates the signature
+/// here, because neither their existence nor their result is data:
+/// `sort` exists only for orderable elements, and `flatten` exists only
+/// for nested vectors and yields the receiver's inner element type
+/// (BRS-35).
+fn vector_custom_method(elem: &Type, member: VectorMember) -> Option<MethodSig> {
+    match member {
+        VectorMember::Sort if orderable(elem) => Some(sig(vec![], Type::vector(elem.clone()))),
+        VectorMember::Sort => None,
+        VectorMember::Flatten => match elem {
             Type::Vector(inner) => Some(sig(vec![], Type::vector((**inner).clone()))),
             flexible if flexible.is_flexible() => Some(sig(vec![], Type::vector(Type::Unknown))),
             _ => None,
         },
-        "uniq" => Some(sig(vec![], Type::vector(elem.clone()))),
-        _ => None,
+        _ => unreachable!("`{member:?}` does not delegate its signature to the checker"),
     }
 }
 
@@ -666,6 +659,26 @@ mod tests {
         }
         assert!(method(&Type::vector(Type::Bool), "sort").is_none());
         assert!(method(&Type::vector(Type::vector(Type::Int)), "sort").is_none());
+    }
+
+    /// Every row the declaration marks `custom` must be handled here.
+    /// A new custom row nobody taught the checker about would otherwise
+    /// panic on a user's first call instead of failing in this test.
+    #[test]
+    fn every_custom_vector_row_has_a_checker_rule() {
+        let flexible = Type::vector(Type::Unknown);
+
+        for decl in brasa_stdlib::VECTOR_METHODS {
+            if decl.ret != brasa_stdlib::RetDesc::Custom {
+                continue;
+            }
+
+            assert!(
+                method(&flexible, decl.name).is_some(),
+                "`{}` is declared `custom` but the checker has no rule for it",
+                decl.name
+            );
+        }
     }
 
     #[test]

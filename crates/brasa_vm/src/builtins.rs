@@ -13,6 +13,7 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
+use brasa_stdlib::VectorMember;
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -1017,201 +1018,273 @@ impl Vm<'_> {
         }
     }
 
+    /// The `Vector<T>` methods, dispatched through the declaration in
+    /// `brasa_stdlib::vector` (BRS-96).
+    ///
+    /// The outer match is exhaustive over the declared surface, so a
+    /// member added to the table does not compile until it is
+    /// implemented here — the VM can no longer be the layer that quietly
+    /// lacks a member. Argument shapes stay an inner match: a receiver
+    /// of the right kind called with the wrong operands is the same
+    /// unknown-builtin failure it has always been.
     fn vector_builtin(&mut self, recv: &Value, name: &str, args: Vec<Value>) -> VmResult {
         let Value::Vector(items) = recv else {
             return Err(builtin_error(name));
         };
         let items = *items;
 
-        match (name, args.as_slice()) {
-            ("len", []) => Ok(Value::Int(self.heap.vector(items).borrow().len() as i64)),
-            ("push", [value]) => {
-                self.heap
-                    .edit_vector(items, |items| items.push(value.clone()));
-                Ok(Value::Unit)
-            }
-            ("pop", []) => Ok(match self.heap.edit_vector(items, Vec::pop) {
-                Some(value) => Value::some(value),
-                None => Value::NONE,
-            }),
-            ("first", []) => Ok(self
-                .heap
-                .vector(items)
-                .borrow()
-                .first()
-                .map(|v| Value::some(v.clone()))
-                .unwrap_or(Value::NONE)),
-            ("last", []) => Ok(self
-                .heap
-                .vector(items)
-                .borrow()
-                .last()
-                .map(|v| Value::some(v.clone()))
-                .unwrap_or(Value::NONE)),
-            ("reverse", []) => {
-                let mut reversed = self.heap.vector(items).borrow().clone();
-                reversed.reverse();
-                Ok(self.heap.alloc_vector(reversed))
-            }
-            ("contains?", [value]) => Ok(Value::Bool(
-                self.heap
+        let Some(member) = VectorMember::from_name(name) else {
+            return Err(builtin_error(name));
+        };
+
+        match member {
+            VectorMember::Len => match args.as_slice() {
+                [] => Ok(Value::Int(self.heap.vector(items).borrow().len() as i64)),
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Push => match args.as_slice() {
+                [value] => {
+                    self.heap
+                        .edit_vector(items, |items| items.push(value.clone()));
+                    Ok(Value::Unit)
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Pop => match args.as_slice() {
+                [] => Ok(match self.heap.edit_vector(items, Vec::pop) {
+                    Some(value) => Value::some(value),
+                    None => Value::NONE,
+                }),
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::First => match args.as_slice() {
+                [] => Ok(self
+                    .heap
                     .vector(items)
                     .borrow()
-                    .iter()
-                    .any(|v| value_eq(&self.heap, v, value)),
-            )),
-            ("slice", [Value::Int(from), Value::Int(to)]) => {
-                let taken = {
-                    let source = self.heap.vector(items).borrow();
-                    let len = source.len() as i64;
-                    let from = (*from).clamp(0, len) as usize;
-                    let to = (*to).clamp(0, len) as usize;
+                    .first()
+                    .map(|v| Value::some(v.clone()))
+                    .unwrap_or(Value::NONE)),
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Last => match args.as_slice() {
+                [] => Ok(self
+                    .heap
+                    .vector(items)
+                    .borrow()
+                    .last()
+                    .map(|v| Value::some(v.clone()))
+                    .unwrap_or(Value::NONE)),
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Reverse => match args.as_slice() {
+                [] => {
+                    let mut reversed = self.heap.vector(items).borrow().clone();
+                    reversed.reverse();
+                    Ok(self.heap.alloc_vector(reversed))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Contains => match args.as_slice() {
+                [value] => Ok(Value::Bool(
+                    self.heap
+                        .vector(items)
+                        .borrow()
+                        .iter()
+                        .any(|v| value_eq(&self.heap, v, value)),
+                )),
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Slice => match args.as_slice() {
+                [Value::Int(from), Value::Int(to)] => {
+                    let taken = {
+                        let source = self.heap.vector(items).borrow();
+                        let len = source.len() as i64;
+                        let from = (*from).clamp(0, len) as usize;
+                        let to = (*to).clamp(0, len) as usize;
 
-                    if from >= to {
-                        Vec::new()
-                    } else {
-                        source[from..to].to_vec()
-                    }
-                };
+                        if from >= to {
+                            Vec::new()
+                        } else {
+                            source[from..to].to_vec()
+                        }
+                    };
 
-                Ok(self.heap.alloc_vector(taken))
-            }
+                    Ok(self.heap.alloc_vector(taken))
+                }
+                _ => Err(builtin_error(name)),
+            },
             // Rendering a struct element can reenter a user `toString`
             // override, which allocates, so the traversal goes through
             // the rooting helper like every other reentrant builtin.
             // The rendered parts are plain `String`s, outside the heap.
-            ("join", [Value::Str(sep)]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
+            VectorMember::Join => match args.as_slice() {
+                [Value::Str(sep)] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
 
-                let mut parts = Vec::with_capacity(snapshot.len());
-                self.collect_rooted(recv, snapshot, |this, item| {
-                    parts.push(this.display(&item)?);
-                    Ok(None)
-                })?;
+                    let mut parts = Vec::with_capacity(snapshot.len());
+                    self.collect_rooted(recv, snapshot, |this, item| {
+                        parts.push(this.display(&item)?);
+                        Ok(None)
+                    })?;
 
-                Ok(Value::str(parts.join(sep)))
-            }
-            ("map", [f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let f = f.clone();
-                let mapped = self.collect_rooted(recv, snapshot, |this, item| {
-                    this.call_callable(f.clone(), vec![item]).map(Some)
-                })?;
-                Ok(self.heap.alloc_vector(mapped))
-            }
-            ("filter", [f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let f = f.clone();
-                let kept = self.collect_rooted(recv, snapshot, |this, item| {
-                    match this.call_callable(f.clone(), vec![item.clone()])? {
-                        Value::Bool(true) => Ok(Some(item)),
-                        Value::Bool(false) => Ok(None),
-                        _ => Err(Signal::Fatal(
-                            "brasa: `filter` predicate must return a bool".to_string(),
-                        )),
-                    }
-                })?;
-                Ok(self.heap.alloc_vector(kept))
-            }
-            ("each", [f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let f = f.clone();
-                self.collect_rooted(recv, snapshot, |this, item| {
-                    this.call_callable(f.clone(), vec![item])?;
-                    Ok(None)
-                })?;
-                Ok(Value::Unit)
-            }
-            ("sortBy", [f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                self.sort_by(recv, snapshot, f.clone())
-            }
-            ("sort", []) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                self.sort_natural(snapshot)
-            }
-            ("reduce", [init, f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let (init, f) = (init.clone(), f.clone());
-                self.fold_rooted(recv, snapshot, init, |this, acc, item| {
-                    this.call_callable(f.clone(), vec![acc, item])
-                })
-            }
-            ("find", [f]) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let f = f.clone();
-                let found = self.find_rooted(recv, snapshot, |this, item| {
-                    match this.call_callable(f.clone(), vec![item.clone()])? {
-                        Value::Bool(true) => Ok(Step::Stop(Value::some(item))),
-                        Value::Bool(false) => Ok(Step::Continue),
-                        _ => Err(Signal::Fatal(
-                            "brasa: `find` predicate must return a bool".to_string(),
-                        )),
-                    }
-                })?;
-                Ok(found.unwrap_or(Value::NONE))
-            }
+                    Ok(Value::str(parts.join(sep)))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Map => match args.as_slice() {
+                [f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let f = f.clone();
+                    let mapped = self.collect_rooted(recv, snapshot, |this, item| {
+                        this.call_callable(f.clone(), vec![item]).map(Some)
+                    })?;
+                    Ok(self.heap.alloc_vector(mapped))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Filter => match args.as_slice() {
+                [f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let f = f.clone();
+                    let kept = self.collect_rooted(recv, snapshot, |this, item| {
+                        match this.call_callable(f.clone(), vec![item.clone()])? {
+                            Value::Bool(true) => Ok(Some(item)),
+                            Value::Bool(false) => Ok(None),
+                            _ => Err(Signal::Fatal(
+                                "brasa: `filter` predicate must return a bool".to_string(),
+                            )),
+                        }
+                    })?;
+                    Ok(self.heap.alloc_vector(kept))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Each => match args.as_slice() {
+                [f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let f = f.clone();
+                    self.collect_rooted(recv, snapshot, |this, item| {
+                        this.call_callable(f.clone(), vec![item])?;
+                        Ok(None)
+                    })?;
+                    Ok(Value::Unit)
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::SortBy => match args.as_slice() {
+                [f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    self.sort_by(recv, snapshot, f.clone())
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Reduce => match args.as_slice() {
+                [init, f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let (init, f) = (init.clone(), f.clone());
+                    self.fold_rooted(recv, snapshot, init, |this, acc, item| {
+                        this.call_callable(f.clone(), vec![acc, item])
+                    })
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Find => match args.as_slice() {
+                [f] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let f = f.clone();
+                    let found = self.find_rooted(recv, snapshot, |this, item| {
+                        match this.call_callable(f.clone(), vec![item.clone()])? {
+                            Value::Bool(true) => Ok(Step::Stop(Value::some(item))),
+                            Value::Bool(false) => Ok(Step::Continue),
+                            _ => Err(Signal::Fatal(
+                                "brasa: `find` predicate must return a bool".to_string(),
+                            )),
+                        }
+                    })?;
+                    Ok(found.unwrap_or(Value::NONE))
+                }
+                _ => Err(builtin_error(name)),
+            },
             // `any?` short-circuits on the first `true`, `all?` on the
             // first `false`; the empty vector is `false`/`true`.
-            ("any?" | "all?", [f]) => {
-                let deciding = name == "any?";
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let f = f.clone();
-                let found = self.find_rooted(recv, snapshot, |this, item| {
-                    match this.call_callable(f.clone(), vec![item])? {
-                        Value::Bool(found) if found == deciding => {
-                            Ok(Step::Stop(Value::Bool(deciding)))
+            VectorMember::Any | VectorMember::All => match args.as_slice() {
+                [f] => {
+                    let deciding = member == VectorMember::Any;
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let f = f.clone();
+                    let found = self.find_rooted(recv, snapshot, |this, item| {
+                        match this.call_callable(f.clone(), vec![item])? {
+                            Value::Bool(found) if found == deciding => {
+                                Ok(Step::Stop(Value::Bool(deciding)))
+                            }
+                            Value::Bool(_) => Ok(Step::Continue),
+                            _ => Err(Signal::Fatal(format!(
+                                "brasa: `{name}` predicate must return a bool"
+                            ))),
                         }
-                        Value::Bool(_) => Ok(Step::Continue),
-                        _ => Err(Signal::Fatal(format!(
-                            "brasa: `{name}` predicate must return a bool"
-                        ))),
-                    }
-                })?;
-                Ok(found.unwrap_or(Value::Bool(!deciding)))
-            }
+                    })?;
+                    Ok(found.unwrap_or(Value::Bool(!deciding)))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Sort => match args.as_slice() {
+                [] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    self.sort_natural(snapshot)
+                }
+                _ => Err(builtin_error(name)),
+            },
             // Pairs up to the shorter length; the leftovers of the
             // longer vector are dropped.
-            ("zip", [Value::Vector(other)]) => {
-                let left = self.heap.vector(items).borrow().clone();
-                let right = self.heap.vector(*other).borrow().clone();
-                let pairs = left
-                    .into_iter()
-                    .zip(right)
-                    .map(|(a, b)| Value::Tuple(Rc::from(vec![a, b])))
-                    .collect();
-                Ok(self.heap.alloc_vector(pairs))
-            }
-            ("flatten", []) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let mut flat = Vec::new();
-                for item in snapshot {
-                    match item {
-                        Value::Vector(inner) => {
-                            flat.extend(self.heap.vector(inner).borrow().iter().cloned())
-                        }
-                        _ => {
-                            return Err(Signal::Fatal(
-                                "brasa: `flatten` requires a `Vector<Vector<...>>`".to_string(),
-                            ));
+            VectorMember::Zip => match args.as_slice() {
+                [Value::Vector(other)] => {
+                    let left = self.heap.vector(items).borrow().clone();
+                    let right = self.heap.vector(*other).borrow().clone();
+                    let pairs = left
+                        .into_iter()
+                        .zip(right)
+                        .map(|(a, b)| Value::Tuple(Rc::from(vec![a, b])))
+                        .collect();
+                    Ok(self.heap.alloc_vector(pairs))
+                }
+                _ => Err(builtin_error(name)),
+            },
+            VectorMember::Flatten => match args.as_slice() {
+                [] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let mut flat = Vec::new();
+                    for item in snapshot {
+                        match item {
+                            Value::Vector(inner) => {
+                                flat.extend(self.heap.vector(inner).borrow().iter().cloned())
+                            }
+                            _ => {
+                                return Err(Signal::Fatal(
+                                    "brasa: `flatten` requires a `Vector<Vector<...>>`".to_string(),
+                                ));
+                            }
                         }
                     }
+                    Ok(self.heap.alloc_vector(flat))
                 }
-                Ok(self.heap.alloc_vector(flat))
-            }
+                _ => Err(builtin_error(name)),
+            },
             // Structural equality, first occurrence kept, insertion
             // order preserved — the `Set` constructor's dedup rule.
-            ("uniq", []) => {
-                let snapshot = self.heap.vector(items).borrow().clone();
-                let mut unique: Vec<Value> = Vec::new();
-                for item in snapshot {
-                    if !unique.iter().any(|seen| value_eq(&self.heap, seen, &item)) {
-                        unique.push(item);
+            VectorMember::Uniq => match args.as_slice() {
+                [] => {
+                    let snapshot = self.heap.vector(items).borrow().clone();
+                    let mut unique: Vec<Value> = Vec::new();
+                    for item in snapshot {
+                        if !unique.iter().any(|seen| value_eq(&self.heap, seen, &item)) {
+                            unique.push(item);
+                        }
                     }
+                    Ok(self.heap.alloc_vector(unique))
                 }
-                Ok(self.heap.alloc_vector(unique))
-            }
-            _ => Err(builtin_error(name)),
+                _ => Err(builtin_error(name)),
+            },
         }
     }
 

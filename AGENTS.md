@@ -63,6 +63,7 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_resolver` | Scopes, imports, visibility; the tables every later phase reads |
 | `brasa_typeck` | Inference and checking; `Type::Unknown` poisons instead of aborting |
 | `brasa_errorset` | Error-set inference (fixpoint over the call graph) and `throws` verification |
+| `brasa_stdlib` | Stdlib DECLARATION tables (one per module): surface names, signatures, return rules. Declares only — no implementation, no dependencies |
 | `brasa_bytecode` | Bytecode containers: opcodes, chunks, constant pool, module format, disassembler |
 | `brasa_codegen` | HIR → bytecode |
 | `brasa_runtime` | Execution glue the backend does not own: stdlib's contact with the OS, ordered collections, `Outcome` |
@@ -70,11 +71,13 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_fmt` | Formatter: prints the AST, recovers leaf spelling and comments from the source |
 | `brasa` | CLI binary (clap): runs a script, `brasa fmt`, or `brasa test` |
 
-There is no `brasa_stdlib` and no separate interpreter crate. The stdlib
-lives as native builtins split across `brasa_bytecode::builtin` (the id
-registry), `brasa_typeck::builtins` (signatures) and
-`brasa_vm::builtins` (implementations) — a duplication BRS-96 exists to
-remove. `brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
+There is no separate interpreter crate. The stdlib is native builtins:
+`brasa_bytecode::builtin` mints the ids, `brasa_typeck::builtins`
+resolves signatures and `brasa_vm::builtins` implements them. BRS-96 is
+collapsing the surface those three used to declare separately into one
+table per module in `brasa_stdlib`; `Vector` is converted, every other
+module still declares its signature and its implementation by hand.
+`brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
 behaviour oracle it used to be is now the conformance corpus at
 `crates/brasa_vm/tests/conformance.rs`.
 
