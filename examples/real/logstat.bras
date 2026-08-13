@@ -10,13 +10,7 @@ import std::env
 import std::fs
 import std::io
 import std::math
-
-# A counted key, ready to be ranked. `Map.entries()` yields tuples and a
-# tuple has no accessor, so a sortable row has to be a struct.
-struct Tally
-  key: string
-  hits: int
-end
+import "tally.bras"
 
 let entryPattern = """^(\S+) \S+ \S+ \[[^\]]+\] "([A-Z]+) ([^ "]+)[^"]*" (\d{3}) (\d+|-)"""
 
@@ -32,40 +26,19 @@ def source(): string
   end
 end
 
-def bump(counts: Map<string, int>, key: string)
-  counts.insert(key, (counts[key] ?? 0) + 1)
-end
-
-# Counters ordered by hits descending, ties broken by key. `sortBy` keys
-# must be a single orderable value and it is stable, so the tie-break is
-# a first pass by key.
-def ranked(counts: Map<string, int>): Vector<Tally>
-  let rows: Vector<Tally> = []
-
-  for (key, hits) in counts.entries()
-    rows.push(Tally { key: key, hits: hits })
-  end
-
-  rows.sortBy(|r| r.key).sortBy(|r| -r.hits)
-end
-
-def pad(n: int, width: int): string
-  "#{n}".padStart(width, " ")
-end
-
 def percent(part: int, total: int): string
   let share = part.toFloat() / total.toFloat() * 100.0
 
   "#{share.toFixed(1)}%"
 end
 
-def report(title: string, rows: Vector<Tally>, limit: int)
+def report(title: string, rows: Vector<tally.Tally>, limit: int)
   puts ""
   puts title
 
   for i in 0..math.min(limit, rows.len())
     let row = rows[i]
-    puts "  #{pad(row.hits, 4)}  #{row.key}"
+    puts "  #{tally.pad(row.hits, 4)}  #{row.key}"
   end
 end
 
@@ -101,12 +74,12 @@ def main()
       string.ParseError => 0
     end
 
-    bump(classes, status.slice(0, 1) + "xx")
-    bump(paths, path)
-    bump(clients, client)
+    tally.bump(classes, status.slice(0, 1) + "xx")
+    tally.bump(paths, path)
+    tally.bump(clients, client)
 
     if status.startsWith?("5")
-      bump(failing, "#{method} #{path}")
+      tally.bump(failing, "#{method} #{path}")
     end
   end
 
@@ -118,16 +91,16 @@ def main()
 
   for class in classes.keys().sort()
     let hits = classes[class] ?? 0
-    puts "  #{class}  #{pad(hits, 4)}  #{percent(hits, total)}"
+    puts "  #{class}  #{tally.pad(hits, 4)}  #{percent(hits, total)}"
   end
 
-  report("top paths:", ranked(paths), 5)
-  report("top clients:", ranked(clients), 3)
+  report("top paths:", tally.ranked(paths), 5)
+  report("top clients:", tally.ranked(clients), 3)
 
   if failing.len() == 0
     puts ""
     puts "no server errors"
   else
-    report("server errors by endpoint:", ranked(failing), failing.len())
+    report("server errors by endpoint:", tally.ranked(failing), failing.len())
   end
 end

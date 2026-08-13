@@ -6,9 +6,7 @@ Import::Std(std::env)
 Import::Std(std::fs)
 Import::Std(std::io)
 Import::Std(std::proc)
-StructDef Tally
-  field key
-  field hits
+Import::File("tally.bras")
 Let subjectPattern
   StringLit
     Text(raw=true) "^([a-z]+)(\\([^)]*\\))?(!)?: "
@@ -128,57 +126,6 @@ FuncDef subjects(tag)
           Field(run)
             Ident(proc)
           Ident(args)
-FuncDef bump(counts, key)
-  Call
-    Field(insert)
-      Ident(counts)
-    Ident(key)
-    Binary(+)
-      Coalesce
-        Index
-          Ident(counts)
-          Ident(key)
-        Int(0)
-      Int(1)
-FuncDef ranked(counts)
-  Let rows
-    VectorLit
-  For
-    Tuple
-      Binding(key)
-      Binding(hits)
-    Call
-      Field(entries)
-        Ident(counts)
-    Call
-      Field(push)
-        Ident(rows)
-      StructLit(Tally)
-        field key
-          Ident(key)
-        field hits
-          Ident(hits)
-  Call
-    Field(sortBy)
-      Call
-        Field(sortBy)
-          Ident(rows)
-        Lambda(r)
-          Field(key)
-            Ident(r)
-    Lambda(r)
-      Unary(-)
-        Field(hits)
-          Ident(r)
-FuncDef pad(n, width)
-  Call
-    Field(padStart)
-      StringLit
-        Interp
-          Ident(n)
-    Ident(width)
-    StringLit
-      Text(raw=false) " "
 FuncDef dirtyPaths()
   Call
     Field(len)
@@ -310,7 +257,8 @@ FuncDef main()
       Ident(conventional)
       Int(1)
     Call
-      Ident(bump)
+      Field(bump)
+        Ident(tally)
       Ident(types)
       Index
         Ident(caps)
@@ -356,7 +304,8 @@ FuncDef main()
   For
     Binding(row)
     Call
-      Ident(ranked)
+      Field(ranked)
+        Ident(tally)
       Ident(types)
     Call
       Ident(puts)
@@ -364,7 +313,8 @@ FuncDef main()
         Text(raw=false) "  "
         Interp
           Call
-            Ident(pad)
+            Field(pad)
+              Ident(tally)
             Field(hits)
               Ident(row)
             Int(3)

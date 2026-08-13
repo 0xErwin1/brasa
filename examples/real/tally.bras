@@ -1,0 +1,33 @@
+# Counting keys and ranking them, shared by the report scripts here.
+#
+# `logstat.bras` and `gitreport.bras` both count occurrences into a
+# `Map<string, int>` and then want the result ordered. Before file
+# imports existed this whole file was copy-pasted into each of them.
+
+# A counted key, ready to be ranked. `Map.entries()` yields tuples and a
+# tuple has no accessor, so a sortable row has to be a struct.
+pub struct Tally
+  key: string
+  hits: int
+end
+
+pub def bump(counts: Map<string, int>, key: string)
+  counts.insert(key, (counts[key] ?? 0) + 1)
+end
+
+# Counters ordered by hits descending, ties broken by key. `sortBy` keys
+# must be a single orderable value and it is stable, so the tie-break is
+# a first pass by key.
+pub def ranked(counts: Map<string, int>): Vector<Tally>
+  let rows: Vector<Tally> = []
+
+  for (key, hits) in counts.entries()
+    rows.push(Tally { key: key, hits: hits })
+  end
+
+  rows.sortBy(|r| r.key).sortBy(|r| -r.hits)
+end
+
+pub def pad(n: int, width: int): string
+  "#{n}".padStart(width, " ")
+end

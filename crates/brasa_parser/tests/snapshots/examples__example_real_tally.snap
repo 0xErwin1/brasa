@@ -1,0 +1,58 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+pub StructDef Tally
+  field key
+  field hits
+pub FuncDef bump(counts, key)
+  Call
+    Field(insert)
+      Ident(counts)
+    Ident(key)
+    Binary(+)
+      Coalesce
+        Index
+          Ident(counts)
+          Ident(key)
+        Int(0)
+      Int(1)
+pub FuncDef ranked(counts)
+  Let rows
+    VectorLit
+  For
+    Tuple
+      Binding(key)
+      Binding(hits)
+    Call
+      Field(entries)
+        Ident(counts)
+    Call
+      Field(push)
+        Ident(rows)
+      StructLit(Tally)
+        field key
+          Ident(key)
+        field hits
+          Ident(hits)
+  Call
+    Field(sortBy)
+      Call
+        Field(sortBy)
+          Ident(rows)
+        Lambda(r)
+          Field(key)
+            Ident(r)
+    Lambda(r)
+      Unary(-)
+        Field(hits)
+          Ident(r)
+pub FuncDef pad(n, width)
+  Call
+    Field(padStart)
+      StringLit
+        Interp
+          Ident(n)
+    Ident(width)
+    StringLit
+      Text(raw=false) " "

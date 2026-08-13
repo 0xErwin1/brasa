@@ -6,9 +6,7 @@ Import::Std(std::env)
 Import::Std(std::fs)
 Import::Std(std::io)
 Import::Std(std::math)
-StructDef Tally
-  field key
-  field hits
+Import::File("tally.bras")
 Let entryPattern
   StringLit
     Text(raw=true) "^(\\S+) \\S+ \\S+ \\[[^\\]]+\\] \"([A-Z]+) ([^ \"]+)[^\"]*\" (\\d{3}) (\\d+|-)"
@@ -35,57 +33,6 @@ FuncDef source()
         Index
           Ident(args)
           Int(0)
-FuncDef bump(counts, key)
-  Call
-    Field(insert)
-      Ident(counts)
-    Ident(key)
-    Binary(+)
-      Coalesce
-        Index
-          Ident(counts)
-          Ident(key)
-        Int(0)
-      Int(1)
-FuncDef ranked(counts)
-  Let rows
-    VectorLit
-  For
-    Tuple
-      Binding(key)
-      Binding(hits)
-    Call
-      Field(entries)
-        Ident(counts)
-    Call
-      Field(push)
-        Ident(rows)
-      StructLit(Tally)
-        field key
-          Ident(key)
-        field hits
-          Ident(hits)
-  Call
-    Field(sortBy)
-      Call
-        Field(sortBy)
-          Ident(rows)
-        Lambda(r)
-          Field(key)
-            Ident(r)
-    Lambda(r)
-      Unary(-)
-        Field(hits)
-          Ident(r)
-FuncDef pad(n, width)
-  Call
-    Field(padStart)
-      StringLit
-        Interp
-          Ident(n)
-    Ident(width)
-    StringLit
-      Text(raw=false) " "
 FuncDef percent(part, total)
   Let share
     Binary(*)
@@ -132,7 +79,8 @@ FuncDef report(title, rows, limit)
         Text(raw=false) "  "
         Interp
           Call
-            Ident(pad)
+            Field(pad)
+              Ident(tally)
             Field(hits)
               Ident(row)
             Int(4)
@@ -225,7 +173,8 @@ FuncDef main()
         arm string.ParseError
             Int(0)
     Call
-      Ident(bump)
+      Field(bump)
+        Ident(tally)
       Ident(classes)
       Binary(+)
         Call
@@ -236,11 +185,13 @@ FuncDef main()
         StringLit
           Text(raw=false) "xx"
     Call
-      Ident(bump)
+      Field(bump)
+        Ident(tally)
       Ident(paths)
       Ident(path)
     Call
-      Ident(bump)
+      Field(bump)
+        Ident(tally)
       Ident(clients)
       Ident(client)
     If
@@ -252,7 +203,8 @@ FuncDef main()
             Text(raw=false) "5"
       then
         Call
-          Ident(bump)
+          Field(bump)
+            Ident(tally)
           Ident(failing)
           StringLit
             Interp
@@ -305,7 +257,8 @@ FuncDef main()
         Text(raw=false) "  "
         Interp
           Call
-            Ident(pad)
+            Field(pad)
+              Ident(tally)
             Ident(hits)
             Int(4)
         Text(raw=false) "  "
@@ -319,7 +272,8 @@ FuncDef main()
     StringLit
       Text(raw=false) "top paths:"
     Call
-      Ident(ranked)
+      Field(ranked)
+        Ident(tally)
       Ident(paths)
     Int(5)
   Call
@@ -327,7 +281,8 @@ FuncDef main()
     StringLit
       Text(raw=false) "top clients:"
     Call
-      Ident(ranked)
+      Field(ranked)
+        Ident(tally)
       Ident(clients)
     Int(3)
   If
@@ -351,7 +306,8 @@ FuncDef main()
         StringLit
           Text(raw=false) "server errors by endpoint:"
         Call
-          Ident(ranked)
+          Field(ranked)
+            Ident(tally)
           Ident(failing)
         Call
           Field(len)

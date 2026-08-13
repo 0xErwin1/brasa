@@ -61,6 +61,7 @@ example_tests! {
     example_real_gitreport => "real/gitreport.bras",
     example_real_lockaudit => "real/lockaudit.bras",
     example_real_logstat => "real/logstat.bras",
+    example_real_tally => "real/tally.bras",
     example_shapes => "shapes.bras",
     example_stars => "stars.bras",
     example_strings => "strings.bras",

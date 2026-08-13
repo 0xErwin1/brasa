@@ -546,6 +546,15 @@ fn example_modules_utils() {
     assert_example("modules/utils.bras", "");
 }
 
+/// The counting helpers `logstat` and `gitreport` share. Like every
+/// module it declares and runs nothing, so the pin is that it loads
+/// clean and stays silent; the two scripts that import it pin its
+/// behaviour through their own output.
+#[test]
+fn example_real_tally() {
+    assert_example("real/tally.bras", "");
+}
+
 /// The whole of BRS-97 in one example: the importer's top-level `let`
 /// calls across the module boundary before `main` runs, `main` reads a
 /// second exported function, and `utils`' own private helper is reached
