@@ -343,12 +343,24 @@ pub struct Resolutions {
     pub catch_arm_native_errors: HashMap<(ExprId, usize, usize), &'static str>,
     /// Resolved `throws Type | ...` declaration lists, aligned with the
     /// declaring function/method's `Throws::Types` names; `None` marks a
-    /// name that resolved to nothing (reported as `R003`). Interface
-    /// members declare `throws` too; their names are validated (`R003`)
-    /// during resolution but recorded in no table — enforcing their
-    /// contracts needs interface-satisfaction integration, deferred to
-    /// M3+ (see `Resolver::resolve_iface_member`).
+    /// name that resolved to no type in scope — an unknown name
+    /// (reported as `R003`), a `panics.` member (rejected as `E006` by
+    /// the error-set pass), or a stdlib-native error, which is recorded
+    /// in [`Resolutions::throws_native_errors`] instead. Interface
+    /// members declare `throws` too; their names are validated during
+    /// resolution but recorded in no table — enforcing their contracts
+    /// needs interface-satisfaction integration, deferred to M3+ (see
+    /// `Resolver::resolve_iface_member`).
     pub throws_types: HashMap<DefRef, Vec<Option<TypeRes>>>,
+    /// `throws` names matching a member of the closed native-error list
+    /// ([`NATIVE_ERRORS`]), keyed by the declaring function/method and
+    /// the name's index in its `Throws::Types` list; the value is the
+    /// canonical qualified name. A separate table from `throws_types`
+    /// for the same reason `catch_arm_native_errors` is separate from
+    /// `catch_arm_types`: a native error resolves to no `TypeRes` — it
+    /// is not a type in scope — yet it IS an error, so it belongs in
+    /// the declared contract the error-set pass verifies.
+    pub throws_native_errors: HashMap<(DefRef, usize), &'static str>,
     /// Function/method parameter lists, aligned with `FuncDef::params`;
     /// `None` marks a `Param::SelfParam` slot (`self` is not a local).
     pub func_params: HashMap<DefRef, Vec<Option<LocalId>>>,

@@ -1,6 +1,6 @@
 //! The BRS-23 checks that consume the inferred sets: unreachable
 //! `catch` arms (E001), `catch!` exhaustiveness (E002/E003), and
-//! `throws` contract verification (E004/E005). Wording and kind
+//! `throws` contract verification (E004/E005/E006). Wording and kind
 //! boundaries follow `docs/spec/06-diagnostics.md`.
 //!
 //! Precision rules on open sets (`docs/spec/04-errors.md`): the tags of
@@ -31,6 +31,12 @@
 //!   throwable nominal or primitive (an interface, a generic
 //!   parameter) maps to no tag and is skipped, like the equivalent
 //!   `catch` arm subtraction.
+//! - A declared stdlib-native error (`fs.NotFound`) maps to its
+//!   `Opaque` tag, so it satisfies the contract exactly like a
+//!   user-declared type would. The two halves of the contract stay
+//!   symmetric: whatever a `catch` arm can name, `throws` can declare.
+//! - A declared `panics.X` is E006, not E004: a panic is not an error,
+//!   so this is a category error rather than a mis-sized error-set.
 //! - Interface-method `throws` contracts are NOT checked here: the
 //!   resolver validates the declared names (`R003`), but enforcing the
 //!   contract — a satisfying method must not throw more than the
@@ -43,11 +49,11 @@
 use std::collections::{BTreeSet, HashMap};
 
 use brasa_diagnostics::{Diagnostic, Severity, codes};
-use brasa_hir::{CatchArm, CatchType, ExprId, FuncDef, Hir, Item, Throws};
+use brasa_hir::{CatchArm, CatchType, ExprId, FuncDef, Hir, Item, Throws, ThrowsType};
 use brasa_resolver::{DefRef, Resolutions};
 use brasa_source::Span;
 
-use crate::collect::{arm_tag, caught_tag};
+use crate::collect::{arm_tag, throws_tag};
 use crate::dump::{def_ref_name, tag_name};
 use crate::{ErrorSet, ErrorTag};
 
@@ -230,15 +236,11 @@ pub(crate) fn throws_contract(
                 );
             }
         }
-        Some(Throws::Types(_)) => {
-            let Some(resolved) = res.throws_types.get(&def) else {
-                return;
-            };
+        Some(Throws::Types(names)) => {
+            reject_declared_panics(names, diagnostics);
 
-            let declared: BTreeSet<ErrorTag> = resolved
-                .iter()
-                .flatten()
-                .filter_map(|&type_res| caught_tag(hir, type_res))
+            let declared: BTreeSet<ErrorTag> = (0..names.len())
+                .filter_map(|index| throws_tag(hir, res, (def, index)))
                 .collect();
 
             for tag in &set.tags {
@@ -270,6 +272,36 @@ pub(crate) fn throws_contract(
                 );
             }
         }
+    }
+}
+
+/// E006: a `throws` list naming a member of the `panics.` union.
+///
+/// A panic is a separate channel (`docs/spec/04-errors.md`): it never
+/// enters an error-set, so the declaration is a claim about the body
+/// that nothing the body does could ever satisfy — and, unlike an
+/// over-declared error type, it is not a harmlessly wider contract but
+/// a category error. Reported per name, before the set comparison, and
+/// independently of it: the panic contributes no tag either way.
+fn reject_declared_panics(names: &[ThrowsType], diagnostics: &mut Vec<Diagnostic>) {
+    for throws_type in names {
+        if !throws_type.name.starts_with("panics.") {
+            continue;
+        }
+
+        diagnostics.push(
+            err(
+                codes::E_PANIC_IN_THROWS,
+                throws_type.span,
+                format!("`throws` cannot name a panic: `{}`", throws_type.name),
+                "a panic is not an error",
+            )
+            .with_note(
+                "panics never enter an error-set: drop it here and name it in a `catch` arm \
+                 instead"
+                    .to_string(),
+            ),
+        );
     }
 }
 

@@ -201,6 +201,13 @@ snapshot_test!(
     "def fetch(url: string): string throws NetError | DnsError\n  url\nend"
 );
 snapshot_test!(throws_never, "def pure(x: int): int throws never\n  x\nend");
+// A `throws` name uses the same production as a `catch` arm type, so a
+// stdlib-native error and a type from an imported module are spellable
+// in both halves of the contract.
+snapshot_test!(
+    throws_qualified_names,
+    "def read(p: string): string throws fs.NotFound | utils.ParseError\n  p\nend"
+);
 snapshot_test!(
     interface_with_throws_member,
     "interface Fetcher\n  def fetch(url: string): string throws NetError\nend"

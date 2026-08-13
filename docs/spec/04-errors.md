@@ -65,6 +65,26 @@ end
   contract. Same rule as `catch!` exhaustiveness and `throws never`.
 - Over-declaring is fine: naming a type the body never throws is a
   wider contract, not an error.
+- A `throws` name is written exactly as a `catch` arm type
+  ([02-grammar.md](02-grammar.md), `error_type`), so a stdlib-native
+  error is declarable by its dotted name and satisfies the contract like
+  any other error:
+
+```ruby
+import std::fs
+
+def readConfig(path: string): string throws fs.NotFound | fs.Denied | fs.IoError
+  fs.read(path)
+end
+```
+
+- A `panics.` member is **rejected** in a `throws` list. A panic is not
+  an error: it never enters an error-set, so no body could honor the
+  declaration and the compiler could not verify it. This is not
+  over-declaration — which is harmless — but a category error, and it
+  gets its own diagnostic (`E006` in
+  [06-diagnostics.md](06-diagnostics.md)). Naming a panic to handle it
+  is a `catch` arm, not a contract.
 - `throws never` asserts that the function does not throw (it may still
   panic).
 - `interface` methods MUST declare `throws` if they throw: an interface
@@ -163,6 +183,7 @@ the panic expresses the same intent with one fewer mechanism.)
 |---|---|---|
 | Origin | domain: network, IO, parsing, validation | bug: index out of range, div/0, assertion |
 | In the error-set | yes, inferred | no |
+| In a `throws` list | declarable and verified | rejected (`E006`) |
 | Arm with its type | catches it | catches it (explicit opt-in) |
 | `_` arm | catches it | does NOT catch it |
 | Unhandled in main | message + exit ≠ 0 | message + stacktrace + exit ≠ 0 |

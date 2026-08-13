@@ -890,7 +890,7 @@ impl<'a> Parser<'a> {
 
     /// Returns the joined dotted name and the span covering all of its
     /// segments (from the first name token through the last).
-    fn parse_qualified_type_name(&mut self) -> (String, Span) {
+    pub(crate) fn parse_qualified_type_name(&mut self) -> (String, Span) {
         let start = self.span();
         let mut end = start;
         let mut segments = vec![self.parse_one_name_segment()];

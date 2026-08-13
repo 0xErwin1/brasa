@@ -217,6 +217,34 @@ end
 "#
 );
 
+// A `throws` list admits every name a `catch` arm admits: a bare user
+// type and a stdlib-native error alike, with no `R003`/`R012` in sight.
+resolution_test!(
+    throws_native_errors,
+    r#"
+import std::fs
+
+struct ConfigError
+  detail: string
+end
+
+def load(path: string): string throws fs.NotFound | fs.IoError | ConfigError
+  fs.read(path)
+end
+"#
+);
+
+resolution_error_test!(
+    unknown_throws_native_error,
+    r#"
+import std::fs
+
+def load(path: string): string throws fs.Nope
+  fs.read(path)
+end
+"#
+);
+
 resolution_error_test!(
     unknown_native_error,
     r#"

@@ -214,6 +214,10 @@ pub const E_UNDECLARED_THROW: &str = "E004";
 /// A `throws never` contract the body violates: the inferred error-set
 /// is non-empty, or open (and therefore unverifiable).
 pub const E_THROWS_NEVER_VIOLATED: &str = "E005";
+/// A `throws` list naming a member of the `panics.` union. A panic is
+/// not an error: it never enters an error-set, so no body can ever
+/// honor such a declaration.
+pub const E_PANIC_IN_THROWS: &str = "E006";
 
 // --- code generation (C) ---
 
@@ -311,6 +315,7 @@ mod tests {
         super::E_UNVERIFIABLE_EXHAUSTIVENESS,
         super::E_UNDECLARED_THROW,
         super::E_THROWS_NEVER_VIOLATED,
+        super::E_PANIC_IN_THROWS,
         super::C_TOO_MANY_ARGUMENTS,
         super::C_TOO_MANY_PARAMETERS,
         super::C_TOO_MANY_ELEMENTS,

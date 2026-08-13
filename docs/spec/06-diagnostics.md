@@ -83,7 +83,9 @@ Rules:
   name (duplicate, unknown, unused) point at the name, not the whole
   declaration. (Functions, parameters, fields, variants, and generic
   parameters carry dedicated name spans; `throws`-contract diagnostics
-  (`E004`/`E005`) point at the declaring function's name.)
+  (`E004`/`E005`) point at the declaring function's name, while `E006`,
+  which is about one written name rather than the contract as a whole,
+  points at that name.)
 
 ## Code registry
 
@@ -197,6 +199,10 @@ Notes on kind boundaries:
   not a resolver one. Codes are append-only, so the number stays spent.
   `R009` remains: `std` is a closed list, so a typo there is a different
   mistake from a module that is merely not installed.
+- `R012` also covers a `throws` list, which is resolved by the same
+  rules as a `catch` arm: `throws fs.Nope` is the same mistake as
+  `fs.Nope =>`. `R011` does not, because a panic in a `throws` list is
+  not an unknown name but a name that does not belong there (`E006`).
 - `R011` and `R012` cover the closed builtin `catch`-arm namespaces:
   `R011` the `panics.` union (`04-errors.md`), `R012` the landed
   stdlib-error names (`string.ParseError`, `string.RegexError`,
@@ -303,6 +309,7 @@ Notes on kind boundaries:
 | `E003` | unverifiable exhaustiveness | `catch! cannot be verified: the subject's error-set is open` |
 | `E004` | undeclared or unverifiable throw | `` `fetch` throws `DnsError` but does not declare it`` |
 | `E005` | `throws never` violated | `` `boom` declares `throws never` but can throw `BoomError` `` |
+| `E006` | panic named in `throws` | ``` `throws` cannot name a panic: `panics.DivisionByZero` ``` |
 
 Notes on kind boundaries:
 
@@ -339,6 +346,15 @@ Notes on kind boundaries:
 - `E005` backs two wordings under one kind: a concrete violation
   (`throws never` with a non-empty set) and the unverifiable case
   (`throws never` with an open set).
+- `E006` is deliberately not an `E004`: a `panics.` name in a `throws`
+  list is not an error-set that came out the wrong size but a name that
+  could never belong to one (`04-errors.md`), so the message says why
+  instead of reporting a contract the reader cannot repair by widening
+  it. It is reported per offending name and independently of the set
+  comparison — the rest of the list is still verified as usual — and it
+  points at the name, not at the declaring function, because the name is
+  what has to go. A stdlib-native error in the same position is
+  legitimate and gets no diagnostic: it IS an error.
 
 ### Code generation (`C`)
 

@@ -244,8 +244,14 @@ impl<'a> Parser<'a> {
         Some(Throws::Types(types))
     }
 
+    /// One name in a `throws` list. Uses the same production as a
+    /// `catch` arm type (`error_type` in `docs/spec/02-grammar.md`), so
+    /// a stdlib-native error (`fs.NotFound`) or a type reached through
+    /// an imported module (`utils.ParseError`) is spellable here — the
+    /// two halves of the same error contract must accept the same
+    /// names. What each dotted name MEANS is decided during resolution.
     fn parse_throws_type(&mut self) -> brasa_ast::ThrowsType {
-        let (name, span) = self.expect_type_ident_spanned("an error type");
+        let (name, span) = self.parse_qualified_type_name();
         brasa_ast::ThrowsType { name, span }
     }
 

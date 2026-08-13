@@ -31,7 +31,10 @@
 //!   names in landed native-error namespaces (`string.`, `proc.`,
 //!   `fs.`, `json.`) are validated against the closed native-error
 //!   list (BRS-41); dotted names in other roots are skipped until
-//!   their namespaces land.
+//!   their namespaces land. A `throws` list is resolved by the very
+//!   same rules (`Resolver::resolve_throws_name`), so both halves of an
+//!   error contract admit the same names — except `panics.X`, which is
+//!   left for the error-set pass to reject as `E006`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -40,7 +43,7 @@ use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{
     ArmBody, CatchType, Constraint, EnumDef, Expr, ExprId, Field, FuncDef, GenericParam, Hir,
     IfNode, IfaceMember, Import, ImportPath, Item, ItemId, LambdaBody, Param, Pattern, PatternId,
-    Stmt, StmtId, StructDef, Throws, TypeExpr, TypeExprId,
+    Stmt, StmtId, StructDef, Throws, ThrowsType, TypeExpr, TypeExprId,
 };
 use brasa_source::Span;
 
@@ -56,6 +59,17 @@ use crate::tables::{
 enum CtorPosition {
     Expr,
     Pattern,
+}
+
+/// What one name in a `throws` list turned out to denote. `None`
+/// covers every name that denotes no type in scope: an unresolved one
+/// (already reported), a `panics.` member (left for the error-set
+/// pass), and a dotted name in a namespace that has not landed.
+enum ThrowsName {
+    Type(TypeRes),
+    /// A member of the closed native-error list, by its canonical name.
+    Native(&'static str),
+    None,
 }
 
 /// The std modules that exist in v1 (`docs/spec/05-stdlib.md`).
@@ -697,14 +711,7 @@ impl<'h> Resolver<'h> {
 
         if let Some(Throws::Types(types)) = &member.throws {
             for throws_type in types {
-                if self.lookup_type(&throws_type.name).is_none() {
-                    self.error(err_at(
-                        codes::R_UNKNOWN_TYPE,
-                        throws_type.span,
-                        format!("unknown type `{}`", throws_type.name),
-                        "not found in this scope",
-                    ));
-                }
+                self.resolve_throws_name(throws_type);
             }
         }
     }
@@ -749,35 +756,89 @@ impl<'h> Resolver<'h> {
         self.type_frames.pop();
     }
 
-    /// Resolves a `throws Type | ...` declaration list in the type
-    /// namespace, mirroring `catch` arm types: every name records its
-    /// result positionally, an unknown name is `R003` and records `None`
-    /// so later slots stay aligned with the declared list. Runs inside
-    /// the function's generic frame, so a `throws T` naming a generic
-    /// parameter resolves (the error-set checker decides what it can do
-    /// with it). `throws never` declares no names and records nothing.
+    /// Resolves a `throws Type | ...` declaration list, mirroring
+    /// `catch` arm types name for name: every slot records its result
+    /// positionally in `throws_types`, a native error goes to
+    /// `throws_native_errors` instead, and anything that resolves to no
+    /// type in scope records `None` so later slots stay aligned with
+    /// the declared list. Runs inside the function's generic frame, so
+    /// a `throws T` naming a generic parameter resolves (the error-set
+    /// checker decides what it can do with it). `throws never` declares
+    /// no names and records nothing.
     fn resolve_throws(&mut self, owner: DefRef, func: &'h FuncDef) {
         let Some(Throws::Types(types)) = &func.throws else {
             return;
         };
 
-        let resolved = types
-            .iter()
-            .map(|throws_type| match self.lookup_type(&throws_type.name) {
-                Some(res) => Some(res),
-                None => {
-                    self.error(err_at(
-                        codes::R_UNKNOWN_TYPE,
-                        throws_type.span,
-                        format!("unknown type `{}`", throws_type.name),
-                        "not found in this scope",
-                    ));
-                    None
+        let mut resolved = Vec::with_capacity(types.len());
+        for (index, throws_type) in types.iter().enumerate() {
+            match self.resolve_throws_name(throws_type) {
+                ThrowsName::Type(res) => resolved.push(Some(res)),
+                ThrowsName::Native(error) => {
+                    self.res.throws_native_errors.insert((owner, index), error);
+                    resolved.push(None);
                 }
-            })
-            .collect();
+                ThrowsName::None => resolved.push(None),
+            }
+        }
 
         self.res.throws_types.insert(owner, resolved);
+    }
+
+    /// Classifies one `throws` name with the same rules a `catch` arm
+    /// type uses, because the two halves of an error contract must
+    /// admit the same names: `panics.X` is reserved and needs no import,
+    /// a root bound to an imported file module names a type in that
+    /// module, a root in a landed stdlib namespace names a native
+    /// error, and a bare name resolves in the type namespace.
+    ///
+    /// A `panics.` name is deliberately left unreported here: it is not
+    /// an unknown type but a category error the error-set pass names
+    /// (`E006`), which is also where the reader is told why a panic
+    /// cannot be declared.
+    fn resolve_throws_name(&mut self, throws_type: &'h ThrowsType) -> ThrowsName {
+        let name = &throws_type.name;
+        let span = throws_type.span;
+
+        if name.contains('.') {
+            // `panics.` is reserved and needs no import, so it wins
+            // over a file module that happens to be named `panics` —
+            // the same precedence a `catch` arm applies, and the reason
+            // this arrives before the module split rather than falling
+            // through to the "namespace has not landed" case below.
+            if name.starts_with("panics.") {
+                return ThrowsName::None;
+            }
+
+            if let Some((stem, type_name)) = self.split_module_path(name) {
+                return match self.qualified_type(stem, type_name, span) {
+                    Some(res) => ThrowsName::Type(res),
+                    None => ThrowsName::None,
+                };
+            }
+
+            if native_error_namespace_landed(name) {
+                return match self.lookup_native_error(name, span) {
+                    Some(error) => ThrowsName::Native(error),
+                    None => ThrowsName::None,
+                };
+            }
+
+            return ThrowsName::None;
+        }
+
+        match self.lookup_type(name) {
+            Some(res) => ThrowsName::Type(res),
+            None => {
+                self.error(err_at(
+                    codes::R_UNKNOWN_TYPE,
+                    span,
+                    format!("unknown type `{name}`"),
+                    "not found in this scope",
+                ));
+                ThrowsName::None
+            }
+        }
     }
 
     // --- scopes and bindings -------------------------------------------
@@ -1295,11 +1356,10 @@ impl<'h> Resolver<'h> {
     }
 
     /// A `catch` arm name in a landed native-error namespace
-    /// (`string.`, `proc.`): the native-error list is closed
-    /// (`docs/spec/05-stdlib.md`), so the name either matches a
-    /// member of [`NATIVE_ERRORS`] — recorded in
-    /// `catch_arm_native_errors` with the canonical `&'static str` — or
-    /// is an `R012` error. Mirrors [`Self::resolve_panic_arm`].
+    /// (`string.`, `proc.`): the name either matches a member of
+    /// [`NATIVE_ERRORS`] — recorded in `catch_arm_native_errors` with
+    /// the canonical `&'static str` — or was reported as `R012`.
+    /// Mirrors [`Self::resolve_panic_arm`].
     fn resolve_native_error_arm(
         &mut self,
         id: ExprId,
@@ -1308,12 +1368,21 @@ impl<'h> Resolver<'h> {
         name: &str,
         span: Span,
     ) {
+        if let Some(error) = self.lookup_native_error(name, span) {
+            self.res
+                .catch_arm_native_errors
+                .insert((id, arm_index, type_index), error);
+        }
+    }
+
+    /// Matches a dotted name against the closed native-error list
+    /// (`docs/spec/05-stdlib.md`), returning its canonical
+    /// `&'static str` or reporting `R012`. Shared by the two places an
+    /// error contract names a native error — `catch` arms and `throws`
+    /// declarations — so both accept exactly the same set of names.
+    fn lookup_native_error(&mut self, name: &str, span: Span) -> Option<&'static str> {
         match NATIVE_ERRORS.iter().find(|&&error| error == name) {
-            Some(&error) => {
-                self.res
-                    .catch_arm_native_errors
-                    .insert((id, arm_index, type_index), error);
-            }
+            Some(&error) => Some(error),
             None => {
                 self.error(
                     err_at(
@@ -1324,6 +1393,7 @@ impl<'h> Resolver<'h> {
                     )
                     .with_note(format!("known stdlib errors: {}", NATIVE_ERRORS.join(", "))),
                 );
+                None
             }
         }
     }

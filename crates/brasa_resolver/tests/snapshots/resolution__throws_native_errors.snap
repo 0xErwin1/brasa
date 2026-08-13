@@ -1,0 +1,15 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: dump
+---
+locals
+  l0 param path
+func params
+  load -> [l0]
+exprs
+  e0 fs -> module fs
+  e2 path -> local l0
+types
+  t0 string -> builtin string
+  t1 string -> builtin string
+  t2 string -> builtin string

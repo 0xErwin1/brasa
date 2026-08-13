@@ -1,0 +1,6 @@
+---
+source: crates/brasa_parser/tests/precedence.rs
+expression: "dump_source(\"def read(p: string): string throws fs.NotFound | utils.ParseError\\n  p\\nend\")"
+---
+FuncDef read(p) throws fs.NotFound|utils.ParseError
+  Ident(p)

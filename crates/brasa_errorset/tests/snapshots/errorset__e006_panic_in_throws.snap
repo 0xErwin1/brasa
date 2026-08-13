@@ -1,0 +1,22 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E006] Error: `throws` cannot name a panic: `panics.DivisionByZero`
+   ╭─[ e006_panic_in_throws.bras:6:30 ]
+   │
+ 6 │ def pure(x: int): int throws panics.DivisionByZero
+   │                              ──────────┬──────────  
+   │                                        ╰──────────── a panic is not an error
+   │ 
+   │ Note: panics never enter an error-set: drop it here and name it in a `catch` arm instead
+───╯
+[E006] Error: `throws` cannot name a panic: `panics.IndexOutOfBounds`
+    ╭─[ e006_panic_in_throws.bras:10:48 ]
+    │
+ 10 │ def fetch(mode: int): string throws NetError | panics.IndexOutOfBounds
+    │                                                ───────────┬───────────  
+    │                                                           ╰───────────── a panic is not an error
+    │ 
+    │ Note: panics never enter an error-set: drop it here and name it in a `catch` arm instead
+────╯

@@ -1,0 +1,13 @@
+---
+source: crates/brasa_resolver/tests/resolution.rs
+expression: rendered
+---
+[R012] Error: unknown stdlib error `fs.Nope`
+   ╭─[ unknown_throws_native_error.bras:4:39 ]
+   │
+ 4 │ def load(path: string): string throws fs.Nope
+   │                                       ───┬───  
+   │                                          ╰───── no such stdlib error
+   │ 
+   │ Note: known stdlib errors: string.ParseError, string.RegexError, proc.NonZeroExit, proc.SpawnError, fs.NotFound, fs.Denied, fs.IoError, json.ParseError, http.RequestError, cli.UsageError
+───╯

@@ -1051,6 +1051,62 @@ end
 "#
 );
 
+// A declared stdlib-native error satisfies the contract exactly like a
+// user-declared type: the `Opaque` tag the body contributes is the tag
+// the declaration names, so nothing is left undeclared.
+errorset_test!(
+    declared_native_errors_satisfy_the_contract,
+    r#"
+import std::fs
+import std::json
+
+def absolute(path: string): string throws fs.IoError
+  fs.abs(path)
+end
+
+def decode(text: string): Json throws json.ParseError
+  json.parse(text)
+end
+
+def readAll(path: string): string throws fs.NotFound | fs.Denied | fs.IoError
+  fs.read(path)
+end
+"#
+);
+
+// The other half of the same contract: declaring one of the three `fs`
+// errors leaves the other two undeclared, and they are still rejected.
+errorset_error_test!(
+    e004_undeclared_native_error,
+    r#"
+import std::fs
+
+def readAll(path: string): string throws fs.NotFound
+  fs.read(path)
+end
+"#
+);
+
+errorset_error_test!(
+    e006_panic_in_throws,
+    r#"
+struct NetError
+  detail: string
+end
+
+def pure(x: int): int throws panics.DivisionByZero
+  x
+end
+
+def fetch(mode: int): string throws NetError | panics.IndexOutOfBounds
+  if mode == 1
+    throw NetError { detail: "down" }
+  end
+  "ok"
+end
+"#
+);
+
 errorset_test!(
     proc_runners_tag_the_set,
     r#"

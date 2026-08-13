@@ -777,3 +777,52 @@ fn an_unknown_std_module_is_still_reported_as_such() {
         "got: {stderr}"
     );
 }
+
+/// The `panics.` prefix wins over a file module that happens to be
+/// named `panics` (BRS-116). Without that precedence the dotted name
+/// would resolve to the user's module and `throws panics.Boom` would be
+/// accepted as an ordinary error contract, which is the one shape the
+/// `throws` clause must never allow.
+///
+/// This lives here rather than beside the other `throws` tests because
+/// a file module is the only way to make the reserved prefix ambiguous,
+/// and that needs real files.
+#[test]
+fn the_panics_prefix_wins_over_a_file_module_of_that_name() {
+    let dir = temp_dir("throws-panics-module");
+    write(
+        &dir,
+        "panics.bras",
+        "pub struct Boom\n  detail: string\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        concat!(
+            "import \"panics.bras\"\n\n",
+            "def f(): int throws panics.Boom\n",
+            "  throw panics.Boom { detail: \"x\" }\n",
+            "end\n\n",
+            "puts f()\n",
+        ),
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(65));
+    let stderr = stderr(&output);
+    assert!(
+        stderr.contains("E006"),
+        "the reserved prefix must win, got: {stderr}"
+    );
+    assert!(stderr.contains("a panic is not an error"), "got: {stderr}");
+
+    // The load-bearing half: a rejected name must also fail to satisfy
+    // the contract. Were the prefix to lose, `panics.Boom` would resolve
+    // to the file module's struct, silently count as declared, and take
+    // the undeclared-throw report down with it.
+    assert!(
+        stderr.contains("E004"),
+        "a panic name must not satisfy the contract, got: {stderr}"
+    );
+}

@@ -71,7 +71,10 @@ func_def    = "pub"? "def" IDENT generics? "(" params? ")" ret? throws? NL block
 params      = param ( "," param )*
 param       = "self" | IDENT ":" type
 ret         = ":" type
-throws      = "throws" ( "never" | TYPE_IDENT ( "|" TYPE_IDENT )* )
+throws      = "throws" ( "never" | error_type ( "|" error_type )* )
+                                    # same production as a catch arm type
+                                    # (see the catch clause below): fs.NotFound
+                                    # is declarable, panics.X is not (04-errors.md)
 generics    = "<" gen_param ( "," gen_param )* ">"
 gen_param   = TYPE_IDENT ( ":" constraint )?
 constraint  = TYPE_IDENT                              # named interface
@@ -193,6 +196,12 @@ catch_types  = ( error_type | "_" ) ( "|" error_type )*
 error_type   = ( IDENT "." )? TYPE_IDENT     # possibly qualified: fs.NotFound, panics.DivisionByZero,
                                              # utils.ParseError (a type from an imported module)
 ```
+
+`error_type` is the one production both halves of an error contract use:
+a `catch` arm and a `throws` list accept exactly the same names. The
+grammar admits `panics.X` in both, and the difference is semantic, not
+syntactic — an arm may name a panic, a `throws` list may not
+([04-errors.md](04-errors.md)).
 
 Full semantics in [04-errors.md](04-errors.md). `catch` is a postfix
 operator on an expression with the highest precedence of level 12; in

@@ -1,0 +1,18 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E004] Error: `readAll` throws `fs.Denied` but does not declare it
+   ╭─[ e004_undeclared_native_error.bras:4:5 ]
+   │
+ 4 │ def readAll(path: string): string throws fs.NotFound
+   │     ───┬───  
+   │        ╰───── this function can throw `fs.Denied`
+───╯
+[E004] Error: `readAll` throws `fs.IoError` but does not declare it
+   ╭─[ e004_undeclared_native_error.bras:4:5 ]
+   │
+ 4 │ def readAll(path: string): string throws fs.NotFound
+   │     ───┬───  
+   │        ╰───── this function can throw `fs.IoError`
+───╯

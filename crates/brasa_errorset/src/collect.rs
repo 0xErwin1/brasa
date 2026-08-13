@@ -583,6 +583,22 @@ pub(crate) fn arm_tag(
         .and_then(|&type_res| caught_tag(hir, type_res))
 }
 
+/// The tag one name of a declared `throws` list contributes to the
+/// contract, by the declaring definition and the name's index. The
+/// `throws` twin of [`arm_tag`], and separate for the same reason: a
+/// native error resolves to no `TypeRes`, so its canonical name is
+/// recorded in its own table.
+pub(crate) fn throws_tag(hir: &Hir, res: &Resolutions, key: (DefRef, usize)) -> Option<ErrorTag> {
+    if let Some(&native) = res.throws_native_errors.get(&key) {
+        return Some(ErrorTag::Opaque(native));
+    }
+
+    res.throws_types
+        .get(&key.0)
+        .and_then(|declared| declared.get(key.1).copied().flatten())
+        .and_then(|type_res| caught_tag(hir, type_res))
+}
+
 /// The tag an unguarded `catch` arm naming a resolved type subtracts —
 /// and, symmetrically, the tag a `throws` declaration names. Only
 /// throwable nominals and primitives map; interfaces, generic

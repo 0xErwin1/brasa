@@ -1,0 +1,8 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  absolute -> {fs.IoError}
+  decode -> {json.ParseError}
+  readAll -> {fs.Denied, fs.IoError, fs.NotFound}
