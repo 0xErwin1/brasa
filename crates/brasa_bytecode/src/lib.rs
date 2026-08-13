@@ -19,7 +19,7 @@ pub mod op;
 pub use builtin::{BUILTINS, BuiltinDef, builtin_def, builtin_id};
 pub use chunk::{Chunk, Handler};
 pub use constant::{ConstPool, Constant};
-pub use module::{EnumShape, Function, Module, StructShape, Variant};
+pub use module::{EnumShape, Function, Module, StructShape, TestEntry, Variant};
 pub use op::Op;
 
 /// Index into a module's constant pool.

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use brasa_bytecode::{
     ConstId, ConstPool, Constant, EnumId, EnumShape, FuncId, Function, GlobalIx, Module, StructId,
-    StructShape, Variant,
+    StructShape, TestEntry, Variant,
 };
 use brasa_diagnostics::{Diagnostic, codes};
 use brasa_hir::{Hir, Item, ItemId};
@@ -42,8 +42,12 @@ pub(crate) struct Cx<'a> {
     pub(crate) structs: Vec<StructShape>,
     pub(crate) enums: Vec<EnumShape>,
     pub(crate) globals: Vec<String>,
+    /// The compiled `test` items, in source order.
+    pub(crate) tests: Vec<TestEntry>,
     /// The executed file's `main`, once bodies are compiled.
     pub(crate) entry: Option<FuncId>,
+    /// Reserved slots for the `test` items, in source order.
+    pub(crate) func_of_test: Vec<(ItemId, FuncId)>,
 }
 
 impl<'a> Cx<'a> {
@@ -63,7 +67,9 @@ impl<'a> Cx<'a> {
             structs: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            tests: Vec::new(),
             entry: None,
+            func_of_test: Vec::new(),
         }
     }
 
@@ -245,6 +251,20 @@ impl<'a> Cx<'a> {
         }
     }
 
+    /// Reserves a function slot per `test` item, in source order.
+    ///
+    /// Separate from [`Cx::collect`] because it walks a different list:
+    /// tests come from the ENTRY module only, while everything else is
+    /// collected over the whole module graph.
+    pub(crate) fn collect_tests(&mut self, entry_roots: &[ItemId]) {
+        for &item_id in entry_roots {
+            if matches!(self.hir.item(item_id), Item::TestDef(_)) {
+                let id = self.reserve_function();
+                self.func_of_test.push((item_id, id));
+            }
+        }
+    }
+
     /// Builds the module, or an empty one when a limit was reported:
     /// past a clamped operand the emitted code no longer describes the
     /// program, so it must never reach a backend.
@@ -257,6 +277,7 @@ impl<'a> Cx<'a> {
                     structs: Vec::new(),
                     enums: Vec::new(),
                     globals: Vec::new(),
+                    tests: Vec::new(),
                     entry: None,
                 },
                 diagnostics: self.diagnostics,
@@ -274,6 +295,7 @@ impl<'a> Cx<'a> {
                 structs: self.structs,
                 enums: self.enums,
                 globals: self.globals,
+                tests: self.tests,
                 entry: self.entry,
             },
             diagnostics: Vec::new(),

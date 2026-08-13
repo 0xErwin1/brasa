@@ -69,6 +69,13 @@ pub enum DefRef {
 pub enum BuiltinValue {
     Puts,
     Print,
+    /// `assert(cond)` and `assertEq(a, b)`: prelude functions rather
+    /// than test-only syntax, because an assertion is useful in a script
+    /// too. Both compile to the internal `<assert-failed>` raiser
+    /// (`panics.AssertionFailed`), so neither needs an instruction of
+    /// its own.
+    Assert,
+    AssertEq,
 }
 
 impl BuiltinValue {
@@ -76,6 +83,8 @@ impl BuiltinValue {
         match self {
             BuiltinValue::Puts => "puts",
             BuiltinValue::Print => "print",
+            BuiltinValue::Assert => "assert",
+            BuiltinValue::AssertEq => "assertEq",
         }
     }
 }

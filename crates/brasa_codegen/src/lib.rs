@@ -105,9 +105,39 @@ pub fn compile_program(
     resolutions: &Resolutions,
     types: &TypeTables,
 ) -> CompileResult {
+    compile_inner(hir, roots, entry_roots, resolutions, types, false)
+}
+
+/// Compiles a program together with its `test` items, for `brasa test`.
+///
+/// Tests come from the ENTRY module only. A test belongs to the file it
+/// is written in, and running an imported library's tests as a side
+/// effect of importing it would make `brasa test` mean something
+/// different depending on what the file happens to depend on.
+pub fn compile_tests(
+    hir: &Hir,
+    roots: &[ItemId],
+    entry_roots: &[ItemId],
+    resolutions: &Resolutions,
+    types: &TypeTables,
+) -> CompileResult {
+    compile_inner(hir, roots, entry_roots, resolutions, types, true)
+}
+
+fn compile_inner(
+    hir: &Hir,
+    roots: &[ItemId],
+    entry_roots: &[ItemId],
+    resolutions: &Resolutions,
+    types: &TypeTables,
+    with_tests: bool,
+) -> CompileResult {
     let mut cx = context::Cx::new(hir, resolutions, types);
 
     cx.collect(roots);
+    if with_tests {
+        cx.collect_tests(entry_roots);
+    }
 
     // Bodies are lowered against the shapes and slot maps `collect`
     // assigned, so a shape that already broke a limit would have every
@@ -115,6 +145,7 @@ pub fn compile_program(
     if cx.diagnostics.is_empty() {
         item::compile_toplevel(&mut cx, roots);
         item::compile_items(&mut cx, roots);
+        item::compile_tests(&mut cx);
         cx.entry = item::find_entry(&cx, entry_roots);
     }
 

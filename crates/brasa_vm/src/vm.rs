@@ -168,6 +168,55 @@ impl<'a> Vm<'a> {
         self.finish(result)
     }
 
+    /// Runs `<toplevel>` and then every `test` in source order,
+    /// reporting how each one ended.
+    ///
+    /// Isolation falls out of the existing unwinding: a failing
+    /// assertion raises `panics.AssertionFailed`, which unwinds to an
+    /// `Outcome` without touching the process, so one failed test is one
+    /// failed test. Module state is deliberately NOT reset between
+    /// them — the top level ran once, exactly as it does for a program,
+    /// and a runner that re-ran it would be testing something the
+    /// program never does.
+    pub(crate) fn run_tests(&mut self) -> (Outcome, Vec<(String, Outcome)>) {
+        let setup = self.run_setup();
+        if !matches!(setup, Outcome::Success) {
+            return (setup, Vec::new());
+        }
+
+        let mut results = Vec::with_capacity(self.module.tests.len());
+        for test in &self.module.tests {
+            let result = self.call_entry(test.func);
+            self.stack.clear();
+            self.frames.clear();
+            results.push((test.name.clone(), self.finish(result)));
+        }
+
+        (Outcome::Success, results)
+    }
+
+    /// `<toplevel>` alone, for a run that calls its own entry points
+    /// afterwards.
+    fn run_setup(&mut self) -> Outcome {
+        let result = (|| {
+            self.enter_function(FuncId(0), 0, 0)?;
+            self.execute(1)?;
+            Ok(())
+        })();
+        self.stack.clear();
+
+        self.finish(result)
+    }
+
+    /// Calls one zero-argument function on a cleared stack.
+    fn call_entry(&mut self, func: FuncId) -> Result<(), Signal> {
+        self.enter_function(func, 0, 0)?;
+        self.execute(1)?;
+        self.stack.clear();
+
+        Ok(())
+    }
+
     pub(crate) fn run_stats(&self) -> crate::RunStats {
         let heap = self.heap.stats();
         crate::RunStats {

@@ -26,12 +26,25 @@ pub struct Module {
     /// [`crate::GlobalIx`]. Names exist for diagnostics and the
     /// disassembler; slots start unset at runtime.
     pub globals: Vec<String>,
+    /// The module's `test` items, in source order, when it was compiled
+    /// for `brasa test`. Empty for a normal run, which never compiles
+    /// one (`docs/spec/01-syntax.md`): a test body is dead weight at
+    /// cold start.
+    pub tests: Vec<TestEntry>,
     /// The `main` to call after `<toplevel>` returns, when the executed
     /// file defines one. Named by the code generator rather than found
     /// by name at run time: an imported module may define its own
     /// `main`, and only the executed file's is an entry point
     /// (`docs/spec/01-syntax.md`).
     pub entry: Option<FuncId>,
+}
+
+/// One compiled `test` item: the name the runner reports, and the body
+/// it calls.
+#[derive(Debug)]
+pub struct TestEntry {
+    pub name: String,
+    pub func: FuncId,
 }
 
 /// One function-table entry: top-level function, struct method, lambda,

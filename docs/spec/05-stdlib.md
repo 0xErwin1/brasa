@@ -15,8 +15,32 @@ signatures are closed module by module during M4.
   (`string.ParseError`, `fs.NotFound`, `proc.NonZeroExit`,
   `json.ParseError`); expected absence via `Option`.
 - Every module is imported explicitly (`import std::fs`) except the
-  **prelude**: `puts`, `print`, `Option`/`Some`/`None`, `Vector`, `Map`,
+  **prelude**: `puts`, `print`, `assert`, `assertEq`,
+  `Option`/`Some`/`None`, `Vector`, `Map`,
   `Set`, ranges, and primitive type methods are always available.
+
+## Assertions (prelude, no import needed)
+
+```ruby
+assert x > 0
+assertEq slugify("Hola Mundo"), "hola-mundo"
+```
+
+- `assert(cond: bool)` and `assertEq(a: T, b: T)`. `assertEq` compares
+  two values of the SAME type — the rule `==` follows, because that is
+  the comparison it performs — so a mismatch is a compile error, not a
+  test that always fails.
+- A failing assertion raises `panics.AssertionFailed`
+  ([04-errors.md](04-errors.md)). It is a panic, not an error: it does
+  not enter an error-set and `_` does not catch it.
+- They are **prelude functions, not test-only syntax**. An assertion is
+  useful in a script too, and a second vocabulary for one idea is worse
+  than either. Inside a `test` item the panic is what the runner reports
+  as a failure; outside one it aborts the run like any other panic.
+- The detail names the assertion, not the operands. Rendering them would
+  mean calling `toString` on the failure path, and a failing assertion is
+  exactly where an unreliable `toString` must not run — the stack trace
+  locates it.
 - Names in `camelCase` (functions, methods, variables); types in
   `PascalCase`; predicates with `?` (`file.exists?`, `isDir?`).
 

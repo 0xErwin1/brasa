@@ -112,6 +112,7 @@ fn arithmetic_and_calls() {
         structs: vec![],
         enums: vec![],
         globals: vec!["total".to_string()],
+        tests: vec![],
         entry: None,
     };
 
@@ -237,6 +238,7 @@ fn catch_shapes_and_iteration() {
             ],
         }],
         globals: vec![],
+        tests: vec![],
         entry: None,
     };
 

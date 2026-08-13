@@ -154,6 +154,45 @@ pub fn run_with_gc_budget<W: Write + Send>(
     )
 }
 
+/// Runs a module's `test` items, one at a time, reporting how each
+/// ended alongside the outcome of the shared top-level setup.
+///
+/// A non-`Success` setup outcome means no test ran: the module never
+/// finished initializing, so every result would be about that instead.
+pub fn run_tests<W: Write + Send>(
+    module: &Module,
+    out: &mut W,
+    args: &[String],
+) -> (Outcome, Vec<(String, Outcome)>) {
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    let streams = Streams {
+        out,
+        err: &mut err,
+        input: &mut input,
+    };
+
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("brasa-vm".to_string())
+            .stack_size(VM_STACK_SIZE)
+            .spawn_scoped(scope, move || {
+                let mut vm = vm::Vm::new(
+                    module,
+                    streams,
+                    DEFAULT_MAX_CALL_DEPTH,
+                    DEFAULT_GC_BUDGET_BYTES,
+                    args,
+                );
+                vm.run_tests()
+            })
+            .expect("failed to spawn the VM thread");
+
+        handle.join().expect("the VM thread panicked")
+    })
+}
+
 fn run_configured<'a>(
     module: &'a Module,
     streams: Streams<'a>,

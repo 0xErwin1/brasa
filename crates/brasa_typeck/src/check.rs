@@ -29,7 +29,7 @@ use brasa_hir::{
     MatchArm, Param, Pattern, PatternId, Stmt, StmtId, SugarOrigin, TypeExpr, TypeExprId, UnaryOp,
     Variant,
 };
-use brasa_resolver::{BuiltinType, CtorRes, DefRef, Res, Resolutions, TypeRes};
+use brasa_resolver::{BuiltinType, BuiltinValue, CtorRes, DefRef, Res, Resolutions, TypeRes};
 use brasa_source::Span;
 
 use crate::TypeTables;
@@ -829,6 +829,13 @@ impl<'a> Checker<'a> {
         let span = hir.span_of_expr(id);
 
         if let Expr::Ident(_) = hir.expr(callee)
+            && let Some(&Res::Builtin(builtin)) = self.res.expr_res.get(&callee)
+            && matches!(builtin, BuiltinValue::Assert | BuiltinValue::AssertEq)
+        {
+            return self.check_assertion(span, callee, builtin, &args);
+        }
+
+        if let Expr::Ident(_) = hir.expr(callee)
             && let Some(Res::Builtin(builtin)) = self.res.expr_res.get(&callee)
         {
             // `puts`/`print` print any single value via the universal
@@ -1062,6 +1069,58 @@ impl<'a> Checker<'a> {
             }
             map.insert((owner, index), Type::Unknown);
         }
+    }
+
+    /// `assert(cond)` takes one `bool`; `assertEq(a, b)` takes two
+    /// values that must have the same type — the same rule `==` follows,
+    /// because that is the comparison it performs.
+    fn check_assertion(
+        &mut self,
+        span: Span,
+        callee: ExprId,
+        builtin: BuiltinValue,
+        args: &[ExprId],
+    ) -> Type {
+        let name = builtin.name();
+        let expected = if builtin == BuiltinValue::Assert {
+            1
+        } else {
+            2
+        };
+
+        if args.len() != expected {
+            self.error(err_at(
+                codes::T_WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "wrong number of arguments to `{name}`: expected {expected}, found {}",
+                    args.len()
+                ),
+                &format!("expected exactly {expected} argument(s)"),
+            ));
+            for &arg in args {
+                self.check_expr(arg, None);
+            }
+            return Type::Unit;
+        }
+
+        match builtin {
+            BuiltinValue::Assert => {
+                self.tables
+                    .expr_types
+                    .insert(callee, Type::func(vec![Type::Bool], Type::Unit));
+                self.check_expect(args[0], &Type::Bool);
+            }
+            _ => {
+                let left = self.check_expr(args[0], None);
+                let right = self.check_expect(args[1], &left);
+                self.tables
+                    .expr_types
+                    .insert(callee, Type::func(vec![left, right], Type::Unit));
+            }
+        }
+
+        Type::Unit
     }
 
     fn check_method_call(

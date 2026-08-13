@@ -1,4 +1,5 @@
-//! Brasa CLI: run a `.bras` script, or drop into tooling subcommands.
+//! Brasa CLI: run a `.bras` script, or drop into tooling subcommands
+//! (`brasa fmt`, `brasa test`).
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 
@@ -63,13 +64,23 @@ struct Cli {
 enum Subcommand {
     /// Format Brasa source files.
     Fmt(fmt::FmtArgs),
+    /// Run a script's `test` items.
+    Test(TestArgs),
+}
+
+#[derive(clap::Args)]
+struct TestArgs {
+    /// Script whose tests to run.
+    script: PathBuf,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    if let Some(Subcommand::Fmt(args)) = &cli.command {
-        return fmt::run(args);
+    match &cli.command {
+        Some(Subcommand::Fmt(args)) => return fmt::run(args),
+        Some(Subcommand::Test(args)) => return run_tests(&args.script),
+        None => {}
     }
 
     let Some(script) = cli.script.clone() else {
@@ -81,19 +92,27 @@ fn main() -> ExitCode {
     run_script(&cli, &script)
 }
 
-fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
-    match std::fs::metadata(script) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => {
-            eprintln!("brasa: {} is not a regular file", script.display());
-            return ExitCode::from(65);
-        }
-        Err(err) => {
-            eprintln!("brasa: cannot read {}: {err}", script.display());
-            return ExitCode::from(65);
-        }
-    }
+/// What the flags asked for, so the pipeline can stop where they say.
+#[derive(Default, Clone, Copy)]
+struct Dumps {
+    hir: bool,
+    error_sets: bool,
+    bytecode: bool,
+    check_only: bool,
+}
 
+/// A finished front-to-back compilation, or the reason there is nothing
+/// to run: a dump was printed, or something was rejected.
+enum Compiled {
+    /// Boxed because the two variants are wildly different sizes and
+    /// this is returned once per run, so the indirection costs nothing
+    /// against carrying a whole module's worth of stack for the
+    /// `Stopped` case too.
+    Module(Box<brasa_codegen::CompileResult>),
+    Stopped(ExitCode),
+}
+
+fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
     let color = std::io::stderr().is_terminal();
 
     // `--dump-ast` is a single-file view: an AST belongs to one parsed
@@ -102,20 +121,46 @@ fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
         return dump_ast(script, color);
     }
 
+    let dumps = Dumps {
+        hir: cli.dump_hir,
+        error_sets: cli.dump_error_sets,
+        bytecode: cli.dump_bytecode,
+        check_only: cli.check,
+    };
+
+    match compile(script, color, false, dumps) {
+        Compiled::Stopped(code) => code,
+        Compiled::Module(compiled) => execute(&compiled.module, &cli.args),
+    }
+}
+
+/// The whole pipeline over one entry file, stopping wherever `dumps`
+/// says to. `with_tests` compiles the entry module's `test` items too.
+fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Compiled {
+    match std::fs::metadata(script) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            eprintln!("brasa: {} is not a regular file", script.display());
+            return Compiled::Stopped(ExitCode::from(65));
+        }
+        Err(err) => {
+            eprintln!("brasa: cannot read {}: {err}", script.display());
+            return Compiled::Stopped(ExitCode::from(65));
+        }
+    }
+
     let mut sources = SourceMap::new();
     let program = brasa_module::load(script, &mut sources);
-    match render_diagnostics(&program.diagnostics, &sources, color) {
-        Ok(false) => {}
-        Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+    if let Some(code) = reject(&program.diagnostics, &sources, color) {
+        return Compiled::Stopped(code);
     }
 
     let roots = program.all_roots();
     let entry_roots = &program.module(program.entry).roots;
 
-    if cli.dump_hir {
+    if dumps.hir {
         println!("{}", brasa_hir::dump::dump(&program.hir, &roots));
-        return ExitCode::from(0);
+        return Compiled::Stopped(ExitCode::from(0));
     }
 
     // The loader's post-order list is what the resolver walks; the
@@ -137,10 +182,8 @@ fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
         .collect();
 
     let resolved = brasa_resolver::resolve_program(&program.hir, &views);
-    match render_diagnostics(&resolved.diagnostics, &sources, color) {
-        Ok(false) => {}
-        Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+    if let Some(code) = reject(&resolved.diagnostics, &sources, color) {
+        return Compiled::Stopped(code);
     }
 
     let checked = brasa_typeck::check(
@@ -149,52 +192,119 @@ fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
         &resolved.resolutions,
         &program.sugar_origins,
     );
-    match render_diagnostics(&checked.diagnostics, &sources, color) {
-        Ok(false) => {}
-        Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+    if let Some(code) = reject(&checked.diagnostics, &sources, color) {
+        return Compiled::Stopped(code);
     }
 
     let inferred =
         brasa_errorset::infer(&program.hir, &roots, &resolved.resolutions, &checked.types);
-    match render_diagnostics(&inferred.diagnostics, &sources, color) {
-        Ok(false) => {}
-        Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+    if let Some(code) = reject(&inferred.diagnostics, &sources, color) {
+        return Compiled::Stopped(code);
     }
 
-    if cli.dump_error_sets {
+    if dumps.error_sets {
         println!("{}", brasa_errorset::dump::dump(&program.hir, &inferred));
-        return ExitCode::from(0);
+        return Compiled::Stopped(ExitCode::from(0));
     }
 
     // Code generation runs even under `--check`: the limits it reports
     // are properties of the program, so a program that cannot be
     // compiled must be rejected here rather than at run time
     // (`docs/spec/06-diagnostics.md`, code generation).
-    let compiled = brasa_codegen::compile_program(
+    let generate = if with_tests {
+        brasa_codegen::compile_tests
+    } else {
+        brasa_codegen::compile_program
+    };
+    let compiled = generate(
         &program.hir,
         &roots,
         entry_roots,
         &resolved.resolutions,
         &checked.types,
     );
-    match render_diagnostics(&compiled.diagnostics, &sources, color) {
-        Ok(false) => {}
-        Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+    if let Some(code) = reject(&compiled.diagnostics, &sources, color) {
+        return Compiled::Stopped(code);
     }
 
-    if cli.dump_bytecode {
+    if dumps.bytecode {
         println!("{}", brasa_bytecode::dump::dump(&compiled.module));
+        return Compiled::Stopped(ExitCode::from(0));
+    }
+
+    if dumps.check_only {
+        return Compiled::Stopped(ExitCode::from(0));
+    }
+
+    Compiled::Module(Box::new(compiled))
+}
+
+/// Renders one phase's diagnostics and reports the exit code to stop
+/// with, when it has to stop.
+fn reject(diagnostics: &[Diagnostic], sources: &SourceMap, color: bool) -> Option<ExitCode> {
+    match render_diagnostics(diagnostics, sources, color) {
+        Ok(false) => None,
+        Ok(true) => Some(ExitCode::from(65)),
+        Err(code) => Some(code),
+    }
+}
+
+/// `brasa test script.bras`: compiles the script WITH its `test` items
+/// and runs each one, reporting a line per test and exiting non-zero if
+/// any failed.
+fn run_tests(script: &PathBuf) -> ExitCode {
+    let color = std::io::stderr().is_terminal();
+
+    let compiled = match compile(script, color, true, Dumps::default()) {
+        Compiled::Stopped(code) => return code,
+        Compiled::Module(compiled) => compiled,
+    };
+
+    if compiled.module.tests.is_empty() {
+        println!("no tests");
         return ExitCode::from(0);
     }
 
-    if cli.check {
-        return ExitCode::from(0);
+    let mut stdout = std::io::stdout();
+    let (setup, results) = brasa_vm::run_tests(&compiled.module, &mut stdout, &[]);
+
+    // A failed setup means no test ran: the module never finished
+    // initializing, so every result would be about that instead.
+    if let Some(message) = failure_message(&setup) {
+        eprintln!("{message}");
+        eprintln!("brasa: the script's top level failed, so no test ran");
+        return ExitCode::from(70);
     }
 
-    execute(&compiled.module, &cli.args)
+    let mut failed = 0;
+    for (name, outcome) in &results {
+        match failure_message(outcome) {
+            None => println!("ok   {name}"),
+            Some(message) => {
+                failed += 1;
+                println!("FAIL {name}");
+                eprintln!("{message}");
+            }
+        }
+    }
+
+    println!("{} passed, {failed} failed", results.len() - failed);
+
+    if failed > 0 {
+        return ExitCode::from(1);
+    }
+    ExitCode::from(0)
+}
+
+/// How a run ended, when it ended badly.
+fn failure_message(outcome: &brasa_runtime::Outcome) -> Option<&str> {
+    match outcome {
+        brasa_runtime::Outcome::Error { message } | brasa_runtime::Outcome::Panic { message } => {
+            Some(message)
+        }
+        brasa_runtime::Outcome::Exit { code } if *code != 0 => Some("exited non-zero"),
+        _ => None,
+    }
 }
 
 fn execute(module: &brasa_bytecode::Module, args: &[String]) -> ExitCode {

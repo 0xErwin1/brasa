@@ -6,7 +6,7 @@
 //! in source order; the driver then calls `main` (a regular
 //! function-table entry) if the file defines one.
 
-use brasa_bytecode::{FuncId, Op, SlotIx};
+use brasa_bytecode::{FuncId, Op, SlotIx, TestEntry};
 use brasa_hir::{FuncDef, Item, ItemId};
 use brasa_resolver::DefRef;
 use brasa_source::Span;
@@ -79,6 +79,41 @@ pub(crate) fn compile_items(cx: &mut Cx, roots: &[ItemId]) {
             }
             _ => {}
         }
+    }
+}
+
+/// Compiles each reserved `test` body as a zero-argument function and
+/// records it in the module's test table.
+///
+/// A test is a `FnKind::Func` with no declared return type, so its body
+/// is checked and lowered exactly like a `def` returning nothing — the
+/// runner calls it and looks only at how it ended.
+pub(crate) fn compile_tests(cx: &mut Cx) {
+    for (item_id, func_id) in std::mem::take(&mut cx.func_of_test) {
+        let Item::TestDef(def) = cx.hir.item(item_id) else {
+            unreachable!("test ids only map to TestDef items");
+        };
+
+        let name = def.name.clone();
+        let span = def.name_span;
+        let body = def.body.clone();
+
+        let mut f = FuncCx::new(
+            cx,
+            FnKind::Func {
+                returns_value: false,
+            },
+        );
+        block_stmts(&mut f, &body);
+        f.emit(Op::LoadUnit, span);
+        f.emit(Op::Ret, span);
+
+        let function = f.finish(format!("<test {name}>"), 0, 0, span);
+        cx.define_function(func_id, function);
+        cx.tests.push(TestEntry {
+            name,
+            func: func_id,
+        });
     }
 }
 

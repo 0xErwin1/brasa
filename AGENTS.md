@@ -68,7 +68,7 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_runtime` | Execution glue the backend does not own: stdlib's contact with the OS, ordered collections, `Outcome` |
 | `brasa_vm` | The dispatch loop, the heap and the collector |
 | `brasa_fmt` | Formatter: prints the AST, recovers leaf spelling and comments from the source |
-| `brasa` | CLI binary (clap): runs a script, or `brasa fmt` |
+| `brasa` | CLI binary (clap): runs a script, `brasa fmt`, or `brasa test` |
 
 There is no `brasa_stdlib` and no separate interpreter crate. The stdlib
 lives as native builtins split across `brasa_bytecode::builtin` (the id

@@ -69,6 +69,8 @@ pub(crate) fn builtin_value(name: &str) -> Option<BuiltinValue> {
     match name {
         "puts" => Some(BuiltinValue::Puts),
         "print" => Some(BuiltinValue::Print),
+        "assert" => Some(BuiltinValue::Assert),
+        "assertEq" => Some(BuiltinValue::AssertEq),
         _ => None,
     }
 }

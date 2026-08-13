@@ -352,10 +352,12 @@ fs.read("data.txt")
 def slugify(s: string): string ... end
 
 test "slugify lowercases and hyphenates"
-  let got = slugify("Hola Mundo")
-  # assertions land with the runner (BRS-110)
+  assertEq slugify("Hola Mundo"), "hola-mundo"
 end
 ```
+
+Run them with `brasa test script.bras`: one line per test, a non-zero
+exit if any failed, and the panic's stack trace for each failure.
 
 - A `test` item is a named body and nothing else: no parameters, no
   return type, no `throws` clause. Nothing can call it, and two tests may
@@ -364,6 +366,13 @@ end
   be able to name what it is about to run, before running it.
 - **Tests are not part of a normal run.** `brasa script.bras` does not
   compile them, so they cost nothing at startup; `brasa test` does.
+- Only the executed file's tests run. An imported module's are its own:
+  a library's suite running as a side effect of importing it would make
+  `brasa test` mean something different depending on what a file happens
+  to depend on.
+- The top level runs **once**, before the tests, exactly as it does for
+  a program. A runner that re-ran it per test would be testing something
+  the program never does.
 - The body sees the whole module, like a function body — every top-level
   `let` is initialized by the time a test runs.
 

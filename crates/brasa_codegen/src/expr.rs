@@ -6,7 +6,7 @@
 use brasa_bytecode::{Constant, Op, SlotIx, builtin_def, builtin_id};
 use brasa_diagnostics::codes;
 use brasa_hir::{BinaryOp, Expr, ExprId, ImportPath, Item, ItemId, LambdaBody, UnaryOp};
-use brasa_resolver::{CtorRes, Res, TypeRes};
+use brasa_resolver::{BuiltinValue, CtorRes, Res, TypeRes};
 use brasa_source::Span;
 use brasa_typeck::{Type, WrapDecision};
 
@@ -290,6 +290,22 @@ fn struct_field_index(f: &FuncCx, item: ItemId, name: &str) -> Option<u16> {
 
 pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) {
     match f.cx.hir.expr(callee).clone() {
+        // `assert`/`assertEq` compile to a conditional raise of the
+        // internal `<assert-failed>` builtin rather than to a call: the
+        // failure raiser already exists (match fall-through uses it),
+        // and going through it keeps the assertion out of the VM's
+        // builtin table entirely.
+        Expr::Ident(_)
+            if matches!(
+                f.cx.res.expr_res.get(&callee),
+                Some(Res::Builtin(BuiltinValue::Assert | BuiltinValue::AssertEq))
+            ) =>
+        {
+            let Some(Res::Builtin(builtin)) = f.cx.res.expr_res.get(&callee).copied() else {
+                unreachable!("guarded by the match arm");
+            };
+            assertion(f, builtin, args, span);
+        }
         // `puts`/`print` (`docs/spec/05-stdlib.md`).
         Expr::Ident(_) if matches!(f.cx.res.expr_res.get(&callee), Some(Res::Builtin(_))) => {
             let Some(Res::Builtin(builtin)) = f.cx.res.expr_res.get(&callee).copied() else {
@@ -360,6 +376,43 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
             f.emit(Op::CallValue { argc }, span);
         }
     }
+}
+
+/// `assert(cond)` / `assertEq(a, b)`: evaluate, test, and raise
+/// `panics.AssertionFailed` when the test does not hold.
+///
+/// The detail names the assertion rather than the values. Rendering the
+/// operands would mean calling `toString` on the failure path, and a
+/// failing assertion is exactly where an unreliable `toString` must not
+/// run — the span in the stack trace is what locates it.
+fn assertion(f: &mut FuncCx, builtin: BuiltinValue, args: &[ExprId], span: Span) {
+    let detail = match builtin {
+        BuiltinValue::Assert => "assert",
+        _ => "assertEq",
+    };
+
+    match builtin {
+        BuiltinValue::Assert => compile_expr(f, args[0]),
+        _ => {
+            compile_expr(f, args[0]);
+            compile_expr(f, args[1]);
+            f.emit(Op::Eq, span);
+        }
+    }
+
+    // The held value is consumed by the jump; the raise pushes one that
+    // is never observed, so it is popped to keep the arms balanced.
+    let held = f.emit(Op::JumpIfFalse(PLACEHOLDER), span);
+    let pass = f.emit(Op::Jump(PLACEHOLDER), span);
+
+    let fail = f.here();
+    f.patch(held, fail);
+    f.emit_assert_failed(detail, span);
+    f.emit(Op::Pop, span);
+
+    let end = f.here();
+    f.patch(pass, end);
+    f.emit(Op::LoadUnit, span);
 }
 
 fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: Span) {
