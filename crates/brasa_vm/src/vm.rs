@@ -108,7 +108,7 @@ pub(crate) struct Vm<'a> {
     max_depth: usize,
     /// Per-run cache of compiled regex patterns for the string regex
     /// methods, keyed by the pattern text.
-    pub(crate) regex_cache: std::collections::HashMap<String, regex::Regex>,
+    pub(crate) regex_cache: std::collections::HashMap<String, Rc<regex::Regex>>,
     /// The script's trailing CLI arguments, served by `env.args()`
     /// (BRS-32, `docs/spec/05-stdlib.md`).
     pub(crate) script_args: Vec<String>,

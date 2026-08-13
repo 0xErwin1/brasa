@@ -884,13 +884,22 @@ impl Vm<'_> {
 
     /// Compiles `pattern` through the per-run cache; an invalid pattern
     /// throws the native `string.RegexError`, message included.
-    fn compile_regex(&mut self, pattern: &str) -> Result<regex::Regex, Signal> {
+    ///
+    /// Handed back as an `Rc` rather than by value. `regex::Regex` is
+    /// `Clone`, but a clone carries its own lazy-DFA cache, so every
+    /// call was rebuilding the automaton it had just built — 37% of a
+    /// real script's run time went into `init_cache` and
+    /// `cache_next_state`. Sharing one instance is what makes the cache
+    /// a cache.
+    fn compile_regex(&mut self, pattern: &str) -> Result<Rc<regex::Regex>, Signal> {
         if let Some(re) = self.regex_cache.get(pattern) {
             return Ok(re.clone());
         }
 
-        let re = regex::Regex::new(pattern)
-            .map_err(|_| native_error(STRING_REGEX_ERROR, format!("invalid regex {pattern:?}")))?;
+        let re =
+            Rc::new(regex::Regex::new(pattern).map_err(|_| {
+                native_error(STRING_REGEX_ERROR, format!("invalid regex {pattern:?}"))
+            })?);
         self.regex_cache.insert(pattern.to_string(), re.clone());
         Ok(re)
     }
