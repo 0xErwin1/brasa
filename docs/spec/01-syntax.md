@@ -83,7 +83,22 @@ has to match every value the parameter can take — a lambda has no arms
 to add — so a refutable one is an error that points you at binding the
 parameter and writing the `match` yourself.
 
-Lambdas capture their environment by reference (closures).
+Lambdas close over their environment. The exact rule is **unsettled**
+(BRS-106): what the language does today depends on where the captured
+binding lives, which is a defect rather than a design.
+
+- A **function-local** binding is captured by value when the lambda is
+  created. Mutation *through* a captured object stays visible — the
+  object itself is shared — but *rebinding* the name afterwards is not.
+- A **top-level** binding is not captured at all. It is module state,
+  read at call time, so a later rebinding is visible.
+
+One syntax must not mean two things, so both scopes have to agree, and
+this paragraph is rewritten with the ruling once BRS-106 closes. The
+standing recommendation is to capture the binding in both scopes, so
+that rebinding is visible from either side — which is what "by
+reference" is normally taken to mean in a Ruby-flavoured language, and
+what the top-level case already does.
 
 ## Control flow
 
@@ -358,6 +373,19 @@ end
 
 Run them with `brasa test script.bras`: one line per test, a non-zero
 exit if any failed, and the panic's stack trace for each failure.
+
+## Delivering a program
+
+`brasa bundle script.bras -o tool` writes a copy of the interpreter with
+the program's source appended, so a multi-file program is handed over as
+ONE file to a machine that has never seen Brasa. What the bundle
+captures is what resolution DECIDED — the module graph as it was
+loaded — so a delivered tool cannot be changed by the target's
+`BRASA_PATH` or by anything left in the source tree.
+
+Flattening a program into one `.bras` SOURCE file is deliberately not
+offered: a module's file is its namespace, so two modules that both
+define `slugify` have nowhere to coexist without a renaming pass.
 
 - A `test` item is a named body and nothing else: no parameters, no
   return type, no `throws` clause. Nothing can call it, and two tests may

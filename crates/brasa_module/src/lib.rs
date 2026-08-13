@@ -26,6 +26,8 @@
 //! cycle, which is a compile error because top-level `let`s evaluate on
 //! import and a cycle has no sound order.
 
+pub mod bundle;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -183,6 +185,36 @@ enum Request {
     Search(Vec<String>),
 }
 
+/// How one root item has to be resolved, or `None` when it names no
+/// file at all — anything that is not an import, and `std::`, which
+/// names builtins.
+fn import_request(hir: &Hir, root: ItemId) -> Option<Request> {
+    let Item::Import(import) = hir.item(root) else {
+        return None;
+    };
+
+    match &import.path {
+        ImportPath::File(path) => Some(Request::Relative(path.clone())),
+        _ if import.path.std_module().is_some() => None,
+        ImportPath::Path(segments) => Some(Request::Search(segments.clone())),
+    }
+}
+
+/// The roots of one module that name a file, in source order.
+///
+/// This sequence is the identity a bundled import edge is stored
+/// against ([`bundle`]), because an `ItemId` is assigned by lowering
+/// and so cannot survive a trip through bytes. The loader and the
+/// bundle encoder must therefore agree on it exactly, which is why both
+/// go through this one function.
+fn file_import_roots(hir: &Hir, roots: &[ItemId]) -> Vec<ItemId> {
+    roots
+        .iter()
+        .copied()
+        .filter(|&root| import_request(hir, root).is_some())
+        .collect()
+}
+
 struct Loader<'a> {
     sources: &'a mut SourceMap,
     lowerer: Lowerer,
@@ -303,17 +335,7 @@ impl Loader<'_> {
         let requests: Vec<(ItemId, Request, Span)> = roots
             .iter()
             .filter_map(|&root| {
-                let Item::Import(import) = self.lowerer.hir().item(root) else {
-                    return None;
-                };
-
-                let request = match &import.path {
-                    ImportPath::File(path) => Request::Relative(path.clone()),
-                    // `std::` names builtins, never a file.
-                    _ if import.path.std_module().is_some() => return None,
-                    ImportPath::Path(segments) => Request::Search(segments.clone()),
-                };
-
+                let request = import_request(self.lowerer.hir(), root)?;
                 Some((root, request, self.lowerer.hir().span_of_item(root)))
             })
             .collect();

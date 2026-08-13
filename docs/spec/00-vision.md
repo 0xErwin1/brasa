@@ -70,7 +70,12 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
 
 ## Non-goals (v1)
 
-- Concurrency / async (reserved keyword, no semantics).
+- Concurrency / async (reserved keyword, no semantics). Running several
+  **subprocesses** in parallel is a different thing and landed as
+  `proc.tryRunAll` (BRS-104): the children do the work and the script
+  waits, so no Brasa code ever runs concurrently — no scheduler, no shared mutable state,
+  no colored functions. The bash idiom being replaced is `xargs -P`,
+  not threads.
 - AOT or JIT compilation.
 - General type unions (`int | string`); enums cover the case.
 - Macros / metaprogramming.
@@ -86,6 +91,25 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
 4. **M3** — bytecode VM + GC; the tree-walker stayed on as the
    reference oracle until BRS-108 replaced it with a conformance corpus.
 5. **M4** — scripting stdlib (strings, fs, process, JSON, regex, glob).
-6. **M5** — REPL, formatter, minimal LSP.
+6. **M5** — formatter, editor support, minimal LSP. `brasa fmt`
+   (BRS-91) and the tree-sitter grammar with `.bras` editor
+   registration (BRS-93) shipped. The LSP's prerequisite is answered
+   (BRS-114): the analysis phases produce usable types, locals and
+   error-sets over the incomplete tree an editor holds, and the whole
+   pipeline runs in 1.4ms over the largest bundled script — so a query
+   system for incrementality is a non-goal, not a deferral. The REPL is
+   deferred behind the LSP: with immutable `let` and module-level
+   typing, hover over inferred types and error-sets answers more, in
+   the file the user is already editing, than a persistent environment
+   does.
+7. **M6** — from toy to tool. Landed: multi-file programs and `::`
+   imports on a search path (BRS-97/102/115), the `test` item and
+   `brasa test` (BRS-110), a byte-budgeted collector (BRS-100/101),
+   bounded parallel subprocesses (BRS-104), single-artifact
+   distribution (BRS-111), and the dispatch path (BRS-98), which took
+   recursive calls from 2.9x CPython to 1.5x while leaving cold start
+   untouched. Remaining: one declarative stdlib registry (BRS-96) and
+   the stdlib gaps dogfooding surfaced — argument parsing (BRS-112) and
+   HTTP (BRS-113).
 
 > Canonical spec. A Spanish reading copy is mirrored in the Atlas workspace 'brasa'.

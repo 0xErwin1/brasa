@@ -527,7 +527,12 @@ Explicitly out of scope for M3, recorded so nobody "helpfully" adds them:
 - **No inline caching**: dispatch is already static almost everywhere
   (typed arithmetic, resolved field indices, direct calls).
 - **No bytecode serialization**: compile-and-run in one process; the
-  module format is Rust structures, not a file format.
+  module format is Rust structures, not a file format. `brasa bundle`
+  (BRS-111) embeds module SOURCE and compiles at startup for exactly
+  this reason: a serialized bundle would pin the opcode set, the value
+  representation and the shape tables, none of which are stable — and
+  the whole front half of the pipeline costs 1.4ms, invisible against
+  process spawn.
 - **No monomorphization**: one bytecode function per generic function,
   uniform value representation (`docs/spec/03-types.md`).
 

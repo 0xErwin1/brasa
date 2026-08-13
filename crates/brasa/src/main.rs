@@ -1,8 +1,13 @@
 //! Brasa CLI: run a `.bras` script, or drop into tooling subcommands
-//! (`brasa fmt`, `brasa test`).
+//! (`brasa fmt`, `brasa test`, `brasa bundle`).
+//!
+//! This binary is also the bundle runtime: a bundled tool is a copy of
+//! it with a program appended, so the first thing `main` does is ask
+//! whether it is carrying one (see [`bundle`]).
 //!
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 
+mod bundle;
 mod fmt;
 
 use std::collections::HashMap;
@@ -66,6 +71,8 @@ enum Subcommand {
     Fmt(fmt::FmtArgs),
     /// Run a script's `test` items.
     Test(TestArgs),
+    /// Pack a script and everything it imports into one executable.
+    Bundle(bundle::BundleArgs),
 }
 
 #[derive(clap::Args)]
@@ -75,11 +82,23 @@ struct TestArgs {
 }
 
 fn main() -> ExitCode {
+    // Before anything reads argv: a bundled tool's arguments belong to
+    // the program it carries, not to this CLI.
+    match bundle::embedded() {
+        Ok(Some(payload)) => return bundle::run(&payload),
+        Ok(None) => {}
+        Err(message) => {
+            eprintln!("brasa: {message}");
+            return ExitCode::from(70);
+        }
+    }
+
     let cli = Cli::parse();
 
     match &cli.command {
         Some(Subcommand::Fmt(args)) => return fmt::run(args),
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
+        Some(Subcommand::Bundle(args)) => return bundle::write(args),
         None => {}
     }
 
@@ -134,24 +153,46 @@ fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
     }
 }
 
-/// The whole pipeline over one entry file, stopping wherever `dumps`
-/// says to. `with_tests` compiles the entry module's `test` items too.
-fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Compiled {
+/// Rejects an entry path that is not a readable regular file, before
+/// the loader is asked to treat it as one.
+fn reject_entry(script: &PathBuf) -> Option<ExitCode> {
     match std::fs::metadata(script) {
-        Ok(metadata) if metadata.is_file() => {}
+        Ok(metadata) if metadata.is_file() => None,
         Ok(_) => {
             eprintln!("brasa: {} is not a regular file", script.display());
-            return Compiled::Stopped(ExitCode::from(65));
+            Some(ExitCode::from(65))
         }
         Err(err) => {
             eprintln!("brasa: cannot read {}: {err}", script.display());
-            return Compiled::Stopped(ExitCode::from(65));
+            Some(ExitCode::from(65))
         }
+    }
+}
+
+/// The whole pipeline over one entry file, stopping wherever `dumps`
+/// says to. `with_tests` compiles the entry module's `test` items too.
+fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Compiled {
+    if let Some(code) = reject_entry(script) {
+        return Compiled::Stopped(code);
     }
 
     let mut sources = SourceMap::new();
     let program = brasa_module::load(script, &mut sources);
-    if let Some(code) = reject(&program.diagnostics, &sources, color) {
+
+    compile_program(&program, &sources, color, with_tests, dumps)
+}
+
+/// Everything after the module graph exists. Split out because a
+/// bundled program arrives already loaded, from bytes rather than from
+/// a path, and must then take exactly this path to bytecode.
+fn compile_program(
+    program: &brasa_module::Program,
+    sources: &SourceMap,
+    color: bool,
+    with_tests: bool,
+    dumps: Dumps,
+) -> Compiled {
+    if let Some(code) = reject(&program.diagnostics, sources, color) {
         return Compiled::Stopped(code);
     }
 
@@ -182,7 +223,7 @@ fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Com
         .collect();
 
     let resolved = brasa_resolver::resolve_program(&program.hir, &views);
-    if let Some(code) = reject(&resolved.diagnostics, &sources, color) {
+    if let Some(code) = reject(&resolved.diagnostics, sources, color) {
         return Compiled::Stopped(code);
     }
 
@@ -192,13 +233,13 @@ fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Com
         &resolved.resolutions,
         &program.sugar_origins,
     );
-    if let Some(code) = reject(&checked.diagnostics, &sources, color) {
+    if let Some(code) = reject(&checked.diagnostics, sources, color) {
         return Compiled::Stopped(code);
     }
 
     let inferred =
         brasa_errorset::infer(&program.hir, &roots, &resolved.resolutions, &checked.types);
-    if let Some(code) = reject(&inferred.diagnostics, &sources, color) {
+    if let Some(code) = reject(&inferred.diagnostics, sources, color) {
         return Compiled::Stopped(code);
     }
 
@@ -223,7 +264,7 @@ fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Com
         &resolved.resolutions,
         &checked.types,
     );
-    if let Some(code) = reject(&compiled.diagnostics, &sources, color) {
+    if let Some(code) = reject(&compiled.diagnostics, sources, color) {
         return Compiled::Stopped(code);
     }
 
