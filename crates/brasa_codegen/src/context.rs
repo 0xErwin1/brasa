@@ -6,7 +6,7 @@
 //! emitted, so forward references (a call to a function declared later,
 //! a struct literal above its methods) compile to direct indices.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use brasa_bytecode::{
     ConstId, ConstPool, Constant, EnumId, EnumShape, FuncId, Function, GlobalIx, Module, StructId,
@@ -14,17 +14,22 @@ use brasa_bytecode::{
 };
 use brasa_diagnostics::{Diagnostic, codes};
 use brasa_hir::{Hir, Item, ItemId};
-use brasa_resolver::Resolutions;
+use brasa_resolver::{LocalId, Resolutions};
 use brasa_source::Span;
 use brasa_typeck::TypeTables;
 
 use crate::CompileResult;
+use crate::bindings::shared_bindings;
 use crate::limits::{self, MAX_ARGS, MAX_BINDINGS, MAX_MEMBERS, MAX_PARAMS};
 
 pub(crate) struct Cx<'a> {
     pub(crate) hir: &'a Hir,
     pub(crate) res: &'a Resolutions,
     pub(crate) types: &'a TypeTables,
+    /// The locals a closure shares with the scope that binds them, so
+    /// they live in a heap cell rather than in the frame slot itself
+    /// (`crate::bindings`).
+    pub(crate) shared: HashSet<LocalId>,
     pub(crate) pool: ConstPool,
     /// Every bytecode limit this module breaks. A non-empty list makes
     /// [`Cx::finish`] discard the module: the values narrowed past their
@@ -56,6 +61,7 @@ impl<'a> Cx<'a> {
             hir,
             res,
             types,
+            shared: shared_bindings(hir, res),
             pool: ConstPool::new(),
             diagnostics: Vec::new(),
             functions: Vec::new(),

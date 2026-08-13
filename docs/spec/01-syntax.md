@@ -83,22 +83,60 @@ has to match every value the parameter can take — a lambda has no arms
 to add — so a refutable one is an error that points you at binding the
 parameter and writing the `match` yourself.
 
-Lambdas close over their environment. The exact rule is **unsettled**
-(BRS-106): what the language does today depends on where the captured
-binding lives, which is a defect rather than a design.
+Lambdas close over their environment by capturing the **binding**, not
+a snapshot of its value (BRS-106). A capture shares the binding with
+the scope that declared it, so rebinding the name is visible from both
+sides — through the closure after the scope rebinds, and in the scope
+after the closure rebinds:
 
-- A **function-local** binding is captured by value when the lambda is
-  created. Mutation *through* a captured object stays visible — the
-  object itself is shared — but *rebinding* the name afterwards is not.
-- A **top-level** binding is not captured at all. It is module state,
-  read at call time, so a later rebinding is visible.
+```ruby
+let mut factor = 3
+let scale = |n: int| n * factor
+factor = 10
+puts scale(5)                     # 50, not 15
 
-One syntax must not mean two things, so both scopes have to agree, and
-this paragraph is rewritten with the ruling once BRS-106 closes. The
-standing recommendation is to capture the binding in both scopes, so
-that rebinding is visible from either side — which is what "by
-reference" is normally taken to mean in a Ruby-flavoured language, and
-what the top-level case already does.
+def total(nums: Vector<int>): int
+  let mut sum = 0
+  nums.each do |n|
+    sum = sum + n                 # rebinds the captured `sum` itself
+  end
+  sum
+end
+```
+
+The rule does not depend on where the binding lives: a function-local
+`let` and a top-level `let` behave identically, and a closure that
+outlives the frame that declared its captures keeps reading the same
+binding.
+
+Mutation *through* a captured value is a separate thing and was never
+in doubt: containers, structs, and the other reference kinds are shared
+(`03-types.md`), so `items.push(2)` is visible through a closure that
+captured `items` whether or not anything rebinds the name.
+
+A binding is a fresh one each time its declaration is **executed**,
+which is what decides the loop case. A loop variable and any `let` in
+the loop body are declared once per iteration, so each iteration's
+closures capture that iteration's binding; a name declared outside the
+loop is declared once, so every iteration shares it:
+
+```ruby
+let mut fns: Vector<() -> int> = []
+
+for i in 0..3
+  fns.push(|| i)                  # three bindings: 0, 1, 2
+end
+
+let mut last = 0
+for i in 0..3
+  last = i
+  fns.push(|| last)               # one binding, rebound: 2, 2, 2
+end
+```
+
+Both readings follow from the same rule, and the difference is visible
+in the source: `i` is declared by the loop, `last` is not. Block
+parameters follow the loop variable — one binding per call.
 
 ## Control flow
 

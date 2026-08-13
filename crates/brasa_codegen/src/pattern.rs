@@ -103,10 +103,7 @@ fn compile_pattern_test(f: &mut FuncCx, pattern: PatternId, fails: &mut Vec<Code
             f.emit(Op::Pop, span);
         }
         Pattern::Binding(_) => match f.cx.res.pattern_locals.get(&pattern).copied() {
-            Some(local) => {
-                let slot = f.slot_of(local);
-                f.emit(Op::StoreLocal(slot), span);
-            }
+            Some(local) => f.bind_local(local, span),
             None => {
                 f.emit(Op::Pop, span);
             }

@@ -159,6 +159,8 @@ fn compile_function(cx: &mut Cx, def_ref: DefRef, func_id: FuncId) {
         }
     }
 
+    f.bind_shared_params(params.iter().flatten().copied(), span);
+
     if returns_value {
         block_value(&mut f, &body, span);
     } else {

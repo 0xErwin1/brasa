@@ -20,10 +20,11 @@ use crate::heap::{GcRef, Heap};
 /// Shared immutable heap handle.
 ///
 /// `Rc` is a precise collector for every kind behind these aliases:
-/// they are all frozen at construction, so they can never close a
-/// reference cycle (`crate::heap` module docs prove why). The four
-/// mutable, cycle-capable kinds — `Vector`, `Map`, `Set`, `Struct` —
-/// instead hold a [`GcRef`] into the mark-and-sweep arena.
+/// their edges are fixed at construction, so they can never GAIN a
+/// reference and never close a reference cycle (`crate::heap` module
+/// docs prove why). The five mutable, cycle-capable kinds — `Vector`,
+/// `Map`, `Set`, `Struct`, and the binding cell — instead hold a
+/// [`GcRef`] into the mark-and-sweep arena.
 pub type Handle<T> = Rc<T>;
 
 /// Shared mutable handle for the internal iterator state; see
@@ -74,6 +75,13 @@ pub enum Value {
     /// INTERNAL: a `for` loop iterator (`iter_new` / `iter_next`).
     /// Never observable in the language.
     Iter(MutHandle<IterState>),
+    /// INTERNAL: one lexical binding a closure shares with the scope
+    /// that binds it (`docs/spec/07-bytecode.md`, closures). It lives
+    /// in a frame slot and in the closure's capture list, and only
+    /// `make_binding` / `load_binding` / `store_binding` ever see it —
+    /// every read of the binding yields its contents, so no language
+    /// value is ever a binding.
+    Binding(GcRef),
     /// The `std::proc` `Output` record (BRS-32,
     /// `docs/spec/05-stdlib.md`): captured stdout/stderr plus the exit
     /// code. Frozen at construction and free of heap references, so a
@@ -161,9 +169,15 @@ pub struct EnumValue {
     pub fields: Vec<Value>,
 }
 
-/// A lambda plus its captured values, snapshotted at `make_closure` in
-/// the capture-order contract (`brasa_codegen` crate docs); copied into
+/// A lambda plus its captured bindings, taken at `make_closure` in the
+/// capture-order contract (`brasa_codegen` crate docs) and copied into
 /// the frame's capture slots at call time.
+///
+/// A capture is a [`Value::Binding`] whenever some scope can rebind the
+/// name, which is what makes the rebinding visible on both sides; where
+/// nothing rebinds it, the code generator captures the value directly,
+/// because a cell that never changes is indistinguishable from its
+/// contents. The list itself never changes after construction.
 #[derive(Debug)]
 pub struct ClosureValue {
     pub func: FuncId,

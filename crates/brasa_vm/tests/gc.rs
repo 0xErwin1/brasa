@@ -597,21 +597,21 @@ puts(kept.map(|x| x.toString()).join("-"))
 }
 
 #[test]
-fn a_callback_that_overwrites_its_capture_does_not_lose_it() {
-    // Entering a callback's frame copies its captures into stack slots,
-    // and the callee may then overwrite one. The original is not lost —
-    // the next invocation republishes it from the closure — but between
-    // the store and that republication the closure is the only thing
-    // holding it, and the closure was popped off the value stack before
-    // the builtin ran. Every call therefore has to see the original
-    // three-element capture, not a slot the sweeper recycled.
+fn a_callback_that_rebinds_its_capture_does_not_lose_it() {
+    // A rebinding inside a callback writes through the shared binding
+    // cell (BRS-106), so the vector it stored has to survive until the
+    // NEXT invocation reads it back — and the closure was popped off
+    // the value stack before the builtin ran, so the only path to that
+    // vector runs through the closure's captured cell. The first call
+    // sees the original three elements, every later one sees what its
+    // predecessor bound, not a slot the sweeper recycled.
     let stats = run_hot_gc(
         r##"
 def make(): (int) -> int
   let mut box = [7, 7, 7]
   do |x|
     let seen = box.len()
-    box = [x]
+    box = [x, x]
     let mut i = 0
     while i < 30
       let garbage = [i]
@@ -623,7 +623,7 @@ end
 
 puts([1, 2, 3, 4, 5].map(make()).map(|v| v.toString()).join("-"))
 "##,
-        "3-3-3-3-3\n",
+        "3-2-2-2-2\n",
     );
 
     assert!(stats.gc_collections > 0, "expected collections: {stats:?}");

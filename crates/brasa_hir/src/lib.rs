@@ -99,6 +99,19 @@ impl Hir {
         self.expr_spans[id.index() as usize]
     }
 
+    /// Every expression node in allocation order.
+    ///
+    /// For whole-program questions that are keyed by node kind rather
+    /// than by position in a body — "does any lambda capture this
+    /// local", "is this local ever an assignment target" — walking the
+    /// arena answers them without a second tree walker that could miss
+    /// a case. It over-approximates by design: a node lowering
+    /// allocated and then dropped is still visited, so an answer built
+    /// on it must stay correct when the set is too large.
+    pub fn exprs(&self) -> impl Iterator<Item = (ExprId, &Expr)> {
+        self.exprs.iter()
+    }
+
     pub fn alloc_stmt(&mut self, stmt: Stmt, span: Span) -> StmtId {
         let id = self.stmts.alloc(stmt);
         self.stmt_spans.push(span);
@@ -111,6 +124,11 @@ impl Hir {
 
     pub fn span_of_stmt(&self, id: StmtId) -> Span {
         self.stmt_spans[id.index() as usize]
+    }
+
+    /// Every statement node in allocation order; see [`Hir::exprs`].
+    pub fn stmts(&self) -> impl Iterator<Item = (StmtId, &Stmt)> {
+        self.stmts.iter()
     }
 
     pub fn alloc_item(&mut self, item: Item, span: Span) -> ItemId {

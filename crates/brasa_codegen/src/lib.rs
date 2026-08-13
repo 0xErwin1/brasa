@@ -21,9 +21,26 @@
 //!   the lambda's free `LocalId`s in ascending `LocalId` order. The
 //!   free set is every local referenced anywhere in the lambda body
 //!   (nested lambdas included) minus every local bound inside it.
-//!   [`brasa_bytecode::Op::MakeClosure`] snapshots the values in that
+//!   [`brasa_bytecode::Op::MakeClosure`] takes the values in that
 //!   order; the VM copies them into the frame's capture slots in the
 //!   same order.
+//! - **Captures share bindings, not values**: a closure captures the
+//!   lexical binding (`docs/spec/01-syntax.md`), so rebinding the name
+//!   is observable from both sides. A binding both captured and
+//!   rebound is boxed into a heap cell that the capture slot and the
+//!   binding scope's own slot point at; reads and writes go through
+//!   [`brasa_bytecode::Op::LoadBinding`] /
+//!   [`brasa_bytecode::Op::StoreBinding`], and each execution of the
+//!   binding site makes a fresh cell.
+//!
+//!   The cell is skipped where it cannot be observed. If NOTHING ever
+//!   rebinds a captured binding, its cell would hold one value for its
+//!   whole life, so copying that value into the closure is
+//!   indistinguishable from sharing a cell — the analysis
+//!   (`crate::bindings`) boxes only the intersection of "captured" and
+//!   "rebound". This is a representation choice with no semantics
+//!   attached: the uniform rule is the one in the spec, and this
+//!   paragraph is the only place the exception exists.
 //! - **`match` compilation**: straightforward left-to-right arm testing
 //!   over the spec's decision-tree primitives (`dup`,
 //!   `jump_if_variant_ne`, `jump_if_none`, `unwrap_some`,
@@ -47,6 +64,7 @@
 //!   defence in depth — a frontend gap should surface as a clean fatal
 //!   rather than as miscompiled code.
 
+mod bindings;
 mod captures;
 mod catch;
 mod context;

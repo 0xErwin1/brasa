@@ -116,6 +116,84 @@ impl<'a, 'c> FuncCx<'a, 'c> {
         self.next_slot = self.next_slot.max(floor);
     }
 
+    /// Whether this local is shared with a closure that can observe a
+    /// rebinding, and therefore lives in a heap cell
+    /// (`crate::bindings`).
+    fn is_shared(&self, local: brasa_resolver::LocalId) -> bool {
+        self.cx.shared.contains(&local)
+    }
+
+    /// Establishes a binding from the value on top of the stack.
+    ///
+    /// Every binding SITE goes through here — `let`, a pattern binding,
+    /// a `catch` binding — because a shared binding needs a fresh cell
+    /// each time the site runs. Re-executing the site (a `let` in a
+    /// loop body) must not rebind the previous iteration's cell: a
+    /// closure created in the previous iteration captured that binding,
+    /// not this one.
+    pub(crate) fn bind_local(&mut self, local: brasa_resolver::LocalId, span: Span) {
+        let slot = self.slot_of(local);
+        let op = if self.is_shared(local) {
+            Op::MakeBinding(slot)
+        } else {
+            Op::StoreLocal(slot)
+        };
+        self.emit(op, span);
+    }
+
+    /// Reads a local: through its cell when the binding is shared.
+    pub(crate) fn load_local(&mut self, local: brasa_resolver::LocalId, span: Span) {
+        let slot = self.slot_of(local);
+        let op = if self.is_shared(local) {
+            Op::LoadBinding(slot)
+        } else {
+            Op::LoadLocal(slot)
+        };
+        self.emit(op, span);
+    }
+
+    /// Rebinds a local from the value on top of the stack: through its
+    /// cell when the binding is shared, so every capture sees the write.
+    pub(crate) fn store_local(&mut self, local: brasa_resolver::LocalId, span: Span) {
+        let slot = self.slot_of(local);
+        let op = if self.is_shared(local) {
+            Op::StoreBinding(slot)
+        } else {
+            Op::StoreLocal(slot)
+        };
+        self.emit(op, span);
+    }
+
+    /// Pushes a local the way a closure captures it: the cell itself
+    /// when the binding is shared (that IS the sharing), the value
+    /// otherwise.
+    pub(crate) fn capture_local(&mut self, local: brasa_resolver::LocalId, span: Span) {
+        let slot = self.slot_of(local);
+        self.emit(Op::LoadLocal(slot), span);
+    }
+
+    /// Boxes the shared parameters of the frame being compiled, as a
+    /// prologue.
+    ///
+    /// A parameter arrives already in its slot, so unlike every other
+    /// binding site it has no value on the stack to bind from; the
+    /// prologue reads the slot back and rebinds it to a cell. It must
+    /// run before the body, and the body is the only reader.
+    pub(crate) fn bind_shared_params(
+        &mut self,
+        params: impl IntoIterator<Item = brasa_resolver::LocalId>,
+        span: Span,
+    ) {
+        for local in params {
+            if !self.is_shared(local) {
+                continue;
+            }
+            let slot = self.slot_of(local);
+            self.emit(Op::LoadLocal(slot), span);
+            self.emit(Op::MakeBinding(slot), span);
+        }
+    }
+
     /// A fresh anonymous slot (struct-literal reordering scratch).
     pub(crate) fn alloc_slot(&mut self) -> SlotIx {
         let slot = SlotIx(self.next_slot);

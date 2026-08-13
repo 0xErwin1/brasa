@@ -30,6 +30,20 @@ pub enum Op {
     LoadLocal(SlotIx),
     /// `v ->`: write frame slot.
     StoreLocal(SlotIx),
+    /// `v ->`: bind a slot to a fresh heap binding cell holding `v`.
+    ///
+    /// A binding a closure captures and some scope rebinds lives in a
+    /// cell instead of directly in the slot, so the capture and the
+    /// enclosing frame share one binding (`docs/spec/07-bytecode.md`,
+    /// closures). Re-executing a binding site makes a NEW cell, which
+    /// is what keeps one loop iteration's binding distinct from the
+    /// next one's.
+    MakeBinding(SlotIx),
+    /// `-> v`: read through the binding cell a slot holds.
+    LoadBinding(SlotIx),
+    /// `v ->`: write through the binding cell a slot holds; every
+    /// capture of that binding observes the write.
+    StoreBinding(SlotIx),
     /// `-> v`: read a global slot; loading an unset slot is fatal
     /// ("used before initialization", mirroring the tree-walker).
     LoadGlobal(GlobalIx),
@@ -178,8 +192,11 @@ pub enum Op {
         variant: u16,
         argc: u8,
     },
-    /// `caps... -> cl`: snapshot the top `captures` values into a
-    /// closure over `func` (capture-by-value; no upvalue cells exist).
+    /// `caps... -> cl`: move the top `captures` values into a closure
+    /// over `func`. A captured binding that some scope rebinds is a
+    /// binding cell ([`Op::MakeBinding`]), so the closure and the
+    /// creating frame share it; one that is never rebound is the value
+    /// itself, which is indistinguishable from sharing a cell.
     MakeClosure { func: FuncId, captures: u16 },
     /// `lo hi -> rg`: lazy int range.
     MakeRange { inclusive: bool },

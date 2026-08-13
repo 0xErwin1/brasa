@@ -1061,41 +1061,207 @@ puts add5(compose())
     );
 }
 
+/// A closure captures the lexical BINDING, not a snapshot of its value
+/// (BRS-106, `docs/spec/01-syntax.md`): rebinding the name after the
+/// closure was created is visible through the closure.
 #[test]
-fn capture_is_by_value_but_heap_stays_shared() {
+fn rebinding_a_captured_local_is_visible_through_the_closure() {
     assert_success(
         r##"
 def demo(): int
   let mut count = 0
-  let bump = || count + 1
+  let read = || count
+  puts read()
   count = 10
-  bump()
+  read()
 end
 
 puts demo()
+"##,
+        "0\n10\n",
+    );
+}
 
+/// The same program, one scope out. A top-level `let` is a global
+/// rather than a frame slot, so it takes a different path through code
+/// generation — and has to mean exactly the same thing.
+#[test]
+fn rebinding_a_captured_top_level_binding_is_visible_through_the_closure() {
+    assert_success(
+        r##"
+let mut count = 0
+let read = || count
+puts read()
+count = 10
+puts read()
+"##,
+        "0\n10\n",
+    );
+}
+
+/// Sharing the binding is not sharing a value: mutation THROUGH a
+/// captured object was always visible and stays visible, because the
+/// object is a reference either way (`docs/spec/03-types.md`).
+#[test]
+fn mutation_through_a_captured_container_stays_visible() {
+    assert_success(
+        r##"
 let items = [1]
 let observe = || items.len()
 items.push(2)
 puts observe()
+
+def local(): int
+  let inner = [1]
+  let count = || inner.len()
+  inner.push(2)
+  inner.push(3)
+  count()
+end
+
+puts local()
 "##,
-        "1\n2\n",
+        "2\n3\n",
     );
 }
 
-/// Top-level `let`s are globals, not locals: closures read them live
-/// instead of capturing (the walker's M1 decision, mirrored by
-/// `load_global` in compiled code).
+/// The binding is shared in both directions: a rebinding INSIDE the
+/// lambda outlives the invocation that made it, and the binding scope
+/// reads it back.
 #[test]
-fn closures_read_globals_live() {
+fn a_closure_rebinding_its_capture_is_visible_to_the_binding_scope() {
     assert_success(
         r##"
-let mut count = 0
-let bump = || count + 1
-count = 10
-puts bump()
+def total(): int
+  let mut sum = 0
+  [1, 2, 3].each do |n|
+    sum = sum + n
+  end
+  sum
+end
+
+puts total()
 "##,
-        "11\n",
+        "6\n",
+    );
+}
+
+/// A closure that outlives the frame that bound its captures keeps
+/// reading the binding, so the last rebinding before the frame returned
+/// is what it sees.
+#[test]
+fn a_returned_closure_reads_the_last_binding_of_its_dead_frame() {
+    assert_success(
+        r##"
+def makeReader(): () -> int
+  let mut n = 1
+  let read = || n
+  n = 99
+  read
+end
+
+let reader = makeReader()
+puts reader()
+puts reader()
+"##,
+        "99\n99\n",
+    );
+}
+
+/// Each execution of a binding site establishes a NEW binding, so a
+/// closure made in one loop iteration does not share with the next
+/// one's — sharing is per binding, not per slot.
+#[test]
+fn each_iteration_binds_a_binding_of_its_own() {
+    assert_success(
+        r##"
+def perIteration(): int
+  let mut fns: Vector<() -> int> = []
+  for i in 0..3
+    let mut seen = i
+    let read = || seen
+    seen = seen + 10
+    fns.push(read)
+  end
+
+  let mut total = 0
+  fns.each do |f|
+    total = total + f()
+  end
+  total
+end
+
+puts perIteration()
+"##,
+        "33\n",
+    );
+}
+
+/// The other half of the same rule (`docs/spec/01-syntax.md`): a name
+/// declared OUTSIDE the loop is declared once, so every iteration's
+/// closure captures the one binding and all of them read the last value
+/// written to it.
+///
+/// Pinned separately from `each_iteration_binds_a_binding_of_its_own`
+/// because the two look like a contradiction until you notice that what
+/// differs is where the declaration sits, not how capture works. A
+/// change to loop scoping that made this one agree with its sibling
+/// would be a silent semantic regression.
+#[test]
+fn a_binding_declared_outside_the_loop_is_shared_by_every_iteration() {
+    assert_success(
+        r##"
+def sharedAcrossIterations(): int
+  let mut fns: Vector<() -> int> = []
+  let mut last = 0
+
+  for i in 0..3
+    last = i
+    fns.push(|| last)
+  end
+
+  let mut total = 0
+  fns.each do |f|
+    total = total + f()
+  end
+  total
+end
+
+puts sharedAcrossIterations()
+"##,
+        "6\n",
+    );
+}
+
+/// A shared binding can CLOSE a reference cycle, which is why its cell
+/// is an arena kind and not an `Rc` (`brasa_vm::heap` module docs): the
+/// cell holds the vector, the vector holds the closure, and the closure
+/// captured the cell.
+///
+/// The hot-GC leg is what makes this a collector test — a cell the
+/// tracer does not walk is swept while the vector inside it is still
+/// live, and the two legs stop agreeing.
+#[test]
+fn a_binding_cell_on_a_reference_cycle_survives_collection() {
+    assert_success(
+        r##"
+def cyclic(): int
+  let mut fns: Vector<() -> int> = []
+  let count = || fns.len()
+  fns.push(count)
+  fns = [count, count]
+
+  for i in 0..50
+    let garbage = [i, i]
+  end
+
+  count()
+end
+
+puts cyclic()
+puts "done"
+"##,
+        "2\ndone\n",
     );
 }
 

@@ -8,18 +8,34 @@
 //! `s.v.push(s)` closes a cycle that plain `Rc` can never reclaim. The
 //! same holds for closures stored inside a container they capture.
 //!
-//! Why only four kinds live in the arena: a cycle needs an object to
-//! gain a reference *after* it was created, and the only post-creation
-//! mutations in the language are struct field assignment, vector and
-//! map index assignment, and the mutating builtins on `Vector`, `Map`,
-//! and `Set`. Every other heap kind (strings, tuples, enum payloads,
-//! closures, bound methods, `Option` payloads, caught signals,
-//! iterators) is frozen at construction, so it can sit *on* a cycle
-//! but never *close* one — for those, `Rc` alone is already a precise
-//! collector, and the arena's tracer walks through them to reach the
-//! arena cells they reference. Sweeping an unreachable arena cell drops
-//! its contents, which breaks the cycle and lets `Rc` reclaim the
-//! immutable remainder.
+//! Which kinds live in the arena, and why exactly these: a cycle needs
+//! an object to gain a reference *after* it was created. The
+//! post-creation mutations in the language are struct field assignment,
+//! vector and map index assignment, the mutating builtins on `Vector`,
+//! `Map` and `Set` — and rebinding a captured name (BRS-106), which
+//! writes through the binding cell the closure and the binding scope
+//! share. That last one is why [`HeapCell::Binding`] is here: storing
+//! into a cell that a closure already captured is a post-creation
+//! mutation, so
+//!
+//! ```text
+//! let mut f = || 0
+//! f = || f()
+//! ```
+//!
+//! makes the cell point at a closure that points back at the cell. A
+//! closure is no longer frozen at construction either — it holds cells
+//! whose contents change under it — but it needs no arena slot of its
+//! own, because it gains no references: every cycle through a closure
+//! passes through a cell or a container, both of which have one.
+//!
+//! Every remaining heap kind (strings, tuples, enum payloads, bound
+//! methods, `Option` payloads, caught signals, iterators) IS frozen at
+//! construction, so it can sit *on* a cycle but never *close* one — for
+//! those, `Rc` alone is already a precise collector, and the arena's
+//! tracer walks through them to reach the arena cells they reference.
+//! Sweeping an unreachable arena cell drops its contents, which breaks
+//! the cycle and lets `Rc` reclaim the immutable remainder.
 //!
 //! Collection runs at safepoints only: the dispatch loop checks the
 //! heap budget between instructions, so a collection never
@@ -90,6 +106,7 @@ fn cell_bytes(cell: &HeapCell) -> usize {
         HeapCell::Set(items) => items.borrow().len(),
         HeapCell::Map(entries) => 2 * entries.borrow().len(),
         HeapCell::Struct(s) => s.fields.borrow().len(),
+        HeapCell::Binding(_) => 1,
         HeapCell::Free => return 0,
     };
 
@@ -146,6 +163,10 @@ pub(crate) enum HeapCell {
     Map(RefCell<OrderedMap<Value>>),
     Set(RefCell<OrderedSet<Value>>),
     Struct(StructValue),
+    /// One lexical binding shared by a closure and the scope that
+    /// binds it (module docs): rebinding the name writes here, so both
+    /// sides read the same value.
+    Binding(RefCell<Value>),
     Free,
 }
 
@@ -240,6 +261,10 @@ impl Heap {
         })))
     }
 
+    pub(crate) fn alloc_binding(&mut self, value: Value) -> Value {
+        Value::Binding(self.alloc(HeapCell::Binding(RefCell::new(value))))
+    }
+
     // --- access --------------------------------------------------------
 
     pub(crate) fn vector(&self, r: GcRef) -> &RefCell<Vec<Value>> {
@@ -267,6 +292,13 @@ impl Heap {
         match &self.cells[r.0 as usize] {
             HeapCell::Struct(s) => s,
             _ => unreachable!("GcRef kind mismatch: expected a struct"),
+        }
+    }
+
+    pub(crate) fn binding(&self, r: GcRef) -> &RefCell<Value> {
+        match &self.cells[r.0 as usize] {
+            HeapCell::Binding(value) => value,
+            _ => unreachable!("GcRef kind mismatch: expected a binding"),
         }
     }
 
@@ -491,7 +523,11 @@ impl Heap {
     /// de-duplication test runs first.
     fn visit(mark: &mut MarkState, value: &Value) {
         match value {
-            Value::Vector(r) | Value::Map(r) | Value::Set(r) | Value::Struct(r) => {
+            Value::Vector(r)
+            | Value::Map(r)
+            | Value::Set(r)
+            | Value::Struct(r)
+            | Value::Binding(r) => {
                 let slot = r.0 as usize;
 
                 if !mark.marked[slot] {
@@ -534,6 +570,7 @@ impl Heap {
                     Heap::visit(mark, field);
                 }
             }
+            HeapCell::Binding(value) => Heap::visit(mark, &value.borrow()),
             HeapCell::Free => unreachable!("live values never reference a swept cell"),
         }
     }
@@ -621,7 +658,8 @@ fn shared_address(value: &Value) -> Option<usize> {
         | Value::Vector(_)
         | Value::Map(_)
         | Value::Set(_)
-        | Value::Struct(_) => return None,
+        | Value::Struct(_)
+        | Value::Binding(_) => return None,
     };
 
     Some(address as usize)

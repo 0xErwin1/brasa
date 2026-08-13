@@ -7,7 +7,7 @@ true
 [1, 2, 3, 4]
 brasa, ceniza, fuego
 15
-captured 1
+captured 2
 [1, 2, 3]
 ember -> 3
 ash -> 7
@@ -24,7 +24,7 @@ true
 Set(["hot", "warm", "cold"])
 Set(["hot", "warm", "cold", "ember"])
 Set([2, 1])
-1
+2
 2
 BRASA GLOWS
 2

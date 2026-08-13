@@ -70,16 +70,16 @@ puts tags
 let counts: Set<int> = Set([2, 1, 2])
 puts counts
 
-# Zero-parameter lambdas capture like any other closure: locals by
-# value at creation (a rebind after creation is invisible), heap
-# contents shared (a push after creation is visible).
-def captureByValue(): int
+# Zero-parameter lambdas capture like any other closure: the binding
+# itself, so a rebind after creation is visible, and the heap contents
+# behind it, so a push after creation is visible too.
+def captureBinding(): int
   let mut mark = 1
   let peek = || mark
   mark = 2
   peek()
 end
-puts captureByValue()
+puts captureBinding()
 
 def captureShared(): int
   let trail = [1]

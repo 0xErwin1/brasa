@@ -141,6 +141,9 @@ fn render_op(module: &Module, op: &Op) -> (String, Option<String>) {
         Op::Dup => ("dup".to_string(), None),
         Op::LoadLocal(s) => (format!("load_local {}", s.0), None),
         Op::StoreLocal(s) => (format!("store_local {}", s.0), None),
+        Op::MakeBinding(s) => (format!("make_binding {}", s.0), None),
+        Op::LoadBinding(s) => (format!("load_binding {}", s.0), None),
+        Op::StoreBinding(s) => (format!("store_binding {}", s.0), None),
         Op::LoadGlobal(g) => (
             format!("load_global g{}", g.0),
             module.globals.get(g.0 as usize).cloned(),

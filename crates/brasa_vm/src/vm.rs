@@ -769,6 +769,21 @@ impl<'a> Vm<'a> {
         self.frames.last().expect("active frame").base
     }
 
+    /// The binding cell a frame slot holds.
+    ///
+    /// Code generation pairs every `make_binding` with the
+    /// `load_binding` / `store_binding` that read it, and a slot is
+    /// never reused for a second binding, so anything else here is a
+    /// broken compiler rather than a program error — reported as a
+    /// fatal for the same reason an uninitialized global is.
+    #[inline(always)]
+    fn binding_ref(&self, slot: brasa_bytecode::SlotIx) -> Result<crate::heap::GcRef, Signal> {
+        match self.stack[self.frame_base() + slot.0 as usize] {
+            Value::Binding(r) => Ok(r),
+            _ => Err(Self::fatal("brasa: slot does not hold a binding")),
+        }
+    }
+
     // --- one instruction -----------------------------------------------
 
     /// Inlined into [`Vm::execute`] on purpose: as a separate function
@@ -801,6 +816,22 @@ impl<'a> Vm<'a> {
                 let value = self.pop();
                 let base = self.frame_base();
                 self.stack[base + slot.0 as usize] = value;
+            }
+            Op::MakeBinding(slot) => {
+                let value = self.pop();
+                let binding = self.heap.alloc_binding(value);
+                let base = self.frame_base();
+                self.stack[base + slot.0 as usize] = binding;
+            }
+            Op::LoadBinding(slot) => {
+                let value = self.binding_ref(slot)?;
+                let value = self.heap.binding(value).borrow().clone();
+                self.push(value);
+            }
+            Op::StoreBinding(slot) => {
+                let value = self.pop();
+                let binding = self.binding_ref(slot)?;
+                *self.heap.binding(binding).borrow_mut() = value;
             }
             Op::LoadGlobal(ix) => match &self.globals[ix.0 as usize] {
                 Some(value) => {
@@ -1611,16 +1642,20 @@ impl<'a> Vm<'a> {
                     )));
                 }
                 // Rooting the closure for the call is what keeps its
-                // captures alive across it. Entering the frame copies
-                // them into stack slots, but the callee may assign to a
-                // capture — the store is frame-local, and the next
-                // invocation republishes the original from here — so
-                // between the store and that republication this is the
-                // only reference to the overwritten value. The callee
-                // was popped off the value stack before the call, so
-                // without this the collection a nested loop can now run
-                // (BRS-62) sweeps the capture and the next invocation
-                // republishes a recycled slot.
+                // captures alive across it. The callee was popped off
+                // the value stack before the call, so from that pop
+                // until the entered frame republishes the captures into
+                // its slots, this handle is the only reference to them
+                // — and a collection can run in any nested dispatch
+                // loop (BRS-62). Rooting here makes that reachability
+                // independent of where the safepoints happen to fall.
+                //
+                // A capture the callee REBINDS no longer detaches from
+                // the closure the way it once did: rebinding writes
+                // through the shared binding cell (BRS-106), so the
+                // frame slot and the closure's capture stay the same
+                // cell for the whole call, and the collector reaches
+                // the new contents through it.
                 let rooted = [Value::Closure(closure.clone())];
                 self.with_rooted(&rooted, |this| {
                     this.call_frames(closure.func, Some(&closure), args)
@@ -1746,7 +1781,7 @@ impl<'a> Vm<'a> {
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }
-            Value::Caught(_) | Value::Iter(_) => {
+            Value::Caught(_) | Value::Iter(_) | Value::Binding(_) => {
                 unreachable!("internal values never reach nominal_tag")
             }
         }

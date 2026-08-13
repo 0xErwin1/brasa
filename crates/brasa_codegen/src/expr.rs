@@ -132,10 +132,7 @@ fn element_count(f: &mut FuncCx, what: &str, unit: &str, count: usize, span: Spa
 
 fn ident(f: &mut FuncCx, id: ExprId, name: &str, span: Span) {
     match f.cx.res.expr_res.get(&id).copied() {
-        Some(Res::Local(local)) => {
-            let slot = f.slot_of(local);
-            f.emit(Op::LoadLocal(slot), span);
-        }
+        Some(Res::Local(local)) => f.load_local(local, span),
         Some(Res::Item(item)) => match f.cx.hir.item(item) {
             Item::FuncDef(_) => {
                 let func = f.cx.func_of_item[&item];
@@ -673,6 +670,7 @@ fn lambda(f: &mut FuncCx, id: ExprId, span: Span) {
         for &local in &caps.locals {
             sub.slot_of(local);
         }
+        sub.bind_shared_params(params.iter().copied(), span);
 
         match &body {
             LambdaBody::Expr(expr) => compile_expr(&mut sub, *expr),
@@ -683,14 +681,14 @@ fn lambda(f: &mut FuncCx, id: ExprId, span: Span) {
     };
     f.cx.define_function(func, function);
 
-    // Snapshot the captured values from the enclosing frame, in
-    // capture order.
+    // Take the captured bindings from the enclosing frame, in capture
+    // order: the cell for a shared binding, the value for one nothing
+    // rebinds.
     if caps.uses_self {
         f.load_self(span);
     }
     for &local in &caps.locals {
-        let slot = f.slot_of(local);
-        f.emit(Op::LoadLocal(slot), span);
+        f.capture_local(local, span);
     }
     f.emit(
         Op::MakeClosure {

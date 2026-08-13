@@ -20,10 +20,7 @@ pub(crate) fn compile_stmt(f: &mut FuncCx, id: StmtId) {
         Stmt::Let(let_stmt) => {
             compile_expr(f, let_stmt.value);
             match f.cx.res.stmt_locals.get(&id).copied() {
-                Some(local) => {
-                    let slot = f.slot_of(local);
-                    f.emit(Op::StoreLocal(slot), span);
-                }
+                Some(local) => f.bind_local(local, span),
                 None => {
                     f.emit(Op::Pop, span);
                 }
@@ -121,10 +118,7 @@ fn assign(f: &mut FuncCx, target: ExprId, value: ExprId, span: Span) {
         Expr::Ident(name) => {
             compile_expr(f, value);
             match f.cx.res.expr_res.get(&target).copied() {
-                Some(Res::Local(local)) => {
-                    let slot = f.slot_of(local);
-                    f.emit(Op::StoreLocal(slot), span);
-                }
+                Some(Res::Local(local)) => f.store_local(local, span),
                 Some(Res::Item(item)) if f.cx.global_of_item.contains_key(&item) => {
                     let global = f.cx.global_of_item[&item];
                     f.emit(Op::StoreGlobal(global), span);

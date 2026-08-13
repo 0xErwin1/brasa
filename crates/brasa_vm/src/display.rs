@@ -255,7 +255,7 @@ impl<'a> Vm<'a> {
             // (JSON is its own quoting) — BRS-34,
             // `docs/spec/05-stdlib.md`.
             Value::Json(tree) => Ok(brasa_runtime::json_glue::stringify(tree)),
-            Value::Caught(_) | Value::Iter(_) => {
+            Value::Caught(_) | Value::Iter(_) | Value::Binding(_) => {
                 unreachable!("internal values never render")
             }
         }

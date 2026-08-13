@@ -126,12 +126,17 @@ fn net_effect(op: &Op, structs: &[StructShape]) -> i32 {
         | Op::LoadNone
         | Op::Dup
         | Op::LoadLocal(_)
+        | Op::LoadBinding(_)
         | Op::LoadGlobal(_)
         | Op::LoadFunc(_)
         | Op::CaughtValue
         | Op::CaughtDetail => 1,
 
-        Op::Pop | Op::StoreLocal(_) | Op::StoreGlobal(_) => -1,
+        Op::Pop
+        | Op::StoreLocal(_)
+        | Op::MakeBinding(_)
+        | Op::StoreBinding(_)
+        | Op::StoreGlobal(_) => -1,
 
         Op::AddInt
         | Op::SubInt

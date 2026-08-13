@@ -162,10 +162,7 @@ pub(crate) fn compile_catch(
 fn emit_binding(f: &mut FuncCx, bind_op: Op, binding: Option<brasa_resolver::LocalId>, span: Span) {
     f.emit(bind_op, span);
     match binding {
-        Some(local) => {
-            let slot = f.slot_of(local);
-            f.emit(Op::StoreLocal(slot), span);
-        }
+        Some(local) => f.bind_local(local, span),
         None => {
             f.emit(Op::Pop, span);
         }

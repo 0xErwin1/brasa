@@ -1,5 +1,5 @@
 //! Free-variable analysis for lambdas: which enclosing locals (and
-//! whether `self`) a closure must snapshot at creation time.
+//! whether `self`) a closure must capture at creation time.
 //!
 //! The free set is every `LocalId` referenced anywhere in the lambda
 //! body — nested lambdas included, since an inner capture must be

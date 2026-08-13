@@ -81,7 +81,7 @@ Frame slot layout, from `base` upward:
 
 ```
 base + 0 .. argc              parameters (methods: self is slot 0)
-     + argc .. argc+captures  the closure's captured values, copied in
+     + argc .. argc+captures  the closure's captures, copied in
      + .. locals              remaining local slots, one per LocalId
      + locals ..              operand temporaries
 ```
@@ -153,20 +153,38 @@ emitted: struct receivers compile to `call`, and `toString` compiles to
 
 ### Closures
 
-Capture is **by value at creation time** (an M1 decision the VM
-inherited): `make_closure` pops the captured values, snapshotted by the
-code generator from the visible slots, into the closure object. At call
-time they are copied into the frame's capture slots. Consequences:
+A closure captures the **binding**, not a snapshot of its value
+(`01-syntax.md`, BRS-106). `make_closure` takes the captures off the
+stack into the closure object, and at call time they are copied into
+the frame's capture slots — so a capture is still an ordinary frame
+slot after the parameters, and there is still no `load_capture` op.
+`self` inside a lambda is captured like any other slot.
 
-- Rebinding a captured `let mut` after capture is not observable.
-- Assigning to a captured variable inside the lambda writes the frame's
-  copy — local to that invocation, not persisted across calls.
-- Heap values stay shared through their references, so interior mutation
-  remains visible.
+Sharing a binding across two frames needs one indirection, because the
+closure outlives the frame that declared the binding and its capture is
+a different slot in a different frame. A shared binding therefore lives
+in a **binding cell** that both slots point at:
 
-There are therefore **no upvalue cells and no `load_capture` op**:
-captures are ordinary frame slots after the parameters. `self` inside a
-lambda is captured like any other slot.
+- `make_binding s` binds slot `s` to a fresh cell holding the popped
+  value. Every binding site compiles to it — a `let`, a pattern
+  binding, a `catch` binding, a parameter prologue — so re-executing
+  the site (a `let` in a loop body) makes a NEW cell, and a closure
+  from an earlier iteration keeps the binding it captured.
+- `load_binding s` / `store_binding s` read and write through the cell.
+  A rebinding is a `store_binding`, so every capture of that binding
+  observes it, whichever frame issued it.
+- `make_closure` captures the cell itself, which IS the sharing.
+
+Whether a given binding is a cell is not observable, and the code
+generator is free to skip one where nothing can tell: a binding no
+scope ever rebinds holds one value for its whole life, so capturing
+that value is indistinguishable from capturing a cell. BRS-27 boxes
+only bindings that are both captured and rebound; that is a
+representation decision documented in `brasa_codegen`, and the rule
+above is the whole of the semantics.
+
+A binding cell is mutable and can therefore close a reference cycle,
+which is why it is an arena kind (GC, below).
 
 ### Signals
 
@@ -259,14 +277,17 @@ by GC-managed heap objects:
 | Struct | Heap object: shape index + field slots in declaration order | yes | yes (field assignment) |
 | Enum variant | Heap object: shape index, variant index, payload slots | yes | no (no assignment through a variant) |
 | Function value | Inline `FuncId` | no | — |
-| Closure | Heap object: `FuncId` + captured values | yes | no (captures are copied out at call) |
+| Closure | Heap object: `FuncId` + captured bindings | yes | no (the capture list is fixed at creation; a shared binding changes inside its own cell) |
 | Bound method / bound builtin | Heap object: receiver + target | yes | no |
 | Native error | Heap object: static name + message string | yes | no |
 
-Two **internal** value kinds exist on the operand stack but are never
-observable in the language: the caught-signal value (class, tag, payload,
-panic stacktrace) and loop iterators (`iter_new`'s snapshot state). Both
-are GC-scanned like any stack slot.
+Three **internal** value kinds exist on the operand stack but are never
+observable in the language: the caught-signal value (class, tag,
+payload, panic stacktrace), loop iterators (`iter_new`'s snapshot
+state), and the binding cell a shared capture lives in (closures,
+above) — every read of a shared binding yields the cell's contents, so
+no language value is ever a cell. All three are GC-scanned like any
+stack slot.
 
 Equality is structural (`==` has no identity form), ordering covers the
 four comparable primitives, and derived `toString` all behave exactly as
@@ -297,13 +318,20 @@ are shared mutable references (`docs/spec/03-types.md`), so
 container it captures. Plain reference counting therefore leaks, and the
 VM collects with mark & sweep. Design, as implemented:
 
-- **Arena scope**: only the four kinds that can gain references after
-  creation — `Vector`, `Map`, `Set`, `Struct` (the language's only
-  post-creation mutations are field assignment, index assignment, and
-  the mutating container builtins) — live in the arena behind opaque
-  indices. Every reference cycle must pass through one of them. The
-  immutable kinds (strings, tuples, enum payloads, closures, bound
-  methods, `Option` payloads, caught signals, iterators) are frozen at
+- **Arena scope**: only the kinds that can gain references after
+  creation live in the arena behind opaque indices — `Vector`, `Map`,
+  `Set`, `Struct`, and the binding cell. The language's post-creation
+  mutations are field assignment, index assignment, the mutating
+  container builtins, and rebinding a captured name, which writes
+  through the cell (`01-syntax.md`, BRS-106). That last one is why the
+  cell is here rather than behind `Rc`: `let mut f = || 0` followed by
+  `f = || f()` makes the cell point at a closure that captured it.
+  Every reference cycle must pass through one of these five kinds. A
+  closure is no longer frozen — the cells it holds change under it —
+  but it needs no arena slot, because it gains no references itself:
+  every cycle through a closure passes through a cell or a container.
+  The remaining kinds (strings, tuples, enum payloads, bound methods,
+  `Option` payloads, caught signals, iterators) are frozen at
   construction, provably cycle-free, and stay behind `Rc`: for them
   reference counting IS precise. The tracer walks through immutable
   structure to reach arena cells; sweeping an unreachable cell breaks
@@ -319,10 +347,9 @@ VM collects with mark & sweep. Design, as implemented:
   traversal's snapshot, its accumulator, the fields being rendered) are
   parked on the native root stack for the duration, and so is the
   callback. Entering the callback's frame copies its captures into stack
-  slots, which is not enough on its own: a callee that assigns to a
-  captured slot makes that store frame-local, the next invocation
-  republishes the original from the closure, and in between the closure
-  is the only thing holding it.
+  slots, which is not enough on its own: the callee was popped off the
+  value stack before the call, so from that pop until the entered frame
+  republishes the captures this handle is the only reference to them.
 - **Trigger and pause behavior**: two conditions, both required, tested
   at every instruction boundary, nested dispatch loops included. The
   measure is **bytes, not objects** — a threshold counting cells
@@ -355,10 +382,12 @@ VM collects with mark & sweep. Design, as implemented:
   string builtins) are not interned. Interning is invisible: equality
   stays structural, strings have no identity semantics.
 
-The future trigger for widening the arena is any feature that lets an
-immutable kind reference a value created after it (by-reference capture,
-lazy/deferred initialization); recursive types need nothing new — the
-arena already covers them.
+The future trigger for widening the arena is any feature that lets a
+frozen kind reference a value created after it (lazy or deferred
+initialization); recursive types need nothing new — the arena already
+covers them. By-reference capture was on that list and is the one that
+arrived: BRS-106 widened the arena by exactly one kind, the binding
+cell.
 
 ## Instruction set
 
@@ -378,6 +407,8 @@ index, `n`/`argc` counts, `b` builtin index.
 | `pop` | | `v →` | Discard the top |
 | `dup` | | `v → v v` | Duplicate the top (match/scrutinee tests) |
 | `load_local` / `store_local` | `s` | `→ v` / `v →` | Read / write frame slot `s` |
+| `make_binding` | `s` | `v →` | Bind slot `s` to a fresh binding cell holding `v` (closures, above) |
+| `load_binding` / `store_binding` | `s` | `→ v` / `v →` | Read / write through the binding cell slot `s` holds; every capture of that binding observes the write |
 | `load_global` / `store_global` | `g` | `→ v` / `v →` | Read / write global slot `g`; loading an unset slot is fatal |
 | `load_func` | `f` | `→ fn` | Push function `f` as a value |
 
@@ -451,7 +482,7 @@ All targets are absolute instruction indices.
 | `make_set_from_vector` | | `vec → set` | The `Set(v)` constructor: dedupe by structural equality, first occurrence kept, insertion order preserved |
 | `make_struct` | `struct` | `f… → s` | Struct literal; field count and order come from the shape, initializers already evaluated in written order and reordered to declaration order by codegen |
 | `make_enum` | `enum, variant, argc` | `p… → e` | Enum variant with `argc` payload values |
-| `make_closure` | `f, n` | `caps… → cl` | Snapshot the top `n` capture values into a closure over function `f` |
+| `make_closure` | `f, n` | `caps… → cl` | Move the top `n` captures into a closure over function `f`: the cell for a shared binding, the value for one nothing rebinds |
 | `make_range` | `inclusive` | `lo hi → rg` | Lazy int range |
 
 ### Strings and iteration

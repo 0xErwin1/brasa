@@ -131,6 +131,30 @@ puts add5(compose())
     );
 }
 
+/// The shared-binding representation (BRS-106): `shared` is captured
+/// and rebound, so it lives in a cell and every read and write goes
+/// through it, while `fixed` is captured and never rebound and
+/// `untouched` is rebound and never captured — neither pays for a cell.
+#[test]
+fn shared_bindings_are_boxed_and_the_rest_are_not() {
+    assert_compiles(
+        "shared_bindings",
+        r##"
+def counter(start: int): () -> int
+  let mut shared = start
+  let fixed = 100
+  let mut untouched = 0
+  let read = || shared + fixed
+  shared = shared + 1
+  untouched = untouched + 1
+  read
+end
+
+puts counter(1)()
+"##,
+    );
+}
+
 #[test]
 fn match_decision_tree() {
     assert_compiles(
