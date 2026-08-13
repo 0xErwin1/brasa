@@ -10,7 +10,12 @@ use crate::TypeExprId;
 pub enum TypeExpr {
     /// `Vector<int>`, `Map<string, T>`, or a bare name with no generic
     /// arguments.
-    Named { name: String, args: Vec<TypeExprId> },
+    Named {
+        /// The name as written, possibly a qualified path; see
+        /// `brasa_ast::TypeExpr::Named`.
+        name: String,
+        args: Vec<TypeExprId>,
+    },
     /// `(int, string)`.
     Tuple(Vec<TypeExprId>),
     /// `(int, int) -> int`.

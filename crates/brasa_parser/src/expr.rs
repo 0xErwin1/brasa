@@ -270,6 +270,16 @@ impl<'a> Parser<'a> {
                         .ast
                         .alloc_expr(Expr::Index { recv: expr, index }, Span::merge(&start, &end));
                 }
+                TokenKind::Dot if self.peek_is_type_ident() && self.is_bare_ident(expr) => {
+                    // `lib.Point { ... }` / `lib.Red(...)`: a type name
+                    // after a plain identifier is a qualified path into
+                    // an imported module, not a member access. Field and
+                    // method names are lowercase, so the two shapes
+                    // cannot collide.
+                    let module = self.ident_text(expr);
+                    self.bump();
+                    expr = self.parse_type_ident_primary(Some(&module), start);
+                }
                 TokenKind::Dot => {
                     self.bump();
                     let name = self.expect_ident_text("a field or method name");
@@ -542,7 +552,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 self.ast.alloc_expr(Expr::Ident(name), start)
             }
-            TokenKind::TypeIdent => self.parse_type_ident_primary(),
+            TokenKind::TypeIdent => self.parse_type_ident_primary(None, start),
             TokenKind::LParen => self.parse_paren_expr(),
             TokenKind::LBracket => self.parse_vector_lit(),
             TokenKind::LBrace => self.parse_map_lit(),
@@ -565,9 +575,35 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_type_ident_primary(&mut self) -> ExprId {
-        let start = self.span();
-        let name = self.slice().to_string();
+    /// Whether the token after the cursor is a type name — the second
+    /// half of a qualified path.
+    fn peek_is_type_ident(&self) -> bool {
+        self.peek_kind(1) == TokenKind::TypeIdent
+    }
+
+    /// The module stem of a qualified path: an expression is only a
+    /// qualifier when it is a bare identifier, so `a.b.Point` and
+    /// `f().Point` are not paths.
+    fn is_bare_ident(&self, expr: ExprId) -> bool {
+        matches!(self.ast.expr(expr), Expr::Ident(_))
+    }
+
+    fn ident_text(&self, expr: ExprId) -> String {
+        match self.ast.expr(expr) {
+            Expr::Ident(name) => name.clone(),
+            _ => unreachable!("guarded by `is_bare_ident`"),
+        }
+    }
+
+    /// A constructor or struct literal. `module` is the stem of a
+    /// qualified path, and `start` its span, so the node covers the
+    /// whole path rather than just the type name; the two are joined
+    /// into one written name, as in `brasa_ast::TypeExpr::Named`.
+    fn parse_type_ident_primary(&mut self, module: Option<&str>, start: Span) -> ExprId {
+        let name = match module {
+            Some(module) => format!("{module}.{}", self.slice()),
+            None => self.slice().to_string(),
+        };
         self.bump();
 
         if self.at(TokenKind::LParen) {
@@ -618,7 +654,7 @@ impl<'a> Parser<'a> {
                     name,
                     args: Vec::new(),
                 },
-                start,
+                Span::merge(&start, &self.prev_span()),
             )
         }
     }

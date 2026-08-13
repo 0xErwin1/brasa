@@ -432,3 +432,195 @@ fn an_import_is_not_re_exported() {
         stderr(&output)
     );
 }
+
+// --- qualified type paths (BRS-115) ---------------------------------
+
+/// An exported struct, named through the module in every type position
+/// an annotation can occupy, and constructed through the same path.
+#[test]
+fn an_exported_struct_is_nameable_and_constructible_through_the_module() {
+    let dir = temp_dir("qualified-struct");
+    write(
+        &dir,
+        "geo.bras",
+        "pub struct Point\n  x: int\n  y: int\nend\n\npub def origin(): Point\n  Point { x: 0, y: 0 }\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        concat!(
+            "import \"geo.bras\"\n\n",
+            "let p: geo.Point = geo.Point { x: 3, y: 4 }\n",
+            "let all: Vector<geo.Point> = [p, geo.origin()]\n\n",
+            "def far(q: geo.Point): bool\n  q.x > 2\nend\n\n",
+            "puts p.x\n",
+            "puts all.len()\n",
+            "puts far(p)\n",
+        ),
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "3\n2\ntrue\n");
+}
+
+/// An exported enum's constructors, in expression and pattern position.
+#[test]
+fn an_exported_enums_constructors_work_qualified_in_both_positions() {
+    let dir = temp_dir("qualified-enum");
+    write(
+        &dir,
+        "paint.bras",
+        "pub enum Color\n  Red\n  Blue(shade: int)\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        concat!(
+            "import \"paint.bras\"\n\n",
+            "def name(c: paint.Color): string\n",
+            "  match c\n",
+            "    paint.Red => \"red\"\n",
+            "    paint.Blue(n) => \"blue #{n}\"\n",
+            "  end\n",
+            "end\n\n",
+            "puts name(paint.Red)\n",
+            "puts name(paint.Blue(7))\n",
+        ),
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "red\nblue 7\n");
+}
+
+/// The point of the whole feature for error handling: an importer can
+/// name the error type it catches. BRS-97 could only pin that the SET
+/// crossed the boundary; the arm itself could not be written.
+#[test]
+fn a_catch_arm_can_name_an_imported_error_type() {
+    let dir = temp_dir("qualified-catch");
+    write(
+        &dir,
+        "risky.bras",
+        "pub struct Boom\n  detail: string\nend\n\npub def go(fail: bool): int throws Boom\n  if fail\n    throw Boom { detail: \"nope\" }\n  end\n  1\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        concat!(
+            "import \"risky.bras\"\n\n",
+            "let caught = risky.go(true) catch! (e)\n  risky.Boom => 0\nend\n",
+            "let clean = risky.go(false) catch! (e)\n  risky.Boom => 0\nend\n",
+            "puts caught\n",
+            "puts clean\n",
+        ),
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "0\n1\n",
+        "the arm must match the value's nominal tag `Boom`, not the path `risky.Boom`"
+    );
+}
+
+/// `pub` gates the type namespace exactly as it gates the value one.
+#[test]
+fn a_private_type_is_not_nameable_from_an_importer() {
+    let dir = temp_dir("qualified-private");
+    write(&dir, "geo.bras", "struct Point\n  x: int\nend\n");
+    let main = write(
+        &dir,
+        "main.bras",
+        "import \"geo.bras\"\nlet p: geo.Point = geo.Point { x: 1 }\n",
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(65));
+    let stderr = stderr(&output);
+    assert!(stderr.contains("R013"), "got: {stderr}");
+    assert!(
+        stderr.contains("`Point` is not exported by module `geo`"),
+        "got: {stderr}"
+    );
+}
+
+/// An unqualified name that an imported module DOES export should say
+/// so: the fix is to qualify it, and the resolver knows which module.
+#[test]
+fn an_unqualified_name_is_told_which_module_exports_it() {
+    let dir = temp_dir("qualified-hint");
+    write(&dir, "geo.bras", "pub struct Point\n  x: int\nend\n");
+    let main = write(
+        &dir,
+        "main.bras",
+        "import \"geo.bras\"\ndef f(p: Point): int\n  p.x\nend\n",
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(65));
+    let stderr = stderr(&output);
+    assert!(stderr.contains("R003"), "got: {stderr}");
+    assert!(
+        stderr.contains("module `geo` exports `Point`; write it as `geo.Point`"),
+        "got: {stderr}"
+    );
+}
+
+/// A dotted name is only a module path when its root is bound to one.
+/// `panics.` is reserved and needs no import, and a `std::` module's
+/// native errors keep their own meaning — so importing a file named
+/// `fs.bras` does not silently reinterpret `fs.NotFound`.
+#[test]
+fn a_native_error_arm_is_not_shadowed_by_an_unrelated_import() {
+    let dir = temp_dir("qualified-native");
+    write(&dir, "helper.bras", "pub def noop(): int\n  1\nend\n");
+    let main = write(
+        &dir,
+        "main.bras",
+        concat!(
+            "import std::fs\n",
+            "import \"helper.bras\"\n\n",
+            "let text = fs.read(\"definitely-missing-file\") catch (e)\n",
+            "  fs.NotFound => \"missing\"\n",
+            "end\n",
+            "puts text\n",
+            "puts helper.noop()\n",
+        ),
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "missing\n1\n");
+}
+
+/// Field and method access is unaffected: the lexical class after the
+/// dot is what tells a qualified path from a member access, so a
+/// lowercase member on a value never takes the path branch.
+#[test]
+fn a_member_access_on_a_value_is_not_read_as_a_path() {
+    let dir = temp_dir("qualified-member");
+    write(
+        &dir,
+        "geo.bras",
+        "pub struct Point\n  x: int\n\n  def doubled(self): int\n    self.x * 2\n  end\nend\n",
+    );
+    let main = write(
+        &dir,
+        "main.bras",
+        "import \"geo.bras\"\nlet p = geo.Point { x: 5 }\nputs p.x\nputs p.doubled()\n",
+    );
+
+    let output = brasa(&main);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "5\n10\n");
+}

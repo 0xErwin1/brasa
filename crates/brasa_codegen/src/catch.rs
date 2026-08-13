@@ -6,17 +6,30 @@
 //! for `_` (an error, never a panic), `jump_if_tag_ne` for named arms,
 //! `caught_value`/`caught_detail` for the binding (the error value for
 //! user arms and `_`, the detail/message string for dotted panic and
-//! native-error names — a compile-time choice, since user type names
-//! never contain `.`), guards after the binding store, and a `rethrow`
-//! tail for whatever no arm handles.
+//! native-error names — a compile-time choice, decided by what the arm
+//! RESOLVED to rather than by whether it was spelled with a dot, since
+//! `lib.Boom` is a user type written with one), guards after the
+//! binding store, and a `rethrow` tail for whatever no arm handles.
 
 use brasa_bytecode::{CodeIx, Handler, Op};
-use brasa_hir::{CatchArm, CatchType, ExprId};
+use brasa_hir::{CatchArm, CatchType, ExprId, Item, ItemId};
+use brasa_resolver::TypeRes;
 use brasa_source::Span;
 
 use crate::expr::compile_expr;
 use crate::func::{FuncCx, PLACEHOLDER};
 use crate::pattern::compile_arm_body;
+
+/// The runtime nominal tag of a type item — the name a thrown value
+/// carries. Only structs and enums are nominal; an interface names no
+/// value, so it has no tag.
+fn nominal_name(f: &FuncCx, item: ItemId) -> Option<String> {
+    match f.cx.hir.item(item) {
+        Item::StructDef(def) => Some(def.name.clone()),
+        Item::EnumDef(def) => Some(def.name.clone()),
+        _ => None,
+    }
+}
 
 pub(crate) fn compile_catch(
     f: &mut FuncCx,
@@ -68,10 +81,28 @@ pub(crate) fn compile_catch(
                 }
                 CatchType::Named { name, .. } => {
                     let key = (id, arm_index, type_index);
-                    let dotted = f.cx.res.catch_arm_panics.contains_key(&key)
-                        || f.cx.res.catch_arm_native_errors.contains_key(&key)
-                        || name.contains('.');
-                    let tag = f.cx.const_str(name);
+
+                    // A user error type is matched by its NOMINAL tag,
+                    // which is the declared name — not the path the arm
+                    // was written with. The two differ once an arm names
+                    // a type from another module (`lib.Boom` matches a
+                    // value tagged `Boom`), so the resolution decides,
+                    // and only a name that resolved to no type falls
+                    // back to the written spelling.
+                    let resolved = match f.cx.res.catch_arm_types.get(&key) {
+                        Some(TypeRes::Item(item)) => nominal_name(f, *item),
+                        _ => None,
+                    };
+
+                    let dotted = resolved.is_none()
+                        && (f.cx.res.catch_arm_panics.contains_key(&key)
+                            || f.cx.res.catch_arm_native_errors.contains_key(&key)
+                            || name.contains('.'));
+
+                    let tag = match &resolved {
+                        Some(nominal) => f.cx.const_str(nominal),
+                        None => f.cx.const_str(name),
+                    };
                     let fail = f.emit(
                         Op::JumpIfTagNe {
                             tag,

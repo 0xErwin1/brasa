@@ -266,6 +266,16 @@ impl<'a> Parser<'a> {
         self.kind() == kind
     }
 
+    /// The kind `offset` tokens ahead, or `Eof` past the end. Used for
+    /// the one lookahead the grammar needs: telling a qualified path
+    /// (`lib.Point`) from a member access (`lib.field`).
+    fn peek_kind(&self, offset: usize) -> TokenKind {
+        self.tokens
+            .get(self.pos + offset)
+            .map(|token| token.kind)
+            .unwrap_or(TokenKind::Eof)
+    }
+
     fn at_any(&self, kinds: &[TokenKind]) -> bool {
         kinds.contains(&self.kind())
     }

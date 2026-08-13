@@ -19,9 +19,11 @@
 //!   contains `self` (`docs/spec/01-syntax.md`); lambdas nested in such
 //!   a method may use it too (they close over the method scope).
 //! - Imports (`docs/spec/01-syntax.md`) bind the last `std::` segment or
-//!   the file stem in the value namespace. File imports are not loaded
-//!   or cycle-checked in M1 (the module loader is a later work item);
-//!   the binding is recorded and member access stays opaque.
+//!   the file stem in the value namespace. For a file import, whose
+//!   module `brasa_module` has already loaded, `stem.member` and
+//!   `stem.Type` resolve here against that module's own scope, and only
+//!   `pub` declarations are reachable. A `std::` module's members stay
+//!   opaque: they are builtins the type checker knows.
 //! - `catch` arm types (`CatchType`): bare names resolve in the type
 //!   namespace (`docs/spec/04-errors.md`, arms match error types
 //!   nominally); `panics.X` names are validated against the builtin
@@ -133,6 +135,10 @@ struct ValueBinding {
 struct TypeBinding {
     res: TypeRes,
     span: Span,
+    /// Whether an importer may name this through `stem.Type`; see
+    /// [`ValueBinding::exported`]. Generic-parameter frames are never
+    /// reachable from outside, so they carry `false`.
+    exported: bool,
 }
 
 /// One module's declarations, built by pass 1 and kept for the whole
@@ -309,16 +315,16 @@ impl<'h> Resolver<'h> {
                     top_let_count += 1;
                 }
                 Item::StructDef(def) => {
-                    self.declare_module_type(&mut scope, &def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span, def.is_pub);
                     self.check_struct_hygiene(def);
                 }
                 Item::EnumDef(def) => {
-                    self.declare_module_type(&mut scope, &def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span, def.is_pub);
                     self.check_enum_hygiene(def);
                     scope.enums.push(root);
                 }
                 Item::InterfaceDef(def) => {
-                    self.declare_module_type(&mut scope, &def.name, root, span);
+                    self.declare_module_type(&mut scope, &def.name, root, span, def.is_pub);
                     self.check_member_hygiene(&def.methods);
                 }
                 Item::Stmt(_) => {}
@@ -479,6 +485,7 @@ impl<'h> Resolver<'h> {
         name: &'h str,
         item: ItemId,
         span: Span,
+        exported: bool,
     ) {
         if let Some(prev) = scope.types.get(name) {
             let prev_span = prev.span;
@@ -491,6 +498,7 @@ impl<'h> Resolver<'h> {
             TypeBinding {
                 res: TypeRes::Item(item),
                 span,
+                exported,
             },
         );
     }
@@ -585,6 +593,7 @@ impl<'h> Resolver<'h> {
                 TypeBinding {
                     res: TypeRes::GenericParam { owner, index },
                     span: generic.name_span,
+                    exported: false,
                 },
             );
         }
@@ -595,6 +604,7 @@ impl<'h> Resolver<'h> {
                 TypeBinding {
                     res: TypeRes::SelfType,
                     span,
+                    exported: false,
                 },
             );
         }
@@ -632,6 +642,7 @@ impl<'h> Resolver<'h> {
                         TypeBinding {
                             res: TypeRes::SelfType,
                             span,
+                            exported: false,
                         },
                     );
                     self.type_frames.push(self_frame);
@@ -1116,19 +1127,10 @@ impl<'h> Resolver<'h> {
                 }
             }
             Expr::StructLit { type_name, fields } => {
-                match self.lookup_type(type_name) {
-                    Some(res) => {
-                        self.res.struct_lit_res.insert(id, res);
-                    }
-                    None => {
-                        let span = hir.span_of_expr(id);
-                        self.error(err_at(
-                            codes::R_UNKNOWN_TYPE,
-                            span,
-                            format!("unknown type `{type_name}`"),
-                            "not found in this scope",
-                        ));
-                    }
+                let span = hir.span_of_expr(id);
+
+                if let Some(res) = self.type_path(type_name, span) {
+                    self.res.struct_lit_res.insert(id, res);
                 }
                 for (_, value) in fields {
                     self.resolve_expr(*value);
@@ -1167,9 +1169,21 @@ impl<'h> Resolver<'h> {
                         let CatchType::Named { name, span } = arm_type else {
                             continue;
                         };
+                        // A dotted arm name is one of three things, and
+                        // what the root is BOUND to decides which — not
+                        // the spelling. `panics.` is reserved and needs
+                        // no import, so it wins outright; otherwise a
+                        // root bound to an imported file module names a
+                        // type in that module, and a root bound to a
+                        // `std::` module (or to nothing) names a native
+                        // error.
                         if name.contains('.') {
                             if name.starts_with("panics.") {
                                 self.resolve_panic_arm(id, arm_index, type_index, name, *span);
+                            } else if let Some((stem, type_name)) = self.split_module_path(name) {
+                                self.resolve_module_arm(
+                                    id, arm_index, type_index, stem, type_name, *span,
+                                );
                             } else if native_error_namespace_landed(name) {
                                 self.resolve_native_error_arm(
                                     id, arm_index, type_index, name, *span,
@@ -1212,6 +1226,27 @@ impl<'h> Resolver<'h> {
                 }
             }
         }
+    }
+
+    /// A `catch` arm naming a type exported by an imported file module.
+    /// Recorded in `catch_arm_types` like a bare name, because that is
+    /// what it is: a nominal error type, reached by a longer path.
+    fn resolve_module_arm(
+        &mut self,
+        id: ExprId,
+        arm_index: usize,
+        type_index: usize,
+        module: &str,
+        name: &str,
+        span: Span,
+    ) {
+        let Some(res) = self.qualified_type(module, name, span) else {
+            return;
+        };
+
+        self.res
+            .catch_arm_types
+            .insert((id, arm_index, type_index), res);
     }
 
     /// A `panics.`-qualified `catch` arm name: the union is closed
@@ -1328,7 +1363,14 @@ impl<'h> Resolver<'h> {
     /// scope. Exactly one candidate resolves; zero or several are errors
     /// (the type checker may refine ambiguity with expected types in a
     /// later milestone).
+    ///
+    /// A qualified `mod.Variant` names exactly one module, so it cannot
+    /// be ambiguous and takes the narrower path below.
     fn resolve_ctor(&mut self, name: &str, span: Span, position: CtorPosition) -> Option<CtorRes> {
+        if let Some((module, variant)) = self.split_module_path(name) {
+            return self.resolve_qualified_ctor(module, variant, span);
+        }
+
         let hir = self.hir;
         let mut candidates: Vec<(CtorRes, &str)> = Vec::new();
 
@@ -1394,27 +1436,248 @@ impl<'h> Resolver<'h> {
         }
     }
 
+    /// `mod.Variant`: a constructor of an enum exported by an imported
+    /// file module.
+    ///
+    /// The candidate pool is one module's exported enums rather than
+    /// every enum in scope, so the qualified form is strictly narrower
+    /// than the bare one — it can still be ambiguous, but only between
+    /// two enums of the same module.
+    fn resolve_qualified_ctor(&mut self, module: &str, name: &str, span: Span) -> Option<CtorRes> {
+        let Some(target) = self.file_module_index(module) else {
+            self.error(err_at(
+                codes::R_UNKNOWN_CONSTRUCTOR,
+                span,
+                format!("unknown module `{module}` in constructor `{module}.{name}`"),
+                "no such import in this module",
+            ));
+            return None;
+        };
+
+        let hir = self.hir;
+        let mut candidates: Vec<(CtorRes, &str)> = Vec::new();
+
+        for enum_item in self.scopes[target].enums.clone() {
+            let Item::EnumDef(def) = hir.item(enum_item) else {
+                continue;
+            };
+            if !def.is_pub {
+                continue;
+            }
+
+            for (variant_index, variant) in def.variants.iter().enumerate() {
+                if variant.name == name {
+                    candidates.push((
+                        CtorRes::EnumVariant {
+                            enum_item,
+                            variant_index,
+                        },
+                        &def.name,
+                    ));
+                }
+            }
+        }
+
+        match candidates.len() {
+            1 => Some(candidates[0].0),
+            0 => {
+                self.error(err_at(
+                    codes::R_UNKNOWN_MODULE_MEMBER,
+                    span,
+                    format!("module `{module}` exports no constructor `{name}`"),
+                    "not found in that module",
+                ));
+                None
+            }
+            _ => {
+                let owners: Vec<&str> = candidates.iter().map(|(_, owner)| *owner).collect();
+                self.error(
+                    err_at(
+                        codes::R_AMBIGUOUS_CONSTRUCTOR,
+                        span,
+                        format!("ambiguous constructor `{module}.{name}`"),
+                        "matches more than one enum in that module",
+                    )
+                    .with_note(format!("candidates: {}", owners.join(", "))),
+                );
+                None
+            }
+        }
+    }
+
+    /// The module index a stem binds, when it binds an imported file
+    /// module in the current module's scope.
+    fn file_module_index(&self, stem: &str) -> Option<usize> {
+        let binding = self.scopes[self.current].values.get(stem)?;
+        let Res::Module(import_item) = binding.res else {
+            return None;
+        };
+        self.module_of_import.get(&import_item).copied()
+    }
+
     // --- types ---------------------------------------------------------
+
+    /// The `R003` for a bare name that resolves to no type.
+    ///
+    /// When an imported module exports that name, the message says which
+    /// one: the fix is to qualify the path, and the resolver knows enough
+    /// to name it rather than leave the reader to guess which import to
+    /// look in.
+    fn unknown_type(&self, span: Span, name: &str) -> Diagnostic {
+        let diagnostic = err_at(
+            codes::R_UNKNOWN_TYPE,
+            span,
+            format!("unknown type `{name}`"),
+            "not found in this scope",
+        );
+
+        let exporters: Vec<&str> = self
+            .imported_modules()
+            .filter(|&(_, target)| {
+                self.scopes[target]
+                    .types
+                    .get(name)
+                    .is_some_and(|binding| binding.exported)
+            })
+            .map(|(stem, _)| stem)
+            .collect();
+
+        match exporters.as_slice() {
+            [] => diagnostic,
+            [stem] => diagnostic.with_note(format!(
+                "module `{stem}` exports `{name}`; write it as `{stem}.{name}`"
+            )),
+            stems => diagnostic.with_note(format!(
+                "these imported modules export `{name}`: {}",
+                stems.join(", ")
+            )),
+        }
+    }
+
+    /// Every file module the current module imports, as (binding stem,
+    /// module index).
+    fn imported_modules(&self) -> impl Iterator<Item = (&'h str, usize)> {
+        self.scopes[self.current]
+            .values
+            .iter()
+            .filter_map(|(&stem, binding)| match binding.res {
+                Res::Module(item) => self.module_of_import.get(&item).map(|&ix| (stem, ix)),
+                _ => None,
+            })
+    }
+
+    /// Resolves a written type name, qualified or not: `lib.Point`
+    /// against the type scope of the module `lib` binds, a bare name
+    /// against this module's scope and the prelude.
+    fn type_path(&mut self, written: &str, span: Span) -> Option<TypeRes> {
+        if let Some((module, name)) = self.split_module_path(written) {
+            return self.qualified_type(module, name, span);
+        }
+
+        match self.lookup_type(written) {
+            Some(res) => Some(res),
+            None => {
+                let diagnostic = self.unknown_type(span, written);
+                self.error(diagnostic);
+                None
+            }
+        }
+    }
+
+    /// Splits a written name into (module stem, member) when the stem is
+    /// bound to an imported file module here. A name is only a qualified
+    /// path if its root actually names one — nothing else in the type
+    /// namespace contains a `.`, but a dotted `catch` arm does, and it
+    /// is not a path.
+    fn split_module_path<'n>(&self, written: &'n str) -> Option<(&'n str, &'n str)> {
+        let (root, rest) = written.split_once('.')?;
+        self.file_module_index(root)?;
+        Some((root, rest))
+    }
+
+    /// Looks up `module.name` in the type namespace of the file module
+    /// `module` binds — the type-namespace twin of
+    /// [`Resolver::resolve_module_member`] — reporting every way the
+    /// path can fail. `None` means it was reported.
+    fn qualified_type(&mut self, module: &str, name: &str, span: Span) -> Option<TypeRes> {
+        let Some(binding) = self.scopes[self.current].values.get(module) else {
+            self.error(err_at(
+                codes::R_UNKNOWN_TYPE,
+                span,
+                format!("unknown module `{module}` in type `{module}.{name}`"),
+                "no such import in this module",
+            ));
+            return None;
+        };
+
+        let Res::Module(import_item) = binding.res else {
+            let declared = binding.span;
+            self.error(
+                err_at(
+                    codes::R_UNKNOWN_TYPE,
+                    span,
+                    format!("`{module}` is not a module"),
+                    "only an imported module can qualify a type",
+                )
+                .with_label(declared, format!("`{module}` is bound here")),
+            );
+            return None;
+        };
+
+        // A `std::` module, or one whose file failed to load. The std
+        // modules export no types (`docs/spec/05-stdlib.md`: their
+        // members are functions and constants), and a failed load was
+        // already reported by the loader.
+        let Some(&target) = self.module_of_import.get(&import_item) else {
+            self.error(err_at(
+                codes::R_UNKNOWN_TYPE,
+                span,
+                format!("module `{module}` exports no types"),
+                "not a file module",
+            ));
+            return None;
+        };
+
+        match self.scopes[target].types.get(name) {
+            Some(binding) if binding.exported => Some(binding.res),
+            Some(binding) => {
+                let declared = binding.span;
+                self.error(
+                    err_at(
+                        codes::R_UNKNOWN_MODULE_MEMBER,
+                        span,
+                        format!("`{name}` is not exported by module `{module}`"),
+                        "not exported",
+                    )
+                    .with_label(declared, "declared without `pub` here".to_string())
+                    .with_note(format!(
+                        "everything in a module is private unless declared `pub`; write `pub` before `{name}`'s definition to export it"
+                    )),
+                );
+                None
+            }
+            None => {
+                self.error(err_at(
+                    codes::R_UNKNOWN_MODULE_MEMBER,
+                    span,
+                    format!("module `{module}` declares no type `{name}`"),
+                    "not found in that module",
+                ));
+                None
+            }
+        }
+    }
 
     fn resolve_type(&mut self, id: TypeExprId) {
         let hir = self.hir;
 
         match hir.type_expr(id) {
             TypeExpr::Named { name, args } => {
-                match self.lookup_type(name) {
-                    Some(res) => {
-                        self.res.type_res.insert(id, res);
-                    }
-                    None => {
-                        let span = hir.span_of_type_expr(id);
-                        self.error(err_at(
-                            codes::R_UNKNOWN_TYPE,
-                            span,
-                            format!("unknown type `{name}`"),
-                            "not found in this scope",
-                        ));
-                    }
+                let span = hir.span_of_type_expr(id);
+                if let Some(res) = self.type_path(name, span) {
+                    self.res.type_res.insert(id, res);
                 }
+
                 for &arg in args {
                     self.resolve_type(arg);
                 }

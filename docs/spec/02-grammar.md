@@ -147,7 +147,7 @@ primary     = INT | FLOAT | STRING | CHAR | "true" | "false" | "unit"
             | tuple_lit
             | vector_lit | map_lit | struct_lit | lambda
             | if_expr | match_expr
-            | TYPE_IDENT ( "(" args? ")" )?           # enum constructor
+            | ctor_path ( "(" args? ")" )?            # enum constructor
 
 postfix     = primary ( "(" args? ")"
                       | "[" expr "]"
@@ -159,7 +159,8 @@ tuple_lit   = "(" expr "," ( expr ( "," expr )* )? ","? ")"
 vector_lit  = "[" ( expr ( "," expr )* )? "]"
 map_lit     = "{" ( map_entry ( "," map_entry )* )? "}"
 map_entry   = expr ":" expr
-struct_lit  = TYPE_IDENT "{" ( IDENT ":" expr ( "," IDENT ":" expr )* )? "}"
+struct_lit  = ctor_path "{" ( IDENT ":" expr ( "," IDENT ":" expr )* )? "}"
+ctor_path   = ( IDENT "." )? TYPE_IDENT   # qualified: utils.Point, utils.Red
 
 lambda      = "|" lparams? "|" expr
             | "do" "|" lparams? "|" NL block "end"
@@ -175,7 +176,7 @@ arm_body    = expr | throw_stmt | return_stmt | "break" | "continue"
                block, mirroring inline-if normalization *)
 
 pattern     = "_" | literal | IDENT
-            | TYPE_IDENT ( "(" pattern ( "," pattern )* ")" )?
+            | ctor_path ( "(" pattern ( "," pattern )* ")" )?
             | "(" pattern ( "," pattern )* ")"        # tuple
 
 (* literals allowed in patterns; pattern STRINGs do NOT allow
@@ -187,7 +188,8 @@ literal     = INT | FLOAT | STRING | CHAR | "true" | "false"
 catch_clause = ( "catch" | "catch!" ) "(" IDENT ")" NL catch_arm+ "end"
 catch_arm    = catch_types ( "if" expr )? "=>" arm_body NL
 catch_types  = ( error_type | "_" ) ( "|" error_type )*
-error_type   = ( IDENT "." )? TYPE_IDENT     # possibly qualified: fs.NotFound, panics.DivisionByZero
+error_type   = ( IDENT "." )? TYPE_IDENT     # possibly qualified: fs.NotFound, panics.DivisionByZero,
+                                             # utils.ParseError (a type from an imported module)
 ```
 
 Full semantics in [04-errors.md](04-errors.md). `catch` is a postfix
@@ -199,7 +201,8 @@ it is parenthesized.
 
 ```
 type        = type_name ( "<" type ( "," type )* ">" )?     # Vector<int>, Map<string, T>
-type_name   = TYPE_IDENT | IDENT                            # IDENT covers primitives: int, float, ...
+type_name   = ( IDENT "." )? ( TYPE_IDENT | IDENT )         # IDENT covers primitives: int, float, ...
+                                                            # the qualifier is a module: utils.Point
             | "(" type ( "," type )* ")"                    # tuple
             | fn_type
 fn_type     = "(" ( type ( "," type )* )? ")" "->" type     # (int, int) -> int
@@ -221,6 +224,7 @@ Primitives: `int` (i64), `float` (f64), `bool`, `string`, `char`, `unit`.
 | `puts` | not a keyword: it's a stdlib function (`io.puts`, re-exported to the prelude) |
 | inline `if` vs multi-line | the token after the condition decides: `then` → inline form (single-expression branches), `NL` → block form |
 | call vs field | parentheses are **mandatory** in calls in expression position: `v.len()` calls, `p.x` is field access. Exceptions: statement-position command calls and trailing `do`-blocks (see below) |
+| `a.B` qualified path vs field access | the **lexical class after the dot** decides, with no lookup involved: `IDENT "." TYPE_IDENT` is a qualified path into a module (`utils.Point`, `utils.Red`), and `IDENT "." IDENT` is field or method access. The two can never collide, because a field or method name is always lowercase and a type or constructor name is always PascalCase. Only a bare identifier qualifies, so `f().Point` and `a.b.Point` are not paths |
 | command calls | at STATEMENT position only, a bare `IDENT` followed by one or more comma-separated expressions on the same line is a call: `puts "hi"`, `puts a, b`. In expression position parentheses remain mandatory (`let x = puts("hi")`). A leading `-` binds as binary subtraction, not as a negative first argument: `puts -x` is `puts - x`; write `puts(-x)` |
 | command call vs indexing | a `[` after the callee binds as postfix indexing, not as a vector-literal first argument: `puts [1, 2]` parses as `puts[1, 2]` and fails. Bind the vector first (`let v = [1, 2]` then `puts v`) or use parentheses (`puts([1, 2])`) |
 | unknown escapes | `\<c>` for any `c` outside the escape set (`\n \t \" \\ \#`) is an ERROR in both string and char literals — never silently dropped or passed through. Raw strings are unaffected (no escapes at all) |

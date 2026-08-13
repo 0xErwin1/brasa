@@ -311,6 +311,12 @@ fs.read("data.txt")
   (`bar.bras` → `bar`).
 - **No selective import** (`import x.{y}` does not exist). All access is
   qualified: `utils.slugify(...)`.
+- The qualified form reaches **every** exported kind, in both
+  namespaces: `utils.slugify(x)` and `utils.limit` for values,
+  `utils.Point` wherever a type is written (annotations, generic
+  arguments, `throws`, `catch` arms), `utils.Point { ... }` for a struct
+  literal, and `utils.Red` for an enum constructor in expression and
+  pattern position.
 - **A module's identity is its canonical path.** `./utils.bras`,
   `utils.bras`, and a symlink to the same file are one module: loaded
   once, top level run once, one set of bindings.

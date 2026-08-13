@@ -60,12 +60,25 @@ impl<'a> Parser<'a> {
                 self.ast
                     .alloc_pattern(Pattern::Literal(Literal::Str(text)), span)
             }
+            // `lib.Red(x)`: a type name after an identifier and a dot is
+            // a qualified constructor, not a binding. A binding is a
+            // single identifier with nothing after it, so the two shapes
+            // are distinguished before either is built.
+            TokenKind::Ident
+                if self.peek_kind(1) == TokenKind::Dot
+                    && self.peek_kind(2) == TokenKind::TypeIdent =>
+            {
+                let module = self.slice().to_string();
+                self.bump();
+                self.bump();
+                self.parse_ctor_pattern(Some(&module), start)
+            }
             TokenKind::Ident => {
                 let name = self.slice().to_string();
                 self.bump();
                 self.ast.alloc_pattern(Pattern::Binding(name), start)
             }
-            TokenKind::TypeIdent => self.parse_ctor_pattern(),
+            TokenKind::TypeIdent => self.parse_ctor_pattern(None, start),
             TokenKind::LParen => self.parse_tuple_pattern(),
             _ => {
                 self.error_expected("a pattern");
@@ -74,13 +87,19 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_ctor_pattern(&mut self) -> PatternId {
-        let start = self.span();
-        let name = self.slice().to_string();
+    /// A constructor pattern. `module` is the stem of a qualified path
+    /// and `start` its span, so the node covers the whole path; the two
+    /// are joined into one written name, as in
+    /// `brasa_ast::TypeExpr::Named`.
+    fn parse_ctor_pattern(&mut self, module: Option<&str>, start: Span) -> PatternId {
+        let name = match module {
+            Some(module) => format!("{module}.{}", self.slice()),
+            None => self.slice().to_string(),
+        };
         self.bump();
 
         let mut args = Vec::new();
-        let mut end = start;
+        let mut end = self.prev_span();
 
         if self.eat(TokenKind::LParen).is_some() {
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
