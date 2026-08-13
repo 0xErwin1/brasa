@@ -10,7 +10,6 @@ import std::cli
 import std::env
 import std::fs
 import std::io
-import std::math
 import "tally.bras"
 
 # Declared once; `cli.help` renders the usage from it, so the two cannot
@@ -43,8 +42,7 @@ def report(title: string, rows: Vector<tally.Tally>, limit: int)
   puts ""
   puts title
 
-  for i in 0..math.min(limit, rows.len())
-    let row = rows[i]
+  for row in rows.slice(0, limit)
     puts "  #{tally.pad(row.hits, 4)}  #{row.key}"
   end
 end

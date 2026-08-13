@@ -4,8 +4,9 @@
 # `Map<string, int>` and then want the result ordered. Before file
 # imports existed this whole file was copy-pasted into each of them.
 
-# A counted key, ready to be ranked. `Map.entries()` yields tuples and a
-# tuple has no accessor, so a sortable row has to be a struct.
+# A counted key, ready to be ranked. A `(string, int)` would rank just as
+# well now that a lambda parameter can destructure it; the struct is kept
+# for the names, which is what the print sites read.
 pub struct Tally
   key: string
   hits: int

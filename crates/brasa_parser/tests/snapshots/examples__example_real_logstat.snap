@@ -6,7 +6,6 @@ Import::Std(std::cli)
 Import::Std(std::env)
 Import::Std(std::fs)
 Import::Std(std::io)
-Import::Std(std::math)
 Import::File("tally.bras")
 Let spec
   VectorLit
@@ -84,20 +83,12 @@ FuncDef report(title, rows, limit)
     Ident(puts)
     Ident(title)
   For
-    Binding(i)
-    Range(inclusive=false)
-      Int(0)
-      Call
-        Field(min)
-          Ident(math)
-        Ident(limit)
-        Call
-          Field(len)
-            Ident(rows)
-    Let row
-      Index
+    Binding(row)
+    Call
+      Field(slice)
         Ident(rows)
-        Ident(i)
+      Int(0)
+      Ident(limit)
     Call
       Ident(puts)
       StringLit

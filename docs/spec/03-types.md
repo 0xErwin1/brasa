@@ -27,8 +27,13 @@ across positions. `(1, "a"): (int, string)`. Arity is part of the type,
 so `(int, int)` and `(int, int, int)` never match. An expected tuple type
 of the same arity propagates element-wise, which is what lets
 `let p: (int, Vector<int>) = (1, [])` infer the empty vector. Elements
-are read by destructuring (a `match` arm or a `for` binding), not by an
-index expression: there is no `p.0`.
+are read by destructuring — a `match` arm, a `for` binding, or a lambda
+parameter pattern — not by an index expression: there is no `p.0`, and
+that is settled rather than deferred (BRS-65). The ruling was reviewed
+against the whole example and test corpus once lambda patterns landed:
+no site wanted a positional accessor, and the sort, map and fold
+pressure that looked like demand for one is served by
+`sortBy(|(_, hits)| -hits)` and its siblings.
 
 ## Inference
 
