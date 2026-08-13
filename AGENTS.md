@@ -58,13 +58,25 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_lexer` | logos lexer: text → tokens (newlines are tokens; string-interpolation sub-mode) |
 | `brasa_ast` | Index arenas, typed `Copy` IDs, span side tables |
 | `brasa_parser` | Recursive descent (items/stmts) + Pratt (exprs) |
+| `brasa_hir` | Desugared core: every sugar form is gone by this point |
+| `brasa_module` | The module graph: follows imports, loads every reachable file into ONE `Hir` |
+| `brasa_resolver` | Scopes, imports, visibility; the tables every later phase reads |
+| `brasa_typeck` | Inference and checking; `Type::Unknown` poisons instead of aborting |
+| `brasa_errorset` | Error-set inference (fixpoint over the call graph) and `throws` verification |
+| `brasa_bytecode` | Bytecode containers: opcodes, chunks, constant pool, module format, disassembler |
+| `brasa_codegen` | HIR → bytecode |
+| `brasa_runtime` | Execution glue the backend does not own: stdlib's contact with the OS, ordered collections, `Outcome` |
+| `brasa_vm` | The dispatch loop, the heap and the collector |
+| `brasa_fmt` | Formatter: prints the AST, recovers leaf spelling and comments from the source |
 | `brasa` | CLI binary (clap): runs a script, or `brasa fmt` |
-| `brasa_bytecode` | Bytecode containers (M3): opcodes, chunks, constant pool, module format, disassembler |
-| `brasa_fmt` | Formatter (M5): prints the AST, recovers leaf spelling and comments from the source |
 
-Planned: `brasa_hir` (desugared core), `brasa_resolver`, `brasa_typeck`,
-`brasa_errorset` (fixpoint inference), `brasa_runtime` (stdlib glue),
-`brasa_vm` + `brasa_codegen` (M3), `brasa_stdlib` (native).
+There is no `brasa_stdlib` and no separate interpreter crate. The stdlib
+lives as native builtins split across `brasa_bytecode::builtin` (the id
+registry), `brasa_typeck::builtins` (signatures) and
+`brasa_vm::builtins` (implementations) — a duplication BRS-96 exists to
+remove. `brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
+behaviour oracle it used to be is now the conformance corpus at
+`crates/brasa_vm/tests/conformance.rs`.
 
 ## Architecture invariants
 

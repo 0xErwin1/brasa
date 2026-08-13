@@ -60,7 +60,7 @@ at the gap:
 | Data | `struct` (no inheritance), `enum` with payloads, exhaustive `match` |
 | Generics | `def max<T: Comparable>(...)` — structural interface constraints |
 | Errors | `expr catch (e) ... end`, inferred error sets, optional verified `throws` |
-| Modules | one file = one module, `import std::fs`, explicit `pub` |
+| Modules | one file = one module, explicit `pub`; `import "util.bras"` relative, `import lib::helpers` on a search path, `import std::fs` for the stdlib |
 | Naming | `camelCase`, predicates end in `?` (`file.exists?`) |
 
 The full specification lives in [`docs/spec/`](docs/spec/).
@@ -68,9 +68,13 @@ The full specification lives in [`docs/spec/`](docs/spec/).
 ## Architecture
 
 ```
-source ─→ lexer ─→ parser ─→ HIR ─→ resolver ─→ type check ─→ error sets ─→ codegen ─→ VM
-          logos    Pratt+RD  desugar            inference     fixpoint      bytecode
+files ─→ lexer ─→ parser ─→ HIR ─→ resolver ─→ type check ─→ error sets ─→ codegen ─→ VM
+ graph   logos    Pratt+RD  desugar            inference     fixpoint      bytecode
 ```
+
+Every reachable file lowers into one HIR arena, so a multi-file program
+is one compilation with globally unique node IDs, not several linked
+together.
 
 One crate per compiler phase under [`crates/`](crates/). Index arenas with
 typed IDs for the AST, side tables per phase, no MIR — HIR lowers directly
