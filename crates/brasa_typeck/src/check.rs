@@ -1170,7 +1170,7 @@ impl<'a> Checker<'a> {
                 Type::Unknown
             }
             Member::Missing => {
-                self.report_missing_member(span, &recv_ty, name);
+                self.report_missing_member(span, recv, &recv_ty, name);
                 self.tables.expr_types.insert(callee, Type::Unknown);
                 for &arg in args {
                     self.check_expr(arg, None);
@@ -1482,7 +1482,7 @@ impl<'a> Checker<'a> {
             Member::Deferred => Type::Unknown,
             Member::Missing => {
                 let span = self.hir.span_of_expr(id);
-                self.report_missing_member(span, &recv_ty, name);
+                self.report_missing_member(span, recv, &recv_ty, name);
                 Type::Unknown
             }
         }
@@ -1620,7 +1620,7 @@ impl<'a> Checker<'a> {
         Member::Missing
     }
 
-    fn report_missing_member(&mut self, span: Span, recv: &Type, name: &str) {
+    fn report_missing_member(&mut self, span: Span, recv_expr: ExprId, recv: &Type, name: &str) {
         let shown = recv.display(self.hir);
 
         if let Type::Generic { owner, index } = recv {
@@ -1666,12 +1666,43 @@ impl<'a> Checker<'a> {
             return;
         }
 
-        self.error(err_at(
+        let diagnostic = err_at(
             codes::T_UNKNOWN_MEMBER,
             span,
             format!("no method `{name}` on `{shown}`"),
             "unknown method",
-        ));
+        );
+
+        // `puts (24).toFloat()` is the trap: the parentheses were meant
+        // as grouping, but `docs/spec/02-grammar.md` rules that
+        // parentheses right after a callee are a CALL, so the receiver
+        // is `puts`'s `unit` result and the real cause never appears in
+        // the message.
+        let diagnostic = match self.prelude_call_name(recv_expr) {
+            Some(called) => diagnostic.with_note(format!(
+                "`{called} (x).{name}()` parses as `{called}(x).{name}()`: parentheses right after a callee are a call, not grouping. Write `{called}((x).{name}())`, or bind the value first"
+            )),
+            None => diagnostic,
+        };
+
+        self.error(diagnostic);
+    }
+
+    /// The prelude function `recv` is a call to, when it is one.
+    ///
+    /// `puts`/`print` are the only names that both take a command-call
+    /// form and evaluate to `unit`, which is what makes a member access
+    /// on their result a grouping mistake rather than an ordinary
+    /// unknown method.
+    fn prelude_call_name(&self, recv: ExprId) -> Option<&'static str> {
+        let Expr::Call { callee, .. } = self.hir.expr(recv) else {
+            return None;
+        };
+        let Some(Res::Builtin(builtin)) = self.res.expr_res.get(callee) else {
+            return None;
+        };
+
+        Some(builtin.name())
     }
 
     // --- generics and constraints --------------------------------------

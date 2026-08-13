@@ -1581,3 +1581,20 @@ let ok = math.abs(-1)
 puts ok
 "#
 );
+
+// BRS-53, item 4: the only diagnostic in the whole dogfooding port that
+// pointed at the wrong thing. `puts (24).toFloat()` reports a missing
+// method on `unit` and never mentions the real cause — parentheses right
+// after a callee are a call, so the receiver is `puts`'s result. The
+// second case is the same trap written without the space, and the third
+// is an ordinary missing method that must NOT get the note.
+typecheck_error_test!(
+    a_grouping_mistake_after_a_prelude_call_names_its_real_cause,
+    r#"
+puts (24).toFloat()
+print(24).toFloat()
+
+let n = 1
+puts n.nope()
+"#
+);

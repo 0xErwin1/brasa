@@ -1,0 +1,29 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T007] Error: no method `toFloat` on `unit`
+   ╭─[ a_grouping_mistake_after_a_prelude_call_names_its_real_cause.bras:2:1 ]
+   │
+ 2 │ puts (24).toFloat()
+   │ ─────────┬─────────  
+   │          ╰─────────── unknown method
+   │ 
+   │ Note: `puts (x).toFloat()` parses as `puts(x).toFloat()`: parentheses right after a callee are a call, not grouping. Write `puts((x).toFloat())`, or bind the value first
+───╯
+[T007] Error: no method `toFloat` on `unit`
+   ╭─[ a_grouping_mistake_after_a_prelude_call_names_its_real_cause.bras:3:1 ]
+   │
+ 3 │ print(24).toFloat()
+   │ ─────────┬─────────  
+   │          ╰─────────── unknown method
+   │ 
+   │ Note: `print (x).toFloat()` parses as `print(x).toFloat()`: parentheses right after a callee are a call, not grouping. Write `print((x).toFloat())`, or bind the value first
+───╯
+[T007] Error: no method `nope` on `int`
+   ╭─[ a_grouping_mistake_after_a_prelude_call_names_its_real_cause.bras:6:6 ]
+   │
+ 6 │ puts n.nope()
+   │      ────┬───  
+   │          ╰───── unknown method
+───╯

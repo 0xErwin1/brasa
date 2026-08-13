@@ -264,6 +264,12 @@ Notes on kind boundaries:
   element; on an arity mismatch — where positions no longer correspond —
   it is reported once against the whole tuple, so `(1, 2, 3)` under
   `(int, int)` reads ``expected `(int, int)`, found `(int, int, int)` ``.
+- `T007` carries a note when the receiver is a call to `puts`/`print`:
+  those are the only names that both take a command-call form and
+  evaluate to `unit`, so `puts (24).toFloat()` is almost always a
+  grouping mistake rather than a real missing method. Parentheses right
+  after a callee are a call (`02-grammar.md`'s ambiguity table), and
+  without the note that rule never appears in the message.
 - `T016` covers `if` branches and `match` arms; `catch` arms report
   against the subject's type as plain `T001` mismatches.
 - `T018` covers pattern-shape failures against the scrutinee's type,
