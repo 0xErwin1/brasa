@@ -1,18 +1,21 @@
-//! The builtin method table: what `.method(...)` means on primitive and
-//! container types.
+//! The checker's view of the stdlib: what `module.member(...)` and
+//! `.method(...)` mean, derived from the declarations in
+//! `brasa_stdlib` (BRS-96).
 //!
-//! Carries the `docs/spec/05-stdlib.md` surface as it closes module by
-//! module during M4 (BRS-31 strings, BRS-35 collections).
-//! `string.toInt`/`toFloat` return the parsed number directly and
-//! throw `string.ParseError` on failure (BRS-41); the error
-//! contribution is the error-set pass's concern, not this table's.
+//! Nothing here is a surface. Every module, receiver and record is
+//! declared once in `brasa_stdlib` — signatures AND error
+//! contributions — and this file lowers those declarations into the
+//! checker's `Type`. What it owns is exactly the three things a table
+//! cannot state:
 //!
-//! No stdlib MODULE lives here any more: every free module and every
-//! record is declared once in `brasa_stdlib` and lowered below
-//! (BRS-96), error contributions included. What remains is the builtin
-//! methods of the language's own types — string, int, float, the
-//! containers, `Json` — plus the signatures the tables deliberately
-//! delegate here because they are not expressible as data.
+//! - which of ITS types a declared receiver or record name denotes
+//!   ([`receiver_table`], [`record_table`]), since `brasa_stdlib` has
+//!   no dependencies and does not know what a `Type` is;
+//! - the signatures the tables deliberately delegate, because they are
+//!   not expressible as data ([`vector_custom_method`], and the
+//!   numeric-polymorphic and vector-generic module members the checker
+//!   resolves in `check.rs`);
+//! - the universal derived `toString`, layered onto every type.
 
 use brasa_stdlib::{ModuleKind, ParamDesc, RecordKind, RetDesc, TyDesc, VectorMember};
 
@@ -49,99 +52,125 @@ fn sig(params: Vec<Type>, ret: Type) -> MethodSig {
     }
 }
 
-/// Looks up `name` on a receiver of type `recv`. Returns `None` when the
-/// receiver type has no such builtin method (the checker layers the
-/// universal derived `toString` and the unknown-member error on top).
-pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
-    match recv {
-        Type::Int => int_method(name),
-        Type::Float => float_method(name),
-        Type::String => string_method(name),
-        Type::Vector(elem) => vector_method(elem, name),
-        Type::Map(key, value) => map_method(key, value, name),
-        Type::Set(elem) => set_method(elem, name),
-        Type::Json => json_method(name),
-        // The `Json` accessors flatten through `Option<Json>` (`None`
-        // stays `None`), so an Option-yielding indexing chain can end
-        // in `.asString() ?? fallback` — `Json` values cannot be
-        // constructed in the language, so a chain has no other way to
-        // terminate (BRS-34, `docs/spec/05-stdlib.md`).
-        Type::Option(inner) if **inner == Type::Json => json_method(name),
-        _ => None,
-    }
-}
-
-fn int_method(name: &str) -> Option<MethodSig> {
-    match name {
-        "toFloat" => Some(sig(vec![], Type::Float)),
-        "toFixed" => Some(sig(vec![Type::Int], Type::String)),
-        "toString" => Some(sig(vec![], Type::String)),
-        _ => None,
-    }
-}
-
-fn float_method(name: &str) -> Option<MethodSig> {
-    match name {
-        "toInt" => Some(sig(vec![], Type::Int)),
-        "toFixed" => Some(sig(vec![Type::Int], Type::String)),
-        "toString" => Some(sig(vec![], Type::String)),
-        _ => None,
-    }
-}
-
-fn string_method(name: &str) -> Option<MethodSig> {
-    match name {
-        "len" => Some(sig(vec![], Type::Int)),
-        "count" => Some(sig(vec![Type::String], Type::Int)),
-        "trim" | "trimStart" | "trimEnd" | "toUpper" | "toLower" | "reverse" => {
-            Some(sig(vec![], Type::String))
-        }
-        "contains?" | "startsWith?" | "endsWith?" => Some(sig(vec![Type::String], Type::Bool)),
-        "split" => Some(sig(vec![Type::String], Type::vector(Type::String))),
-        "lines" => Some(sig(vec![], Type::vector(Type::String))),
-        "chars" => Some(sig(vec![], Type::vector(Type::Char))),
-        // `bytes` yields the UTF-8 byte values (0..=255) as ints
-        // (`docs/spec/05-stdlib.md`).
-        "bytes" => Some(sig(vec![], Type::vector(Type::Int))),
-        "slice" => Some(sig(vec![Type::Int, Type::Int], Type::String)),
-        "repeat" => Some(sig(vec![Type::Int], Type::String)),
-        "padStart" | "padEnd" => Some(sig(vec![Type::Int, Type::String], Type::String)),
-        "replace" => Some(sig(vec![Type::String, Type::String], Type::String)),
-        // Total, unlike a `slice` the caller would have to guard: an
-        // absent prefix yields the string unchanged (BRS-53).
-        "removePrefix" => Some(sig(vec![Type::String], Type::String)),
-        "find" => Some(sig(vec![Type::String], Type::option(Type::Int))),
-        "toInt" => Some(sig(vec![], Type::Int)),
-        "toFloat" => Some(sig(vec![], Type::Float)),
-        // Built-in regex (`docs/spec/05-stdlib.md`): the pattern is a
-        // plain string until `std::re` lands; an invalid pattern throws
-        // the native `string.RegexError` at runtime.
-        "match?" => Some(sig(vec![Type::String], Type::Bool)),
-        "captures" => Some(sig(
-            vec![Type::String],
-            Type::option(Type::vector(Type::String)),
-        )),
-        "replaceRe" => Some(sig(vec![Type::String, Type::String], Type::String)),
-        "scan" => Some(sig(vec![Type::String], Type::vector(Type::String))),
-        _ => None,
-    }
-}
-
-/// Lowers a declared type against the receiver it was declared for:
-/// [`TyDesc::Elem`] becomes the receiver's element type, everything else
-/// is fixed.
+/// Looks up `name` on a receiver of type `recv`, derived from that
+/// receiver's declaration table (`brasa_stdlib::RECEIVERS`, BRS-96).
 ///
-/// A free module's table has no receiver and passes `None`; a row there
-/// mentioning `elem` is a declaration bug that
-/// `brasa_stdlib::fs::tests::no_row_mentions_the_receiver_element_type`
-/// rejects before it can reach a user's call.
-fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
+/// Returns `None` when the receiver type has no such builtin method;
+/// the checker layers the universal derived `toString` and the
+/// unknown-member error on top.
+pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
+    let (table, args) = receiver_table(recv)?;
+    let decl = table.iter().find(|decl| decl.name == name)?;
+
+    let params = || decl.params.iter().map(|param| lower(param, args)).collect();
+
+    match decl.ret {
+        RetDesc::Ty(ret) => Some(MethodSig {
+            params: params(),
+            ret: RetRule::Fixed(lower(&ret, args)),
+        }),
+        RetDesc::VectorOfFnRet => Some(MethodSig {
+            params: params(),
+            ret: RetRule::VectorOfFnRet,
+        }),
+        // The escape hatch: the checker owns both the signature AND
+        // whether the member exists for this receiver at all.
+        RetDesc::Custom => vector_custom_method(
+            match args {
+                Recv::Elem(elem) => elem,
+                _ => unreachable!("only the `Vector` table delegates a signature"),
+            },
+            VectorMember::from_name(name).expect("a delegated row is a Vector row"),
+        ),
+    }
+}
+
+/// The declaration table for a receiver, with the type arguments its
+/// rows may name.
+///
+/// This is the one place a `Type` is matched against a receiver table,
+/// because `brasa_stdlib` does not know what a `Type` is — the same
+/// division [`record_table`] draws.
+///
+/// `Option<Json>` selecting the `Json` table is the flattening that
+/// lets an indexing chain end in `.asString() ?? fallback`: `Json`
+/// values cannot be constructed in the language, so a chain has no
+/// other way to terminate (BRS-34, `docs/spec/05-stdlib.md`). It is a
+/// question about which table a receiver picks, not about any row.
+fn receiver_table(recv: &Type) -> Option<(&'static [brasa_stdlib::MethodDecl], Recv<'_>)> {
+    match recv {
+        Type::Int => Some((brasa_stdlib::INT_METHODS, Recv::None)),
+        Type::Float => Some((brasa_stdlib::FLOAT_METHODS, Recv::None)),
+        Type::String => Some((brasa_stdlib::STRING_METHODS, Recv::None)),
+        Type::Vector(elem) => Some((brasa_stdlib::VECTOR_METHODS, Recv::Elem(elem))),
+        Type::Map(key, value) => Some((brasa_stdlib::MAP_METHODS, Recv::KeyValue(key, value))),
+        Type::Set(elem) => Some((brasa_stdlib::SET_METHODS, Recv::Elem(elem))),
+        Type::Json => Some((brasa_stdlib::JSON_ACCESSORS, Recv::None)),
+        Type::Option(inner) if **inner == Type::Json => {
+            Some((brasa_stdlib::JSON_ACCESSORS, Recv::None))
+        }
+        _ => None,
+    }
+}
+
+/// The stdlib-native errors a builtin METHOD raises, from the same
+/// declaration its signature comes from (BRS-96).
+///
+/// Before this the list lived in `brasa_errorset`, a table away from
+/// the signature: `string.toInt` raising `string.ParseError` and the
+/// four regex methods raising `string.RegexError` were written there
+/// and nowhere else, so a new throwing method added to the signature
+/// table and forgotten there would have made `throws never` verifiable
+/// over a body that throws.
+pub fn method_throws(recv: &Type, name: &str) -> &'static [&'static str] {
+    let Some((table, _)) = receiver_table(recv) else {
+        return &[];
+    };
+
+    match table.iter().find(|decl| decl.name == name) {
+        Some(decl) => decl.throws,
+        None => &[],
+    }
+}
+
+/// The type arguments a declaration may name, taken from the receiver
+/// the row was declared for.
+///
+/// Mirrors `brasa_stdlib::RecvShape`, which is what the table declares
+/// and what the guards check; this is the same distinction carrying the
+/// actual types.
+#[derive(Clone, Copy)]
+enum Recv<'a> {
+    /// A free module or a concrete receiver: no name is available.
+    None,
+    /// `Vector<T>`, `Set<T>`: `elem` is `T`.
+    Elem(&'a Type),
+    /// `Map<K, V>`: `key` is `K` and `value` is `V`.
+    KeyValue(&'a Type, &'a Type),
+}
+
+/// Lowers a declared type against the receiver it was declared for.
+///
+/// A row naming a type its receiver does not provide is a declaration
+/// bug, and `brasa_stdlib::tests::no_row_names_a_type_its_receiver_lacks`
+/// rejects it before a user's call can reach the panic below.
+fn lower(desc: &TyDesc, recv: Recv<'_>) -> Type {
+    let named = |which: &str| -> Type {
+        match (recv, which) {
+            (Recv::Elem(elem), "elem") => elem.clone(),
+            (Recv::KeyValue(key, _), "key") => key.clone(),
+            (Recv::KeyValue(_, value), "value") => value.clone(),
+            _ => unreachable!("a declaration named `{which}`, which its receiver does not provide"),
+        }
+    };
+
     match desc {
         TyDesc::Int => Type::Int,
         TyDesc::Float => Type::Float,
         TyDesc::String => Type::String,
         TyDesc::Bool => Type::Bool,
         TyDesc::Unit => Type::Unit,
+        TyDesc::Char => Type::Char,
         TyDesc::Range => Type::Range,
         TyDesc::Unknown => Type::Unknown,
         TyDesc::Walk => Type::Walk,
@@ -149,18 +178,19 @@ fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
         TyDesc::ProcOutput => Type::ProcOutput,
         TyDesc::HttpResponse => Type::HttpResponse,
         TyDesc::CliArgs => Type::CliArgs,
-        TyDesc::Elem => elem
-            .expect("a receiver-less declaration cannot mention the receiver's element type")
-            .clone(),
-        TyDesc::Vector(inner) => Type::vector(lower(inner, elem)),
-        TyDesc::Option(inner) => Type::option(lower(inner, elem)),
+        TyDesc::Elem => named("elem"),
+        TyDesc::Key => named("key"),
+        TyDesc::Value => named("value"),
+        TyDesc::Vector(inner) => Type::vector(lower(inner, recv)),
+        TyDesc::Option(inner) => Type::option(lower(inner, recv)),
+        TyDesc::Set(inner) => Type::Set(Box::new(lower(inner, recv))),
         TyDesc::Map(key, value) => {
-            Type::Map(Box::new(lower(key, elem)), Box::new(lower(value, elem)))
+            Type::Map(Box::new(lower(key, recv)), Box::new(lower(value, recv)))
         }
-        TyDesc::Tuple(items) => Type::Tuple(items.iter().map(|item| lower(item, elem)).collect()),
+        TyDesc::Tuple(items) => Type::Tuple(items.iter().map(|item| lower(item, recv)).collect()),
         TyDesc::Fn(params, ret) => Type::func(
-            params.iter().map(|param| lower(param, elem)).collect(),
-            lower(ret, elem),
+            params.iter().map(|param| lower(param, recv)).collect(),
+            lower(ret, recv),
         ),
     }
 }
@@ -204,38 +234,15 @@ pub fn record_member(recv: &Type, name: &str) -> Option<RecordMemberSig> {
     let decl = table.iter().find(|decl| decl.name == name)?;
 
     Some(match decl.kind {
-        RecordKind::Field => RecordMemberSig::Field(lower(&decl.ret, None)),
+        RecordKind::Field => RecordMemberSig::Field(lower(&decl.ret, Recv::None)),
         RecordKind::Method(params) => RecordMemberSig::Method(MethodSig {
-            params: params.iter().map(|param| lower(param, None)).collect(),
-            ret: RetRule::Fixed(lower(&decl.ret, None)),
+            params: params
+                .iter()
+                .map(|param| lower(param, Recv::None))
+                .collect(),
+            ret: RetRule::Fixed(lower(&decl.ret, Recv::None)),
         }),
     })
-}
-
-/// The `Vector<T>` methods, derived from their declarations
-/// (`brasa_stdlib::vector`, BRS-96).
-fn vector_method(elem: &Type, name: &str) -> Option<MethodSig> {
-    let member = VectorMember::from_name(name)?;
-    let decl = member.decl();
-
-    let params = || {
-        decl.params
-            .iter()
-            .map(|param| lower(param, Some(elem)))
-            .collect()
-    };
-
-    match decl.ret {
-        RetDesc::Ty(ret) => Some(MethodSig {
-            params: params(),
-            ret: RetRule::Fixed(lower(&ret, Some(elem))),
-        }),
-        RetDesc::VectorOfFnRet => Some(MethodSig {
-            params: params(),
-            ret: RetRule::VectorOfFnRet,
-        }),
-        RetDesc::Custom => vector_custom_method(elem, member),
-    }
 }
 
 /// The two `Vector` members whose declaration delegates the signature
@@ -253,67 +260,6 @@ fn vector_custom_method(elem: &Type, member: VectorMember) -> Option<MethodSig> 
             _ => None,
         },
         _ => unreachable!("`{member:?}` does not delegate its signature to the checker"),
-    }
-}
-
-fn map_method(key: &Type, value: &Type, name: &str) -> Option<MethodSig> {
-    match name {
-        "len" => Some(sig(vec![], Type::Int)),
-        "keys" => Some(sig(vec![], Type::vector(key.clone()))),
-        "values" => Some(sig(vec![], Type::vector(value.clone()))),
-        "insert" => Some(sig(vec![key.clone(), value.clone()], Type::Unit)),
-        "remove" => Some(sig(vec![key.clone()], Type::option(value.clone()))),
-        "has?" => Some(sig(vec![key.clone()], Type::Bool)),
-        "get" => Some(sig(vec![key.clone()], Type::option(value.clone()))),
-        "entries" => Some(sig(
-            vec![],
-            Type::vector(Type::Tuple(vec![key.clone(), value.clone()])),
-        )),
-        "merge" => Some(sig(
-            vec![Type::Map(Box::new(key.clone()), Box::new(value.clone()))],
-            Type::Map(Box::new(key.clone()), Box::new(value.clone())),
-        )),
-        "each" => Some(sig(
-            vec![Type::func(vec![key.clone(), value.clone()], Type::Unit)],
-            Type::Unit,
-        )),
-        _ => None,
-    }
-}
-
-/// The `Json` accessors (BRS-34, `docs/spec/05-stdlib.md`): every
-/// `as*` accessor yields `Option` — `None` when the node is not that
-/// JSON kind. `asInt` succeeds only for integral numbers representable
-/// as `int`; `asFloat` succeeds for every number. `null?` distinguishes
-/// an explicit JSON `null` from an absent member (which indexing
-/// already reported as `None`).
-fn json_method(name: &str) -> Option<MethodSig> {
-    match name {
-        "asString" => Some(sig(vec![], Type::option(Type::String))),
-        "asInt" => Some(sig(vec![], Type::option(Type::Int))),
-        "asFloat" => Some(sig(vec![], Type::option(Type::Float))),
-        "asBool" => Some(sig(vec![], Type::option(Type::Bool))),
-        "asArray" => Some(sig(vec![], Type::option(Type::vector(Type::Json)))),
-        "asObject" => Some(sig(
-            vec![],
-            Type::option(Type::Map(Box::new(Type::String), Box::new(Type::Json))),
-        )),
-        "null?" => Some(sig(vec![], Type::Bool)),
-        _ => None,
-    }
-}
-
-fn set_method(elem: &Type, name: &str) -> Option<MethodSig> {
-    match name {
-        "add" => Some(sig(vec![elem.clone()], Type::Unit)),
-        "remove" => Some(sig(vec![elem.clone()], Type::Bool)),
-        "has?" => Some(sig(vec![elem.clone()], Type::Bool)),
-        "len" => Some(sig(vec![], Type::Int)),
-        "union" | "intersect" | "diff" => Some(sig(
-            vec![Type::Set(Box::new(elem.clone()))],
-            Type::Set(Box::new(elem.clone())),
-        )),
-        _ => None,
     }
 }
 
@@ -395,7 +341,7 @@ fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
         descs
             .iter()
             .map(|desc| match desc {
-                ParamDesc::Ty(ty) => ModuleParam::Ty(lower(ty, None)),
+                ParamDesc::Ty(ty) => ModuleParam::Ty(lower(ty, Recv::None)),
                 ParamDesc::Command => ModuleParam::Command,
             })
             .collect()
@@ -404,7 +350,7 @@ fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
     Some(ModuleSig {
         required: params(required),
         optional: params(optional),
-        ret: lower(&ret, None),
+        ret: lower(&ret, Recv::None),
     })
 }
 
@@ -413,7 +359,7 @@ fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
 /// (`docs/spec/05-stdlib.md`, BRS-35).
 pub fn module_constant(module: &str, name: &str) -> Option<Type> {
     match brasa_stdlib::free_member(module, name)?.kind {
-        ModuleKind::Constant(ty) => Some(lower(&ty, None)),
+        ModuleKind::Constant(ty) => Some(lower(&ty, Recv::None)),
         _ => None,
     }
 }

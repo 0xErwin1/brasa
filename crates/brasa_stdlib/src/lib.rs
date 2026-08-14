@@ -37,18 +37,26 @@
 //!
 //! | | receiver method | free module member | record member |
 //! |---|---|---|---|
-//! | receiver | one generic type, whose element type is a type ([`TyDesc::Elem`]) | none | one concrete type |
+//! | receiver | a type with 0, 1 or 2 arguments, named by [`RecvShape`] | none | one concrete type |
 //! | result | can depend on an argument ([`RetDesc`]) | a fixed type, or the checker's ([`ModuleKind::Custom`]) | always a fixed type |
 //! | parameters | all required types | optional tail, and may be a rule ([`ParamDesc::Command`]) | none, or all required types |
 //! | reached by | always a call | a call, or a read ([`ModuleKind::Constant`]) | a call, or a read ([`RecordKind::Field`]) |
-//! | errors raised | none | part of the contract ([`ModuleDecl::throws`]) | none |
+//! | errors raised | part of the contract ([`MethodDecl::throws`]) | part of the contract ([`ModuleDecl::throws`]) | none |
 //! | registry name | the bare name, shared across receivers | `module.name`, unique | the bare name, shared |
 //!
-//! One shape covering all three would carry an `Elem` case free modules
-//! can never use, an optional/`throws` column receivers never fill, and
-//! a `Constant` case a method cannot be — columns no test could reach.
-//! What they DO share is the type language ([`TyDesc`] and [`ty!`]),
-//! which is where the real duplication would have been.
+//! One shape covering all three would carry an `elem`/`key`/`value`
+//! case free modules and records can never use, an optional column
+//! neither of the others fills, and a `Constant` case a method cannot
+//! be — columns no test could reach. What they DO share is the type
+//! language ([`TyDesc`] and [`ty!`]), which is where the real
+//! duplication would have been.
+//!
+//! A name shared across receiver kinds holds ONE `brasa_bytecode` id
+//! and is declared once per receiver that carries it, with the
+//! signature that receiver gives it. `remove` answers a bool on a
+//! `Set` and the removed value on a `Map`; the VM dispatches on the
+//! runtime kind, so the two rows describe different receivers rather
+//! than contradicting each other.
 //!
 //! # What is deliberately not data
 //!
@@ -69,8 +77,10 @@
 /// A type in a declaration, written in the table's small type language
 /// and lowered to the checker's `Type` by `brasa_typeck`.
 ///
-/// Receiver-derived types ([`TyDesc::Elem`]) are what let one row serve
-/// every instantiation of a generic receiver.
+/// The receiver-derived names ([`TyDesc::Elem`], [`TyDesc::Key`],
+/// [`TyDesc::Value`]) are what let one row serve every instantiation of
+/// a generic receiver. Which of them a row may use is the receiver's
+/// [`RecvShape`], not the row's choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TyDesc {
     Int,
@@ -83,9 +93,21 @@ pub enum TyDesc {
     /// The checker's `Unknown`: unifies with everything, used where a
     /// member's type is decided by the call site rather than the table.
     Unknown,
-    /// The receiver's element type — `T` in a `Vector<T>` receiver.
-    /// Meaningless in a free module's table, which has no receiver.
+    /// A character, which `string.chars` yields.
+    Char,
+    /// The receiver's element type — `T` in a `Vector<T>` or `Set<T>`.
+    ///
+    /// One of the three receiver-derived names. Which of them a row may
+    /// mention is decided by the receiver: a `Vector` has an element
+    /// and no key, a `Map` has a key and a value and no element, and a
+    /// free module or a concrete receiver has none of the three. Naming
+    /// one the receiver does not provide is a declaration bug, rejected
+    /// by a guard rather than discovered when a user calls the member.
     Elem,
+    /// The receiver's key type — `K` in a `Map<K, V>`.
+    Key,
+    /// The receiver's value type — `V` in a `Map<K, V>`.
+    Value,
     /// The `Walk` record `fs.tryWalk` yields (BRS-66).
     Walk,
     /// The `Json` tree `json.parse` yields (BRS-34).
@@ -99,6 +121,7 @@ pub enum TyDesc {
     Vector(&'static TyDesc),
     Option(&'static TyDesc),
     Map(&'static TyDesc, &'static TyDesc),
+    Set(&'static TyDesc),
     Tuple(&'static [TyDesc]),
     Fn(&'static [TyDesc], &'static TyDesc),
 }
@@ -132,6 +155,47 @@ pub struct MethodDecl {
     /// Parameter types, receiver excluded.
     pub params: &'static [TyDesc],
     pub ret: RetDesc,
+    /// The stdlib-native errors this method raises, exactly as
+    /// [`ModuleDecl::throws`], and for the same reason.
+    ///
+    /// A receiver method CAN throw: `string.toInt` raises
+    /// `string.ParseError` and the four regex methods raise
+    /// `string.RegexError`. That list used to live in `brasa_errorset`,
+    /// a table away from the signature it belongs to — the arrangement
+    /// whose failure mode is a method added to one and forgotten in the
+    /// other, which makes `throws never` verifiable over a body that
+    /// throws.
+    pub throws: &'static [&'static str],
+}
+
+/// What type names a receiver's rows may mention.
+///
+/// A row can only name a type its receiver actually has, and the
+/// receiver is the table's, not the row's — so this is declared once
+/// per table and guarded once for all its rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecvShape {
+    /// No type arguments: `string`, `int`, `float`, `Json`. Rows are
+    /// concrete throughout, exactly like a free module's.
+    Plain,
+    /// One type argument, named `elem`: `Vector<T>`, `Set<T>`.
+    Elem,
+    /// Two, named `key` and `value`: `Map<K, V>`. The reason `elem` is
+    /// not enough on its own — a map has two type arguments and
+    /// neither of them is "the element".
+    KeyValue,
+}
+
+impl RecvShape {
+    /// Whether a row on this receiver may mention `desc`'s
+    /// receiver-derived name.
+    pub fn provides(self, desc: TyDesc) -> bool {
+        match desc {
+            TyDesc::Elem => matches!(self, RecvShape::Elem),
+            TyDesc::Key | TyDesc::Value => matches!(self, RecvShape::KeyValue),
+            _ => true,
+        }
+    }
 }
 
 /// One declared member of a free stdlib module (`fs.read(path)`): the
@@ -257,8 +321,17 @@ macro_rules! ty {
     (unknown) => {
         $crate::TyDesc::Unknown
     };
+    (char) => {
+        $crate::TyDesc::Char
+    };
     (elem) => {
         $crate::TyDesc::Elem
+    };
+    (key) => {
+        $crate::TyDesc::Key
+    };
+    (value) => {
+        $crate::TyDesc::Value
     };
     (walk) => {
         $crate::TyDesc::Walk
@@ -283,6 +356,9 @@ macro_rules! ty {
     };
     ([Map<$key:tt, $value:tt>]) => {
         $crate::TyDesc::Map(&$crate::ty!($key), &$crate::ty!($value))
+    };
+    ([Set<$inner:tt>]) => {
+        $crate::TyDesc::Set(&$crate::ty!($inner))
     };
     ([Tuple<$($item:tt),+>]) => {
         $crate::TyDesc::Tuple(&[$($crate::ty!($item)),+])
@@ -375,12 +451,15 @@ macro_rules! ret {
 /// ```
 #[macro_export]
 macro_rules! method_table {
+    (@throws) => { &[] };
+    (@throws $throws:expr) => { $throws };
     (
         $(#[$table_meta:meta])*
-        $member:ident => $table:ident {
+        $member:ident => $table:ident, receiver $recv:literal $shape:ident {
             $(
                 $(#[$row_meta:meta])*
-                $variant:ident $name:literal ( $($param:tt),* ) -> $ret:tt ;
+                $variant:ident $name:literal ( $($param:tt),* ) -> $ret:tt
+                    $( throws $throws:expr )? ;
             )*
         }
     ) => {
@@ -394,8 +473,16 @@ macro_rules! method_table {
         }
 
         impl $member {
+            /// The receiver these methods are reached through, as the
+            /// checker displays it.
+            pub const RECEIVER: &'static str = $recv;
+
+            /// What receiver-derived type names this table's rows may
+            /// mention.
+            pub const SHAPE: $crate::RecvShape = $crate::RecvShape::$shape;
+
             /// The member a surface name selects, or `None` when the
-            /// name is not part of this module's surface.
+            /// name is not part of this receiver's surface.
             pub fn from_name(name: &str) -> Option<Self> {
                 match name {
                     $($name => Some(Self::$variant),)*
@@ -416,6 +503,7 @@ macro_rules! method_table {
                     name: $name,
                     params: &[$($crate::ty!($param)),*],
                     ret: $crate::ret!($ret),
+                    throws: $crate::method_table!(@throws $($throws)?),
                 },
             )*
         ];
@@ -633,18 +721,27 @@ pub mod fs;
 pub mod http;
 pub mod io;
 pub mod json;
+pub mod map;
 pub mod math;
+pub mod num;
 pub mod proc;
 pub mod rand;
+pub mod set;
+pub mod string;
 pub mod time;
 pub mod vector;
+
+pub use map::{MAP_METHODS, MapMember};
+pub use num::{FLOAT_METHODS, FloatMember, INT_METHODS, IntMember};
+pub use set::{SET_METHODS, SetMember};
+pub use string::{STRING_METHODS, StringMember};
 
 pub use cli::{ARGS_MEMBERS, ArgsMember, CLI_MEMBERS, CliMember};
 pub use env::{ENV_MEMBERS, EnvMember};
 pub use fs::{FS_MEMBERS, FsMember, WALK_MEMBERS, WalkMember};
 pub use http::{HTTP_MEMBERS, HttpMember, RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
-pub use json::{JSON_MEMBERS, JsonMember};
+pub use json::{JSON_ACCESSORS, JSON_MEMBERS, JsonAccessor, JsonMember};
 pub use math::{MATH_MEMBERS, MathMember};
 pub use proc::{OUTPUT_MEMBERS, OutputMember, PROC_MEMBERS, ProcMember};
 pub use rand::{RAND_MEMBERS, RandMember};
@@ -692,6 +789,27 @@ pub fn is_free_module(module: &str) -> bool {
     FREE_MODULES.iter().any(|(m, _)| *m == module)
 }
 
+/// Every receiver type whose methods are declared here, with the shape
+/// that says which receiver-derived type names its rows may mention.
+///
+/// Walked by the layers that cover the whole method surface at once —
+/// the bytecode registry's cross-check and the table guards — for the
+/// same reason [`FREE_MODULES`] and [`RECORDS`] are.
+///
+/// The checker maps its own `Type` to one of these tables, since it is
+/// the only layer that knows what a `Type` is. That map is also where
+/// `Option<Json>` flattens onto the `Json` table: which table a
+/// receiver selects is a question about types, not about rows.
+pub const RECEIVERS: &[(&str, RecvShape, &[MethodDecl])] = &[
+    (StringMember::RECEIVER, StringMember::SHAPE, STRING_METHODS),
+    (IntMember::RECEIVER, IntMember::SHAPE, INT_METHODS),
+    (FloatMember::RECEIVER, FloatMember::SHAPE, FLOAT_METHODS),
+    (VectorMember::RECEIVER, VectorMember::SHAPE, VECTOR_METHODS),
+    (MapMember::RECEIVER, MapMember::SHAPE, MAP_METHODS),
+    (SetMember::RECEIVER, SetMember::SHAPE, SET_METHODS),
+    (JsonAccessor::RECEIVER, JsonAccessor::SHAPE, JSON_ACCESSORS),
+];
+
 /// Every stdlib record, by the name the checker displays.
 ///
 /// The layers that cover all four at once walk this rather than naming
@@ -708,37 +826,10 @@ pub const RECORDS: &[(&str, &[RecordDecl])] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{FREE_MODULES, ModuleDecl, ModuleKind, ParamDesc, RECORDS, RecordKind, TyDesc};
-
-    /// Whether a declared type reaches [`TyDesc::Elem`] anywhere.
-    ///
-    /// Written as one exhaustive match rather than a wildcard so that a
-    /// new composite type cannot be added without deciding whether it
-    /// can contain another type. The `Map` arm is why this is worth
-    /// saying: while each module carried its own copy of the guard
-    /// below, the copies predated `Map` and none of them looked inside
-    /// one, so the check silently stopped being total.
-    fn mentions_elem(desc: &TyDesc) -> bool {
-        match desc {
-            TyDesc::Elem => true,
-            TyDesc::Vector(inner) | TyDesc::Option(inner) => mentions_elem(inner),
-            TyDesc::Map(key, value) => mentions_elem(key) || mentions_elem(value),
-            TyDesc::Tuple(items) => items.iter().any(mentions_elem),
-            TyDesc::Fn(params, ret) => params.iter().any(mentions_elem) || mentions_elem(ret),
-            TyDesc::Int
-            | TyDesc::Float
-            | TyDesc::String
-            | TyDesc::Bool
-            | TyDesc::Unit
-            | TyDesc::Range
-            | TyDesc::Unknown
-            | TyDesc::Walk
-            | TyDesc::Json
-            | TyDesc::ProcOutput
-            | TyDesc::HttpResponse
-            | TyDesc::CliArgs => false,
-        }
-    }
+    use super::{
+        FREE_MODULES, ModuleDecl, ModuleKind, ParamDesc, RECEIVERS, RECORDS, RecordKind, RetDesc,
+        TyDesc,
+    };
 
     /// Every type a free module row mentions, whatever row form it is.
     ///
@@ -776,13 +867,138 @@ mod tests {
     /// which is the same reason the bytecode registry's cross-check
     /// walks it.
     #[test]
-    fn no_free_module_row_mentions_the_receiver_element_type() {
+    fn no_free_module_row_names_a_receiver_type() {
         for (module, members) in FREE_MODULES {
             for decl in *members {
+                let mut named = Vec::new();
                 for desc in module_row_types(decl) {
+                    named_types(desc, &mut named);
+                }
+
+                assert!(
+                    named.is_empty(),
+                    "`{module}.{}` names {named:?}, but a free module has no receiver",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// Every receiver-derived name a row uses, at any depth.
+    fn named_types(desc: &'static TyDesc, found: &mut Vec<TyDesc>) {
+        match desc {
+            TyDesc::Elem | TyDesc::Key | TyDesc::Value => found.push(*desc),
+            TyDesc::Vector(inner) | TyDesc::Option(inner) | TyDesc::Set(inner) => {
+                named_types(inner, found)
+            }
+            TyDesc::Map(key, value) => {
+                named_types(key, found);
+                named_types(value, found);
+            }
+            TyDesc::Tuple(items) => items.iter().for_each(|item| named_types(item, found)),
+            TyDesc::Fn(params, ret) => {
+                params.iter().for_each(|param| named_types(param, found));
+                named_types(ret, found);
+            }
+            _ => {}
+        }
+    }
+
+    /// A row may only name a type its receiver actually has: `elem` on
+    /// a `Vector` or `Set`, `key`/`value` on a `Map`, none of the three
+    /// on `string` or `Json`.
+    ///
+    /// Without this the failure is a panic inside the checker the first
+    /// time a user calls that member — the declaration is wrong from
+    /// the moment it is written, but nothing looks at it until then.
+    /// `Map` is why the check has to be per receiver rather than one
+    /// global "no `elem`": a map's two type arguments are named, and
+    /// naming the wrong one of them typechecks for every map whose key
+    /// and value coincide.
+    #[test]
+    fn no_row_names_a_type_its_receiver_lacks() {
+        for (receiver, shape, members) in RECEIVERS {
+            for decl in *members {
+                let mut named = Vec::new();
+
+                for desc in decl.params {
+                    named_types(desc, &mut named);
+                }
+                if let RetDesc::Ty(ret) = &decl.ret {
+                    named_types(ret, &mut named);
+                }
+
+                for desc in named {
                     assert!(
-                        !mentions_elem(desc),
-                        "`{module}.{}` mentions `elem`, but a free module has no receiver",
+                        shape.provides(desc),
+                        "`{receiver}.{}` names `{desc:?}`, which a {shape:?} receiver does not have",
+                        decl.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// Only the receiver that declares a delegated row may have one.
+    /// `RetDesc::Custom` hands the signature to a checker function that
+    /// knows one receiver's rules, so a second table using it would
+    /// reach code written for the first.
+    #[test]
+    fn only_vector_delegates_a_method_signature() {
+        for (receiver, _, members) in RECEIVERS {
+            for decl in *members {
+                if matches!(decl.ret, RetDesc::Custom | RetDesc::VectorOfFnRet) {
+                    assert_eq!(
+                        *receiver, "Vector",
+                        "`{receiver}.{}` delegates its signature, but only Vector's rules exist",
+                        decl.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// Throwing methods are rare and deliberate. Written out rather
+    /// than derived, because what `throws` decides is whether the
+    /// checker accepts a caller's `throws` clause.
+    #[test]
+    fn exactly_six_builtin_methods_throw() {
+        let throwing: Vec<_> = RECEIVERS
+            .iter()
+            .flat_map(|(receiver, _, members)| {
+                members
+                    .iter()
+                    .filter(|decl| !decl.throws.is_empty())
+                    .map(move |decl| format!("{receiver}.{}", decl.name))
+            })
+            .collect();
+
+        assert_eq!(
+            throwing,
+            [
+                "string.toInt",
+                "string.toFloat",
+                "string.match?",
+                "string.captures",
+                "string.replaceRe",
+                "string.scan",
+            ],
+            "the set of throwing builtin methods changed"
+        );
+    }
+
+    /// Every declared error is one the resolver knows as native, for
+    /// receivers as well as modules: an unlisted name is one no `catch`
+    /// arm can match, so the method would be uncatchable rather than
+    /// merely misnamed.
+    #[test]
+    fn every_method_error_is_spelled_like_the_modules() {
+        for (receiver, _, members) in RECEIVERS {
+            for decl in *members {
+                for error in decl.throws {
+                    assert!(
+                        error.contains('.'),
+                        "`{receiver}.{}` raises `{error}`, which is not a qualified name",
                         decl.name
                     );
                 }
@@ -862,26 +1078,26 @@ mod tests {
         }
     }
 
-    /// A record has no receiver element type either, and unlike a free
-    /// module it is a receiver — so the mistake is available to make
-    /// and worth refusing.
+    /// A record is a CONCRETE receiver: it has no type arguments, so
+    /// none of the three names is available to it. Unlike a free
+    /// module a record is a receiver at all, which is what makes the
+    /// mistake available to make and worth refusing.
     #[test]
-    fn no_record_row_mentions_the_receiver_element_type() {
+    fn no_record_row_names_a_receiver_type() {
         for (record, members) in RECORDS {
             for decl in *members {
+                let mut named = Vec::new();
+
                 if let RecordKind::Method(params) = decl.kind {
                     for param in params {
-                        assert!(
-                            !mentions_elem(param),
-                            "`{record}.{}` takes `elem`, but a record has no element type",
-                            decl.name
-                        );
+                        named_types(param, &mut named);
                     }
                 }
+                named_types(&decl.ret, &mut named);
 
                 assert!(
-                    !mentions_elem(&decl.ret),
-                    "`{record}.{}` returns `elem`, but a record has no element type",
+                    named.is_empty(),
+                    "`{record}.{}` names {named:?}, but a record has no type arguments",
                     decl.name
                 );
             }

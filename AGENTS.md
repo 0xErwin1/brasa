@@ -75,25 +75,37 @@ There is no separate interpreter crate. The stdlib is native builtins:
 `brasa_bytecode::builtin` mints the ids, `brasa_typeck::builtins`
 resolves signatures and `brasa_vm::builtins` implements them. BRS-96
 collapsed the surface those three used to declare separately into one
-table per module in `brasa_stdlib`, and it is **complete**: every free
+table per module in `brasa_stdlib`, and it is **complete**. Every free
 module (`fs`, `json`, `io`, `env`, `proc`, `http`, `cli`, `math`,
-`time`, `rand`) is declared there, as is `Vector` and all four records.
-No stdlib module signature or error contribution is hand-written in
-`brasa_typeck` any more.
+`time`, `rand`), every receiver (`string`, `int`, `float`, `Vector`,
+`Map`, `Set`, `Json`) and all four records are declared there,
+signatures and error contributions alike. **No stdlib surface is
+hand-written in `brasa_typeck` or `brasa_errorset` any more** — if you
+are adding a stdlib member, you are editing a table in `brasa_stdlib`.
 
 There are three table shapes, deliberately separate because almost
 nothing about their columns overlaps:
 
 | Macro | For | Registry |
 |-------|-----|----------|
-| `method_table!` | a generic receiver (`Vector<T>`), whose rows may name the element type as `elem` | `brasa_stdlib::VECTOR_METHODS` |
-| `module_table!` | a free module, with optional trailing parameters and a `throws` column | `brasa_stdlib::FREE_MODULES` |
-| `record_table!` | a record (`Output`, `Response`, `Args`, `Walk`): a concrete receiver, no element type, no optionals, no errors | `brasa_stdlib::RECORDS` |
+| `method_table!` | a receiver: `string`/`int`/`float`/`Json` (`Plain`), `Vector<T>`/`Set<T>` (`Elem`), `Map<K,V>` (`KeyValue`) | `brasa_stdlib::RECEIVERS` |
+| `module_table!` | a free module, with optional trailing parameters | `brasa_stdlib::FREE_MODULES` |
+| `record_table!` | a record (`Output`, `Response`, `Args`, `Walk`): a concrete receiver, no type arguments | `brasa_stdlib::RECORDS` |
+
+A receiver's `RecvShape` says which receiver-derived type names its
+rows may use — `elem`, or `key`/`value`, or none. Naming one the
+receiver lacks is a declaration bug a guard rejects, rather than a
+panic inside the checker the first time a user calls that member.
+Both `method_table!` and `module_table!` carry a `throws` column;
+receiver methods do throw (`string.toInt`, the regex four).
 
 The layers that cover a whole surface at once — the checker's lookup,
 the bytecode registry's cross-check, the table guards — walk those
-registries rather than naming modules, so adding a module means joining
-one list.
+registries rather than naming modules, so adding one means joining a
+list. A name shared across receiver kinds (`len`, `remove`, `get`)
+holds ONE builtin id and is declared once per receiver that carries it,
+with that receiver's signature: `remove` answers a bool on a `Set` and
+the removed value on a `Map`.
 
 Three things are deliberately NOT data. A parameter may be a rule
 (`ParamDesc::Command`, the argv-or-split-string a `proc` runner takes);
@@ -105,9 +117,13 @@ signature to the checker, which is correct only when it is not
 expressible as data at all (`math.abs` answers in the kind it was
 given; `rand.choice` is generic over an element a free module cannot
 name). A delegated module member must state its reason in the table,
-and a guard pins the delegated set so it cannot grow quietly. The
-checker owns the map from its own `Type` to a record's table, since
-`brasa_stdlib` does not know what a `Type` is. Ids stay hand-minted in `brasa_bytecode` and are
+and guards pin both delegated sets so they cannot grow quietly.
+
+The checker owns the map from its own `Type` to a receiver's or
+record's table, since `brasa_stdlib` has no dependencies and does not
+know what a `Type` is. That map is also where `Option<Json>` flattens
+onto the `Json` table: which table a receiver selects is a question
+about types, not about rows. Ids stay hand-minted in `brasa_bytecode` and are
 frozen by `crates/brasa_bytecode/tests/builtin_ids.rs`.
 `brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
 behaviour oracle it used to be is now the conformance corpus at

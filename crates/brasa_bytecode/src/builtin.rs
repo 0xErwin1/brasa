@@ -266,16 +266,48 @@ mod tests {
     /// are. A declared member with no id could not be called at all, so
     /// the two halves must cover each other (BRS-96).
     #[test]
-    fn every_declared_vector_method_holds_a_receiver_id() {
-        for decl in brasa_stdlib::VECTOR_METHODS {
-            let id = builtin_id(decl.name)
-                .unwrap_or_else(|| panic!("`{}` is declared but has no id", decl.name));
+    fn every_declared_method_holds_a_receiver_id() {
+        for (receiver, _, members) in brasa_stdlib::RECEIVERS {
+            for decl in *members {
+                let id = builtin_id(decl.name).unwrap_or_else(|| {
+                    panic!("`{receiver}.{}` is declared but has no id", decl.name)
+                });
 
-            assert!(
-                builtin_def(id).is_some_and(|def| def.has_receiver),
-                "`{}` is a method, so its entry must take a receiver",
-                decl.name
+                assert!(
+                    builtin_def(id).is_some_and(|def| def.has_receiver),
+                    "`{receiver}.{}` is a method, so its entry must take a receiver",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// A name shared across receiver kinds holds ONE id, and each
+    /// receiver declares its own row for it. That is what makes
+    /// `remove` able to answer a bool on a `Set` and a value on a
+    /// `Map`: the VM dispatches on the runtime kind, so the two
+    /// declarations describe different receivers rather than
+    /// contradicting each other.
+    #[test]
+    fn a_shared_method_name_resolves_to_one_id_for_every_receiver() {
+        for name in ["len", "remove", "has?", "get", "each", "find", "reverse"] {
+            let declaring: Vec<_> = brasa_stdlib::RECEIVERS
+                .iter()
+                .filter(|(_, _, members)| members.iter().any(|decl| decl.name == name))
+                .map(|(receiver, _, _)| *receiver)
+                .collect();
+
+            if declaring.len() < 2 {
+                continue;
+            }
+
+            let id = builtin_id(name).expect("a declared name has an id");
+            assert_eq!(
+                BUILTINS.iter().filter(|def| def.name == name).count(),
+                1,
+                "`{name}` is declared by {declaring:?} and must share one id"
             );
+            assert!(builtin_def(id).is_some_and(|def| def.has_receiver));
         }
     }
 

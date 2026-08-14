@@ -3,11 +3,14 @@
 //! A free module like [`crate::fs`], and the smallest one: two members
 //! that convert between a `string` and the compiler-known `Json` tree.
 //!
-//! The `Json` ACCESSORS (`asInt`, `get`, …) are not here. They are
-//! methods on a `Json` receiver, not members of the module, and their
-//! result types flatten through `Option<Json>` in a way the receiver
-//! table's `elem` column does not express — so they stay hand-written
-//! in the checker until a receiver table earns that column.
+//! The `Json` ACCESSORS are methods on a `Json` receiver rather than
+//! members of the module, so they are a second table below.
+//!
+//! They were held back once on the grounds that they "flatten through
+//! `Option<Json>` in a way a receiver table cannot express". That
+//! conflated two things. The flattening decides which TABLE a receiver
+//! selects — the checker's job, exactly like its map from a `Type` to a
+//! record's table — not what any row says. Every row here is concrete.
 
 /// `json.ParseError`: the input is not valid JSON.
 pub const PARSE_ERROR: &str = "json.ParseError";
@@ -25,6 +28,32 @@ crate::module_table! {
         /// serializing a struct or a vector is a v2 design, so this
         /// cannot fail — every `Json` tree renders.
         Stringify "stringify" (json)   -> string;
+    }
+}
+
+crate::method_table! {
+    /// Every `Json` accessor, in declaration order.
+    ///
+    /// All of them answer `Option`: a node is asked what kind it is,
+    /// and `None` means it is a different kind. Since `Json` values
+    /// cannot be constructed in the language, `?? fallback` at the end
+    /// of an indexing chain is how a chain terminates.
+    JsonAccessor => JSON_ACCESSORS, receiver "Json" Plain {
+        AsString "asString" () -> [Option<string>];
+
+        /// Succeeds only for an integral number representable as an
+        /// `int`; `asFloat` succeeds for every number, so a caller that
+        /// wants either asks for the float.
+        AsInt    "asInt"    () -> [Option<int>];
+        AsFloat  "asFloat"  () -> [Option<float>];
+        AsBool   "asBool"   () -> [Option<bool>];
+        AsArray  "asArray"  () -> [Option<[Vector<json>]>];
+        AsObject "asObject" () -> [Option<[Map<string, json>]>];
+
+        /// Distinguishes an explicit JSON `null` from an absent member,
+        /// which indexing already reported as `None`. A bool rather
+        /// than an `Option` because the question always has an answer.
+        Null     "null?"    () -> bool;
     }
 }
 

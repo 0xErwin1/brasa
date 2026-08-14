@@ -13,7 +13,7 @@
 
 crate::method_table! {
     /// Every `Vector<T>` method, in declaration order.
-    VectorMember => VECTOR_METHODS {
+    VectorMember => VECTOR_METHODS, receiver "Vector" Elem {
         Len      "len"       ()                     -> int;
         Push     "push"      (elem)                 -> unit;
         Pop      "pop"       ()                     -> [Option<elem>];
