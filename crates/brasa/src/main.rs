@@ -84,6 +84,8 @@ enum Subcommand {
     /// frames or the locals, exit. `--json` is the contract for an
     /// agent; the plain form renders the same data.
     Debug(debug::DebugArgs),
+    /// Profile a script: where the time goes (BRS-121).
+    Profile(ProfileArgs),
     /// Serve the Debug Adapter Protocol over stdin/stdout (BRS-119).
     ///
     /// Breakpoints and stepping in VS Code and nvim-dap. Not meant to
@@ -95,6 +97,21 @@ enum Subcommand {
     /// showing the inferred type and error-set. Not meant to be run by
     /// hand — an editor starts it.
     Lsp,
+}
+
+#[derive(clap::Args)]
+struct ProfileArgs {
+    /// Script to profile.
+    script: PathBuf,
+
+    /// Sampling interval in microseconds.
+    #[arg(long, default_value_t = 500, value_name = "US")]
+    interval: u64,
+
+    /// Print collapsed stacks for flamegraph tooling instead of the
+    /// report — an instrument, not a viewer.
+    #[arg(long)]
+    collapsed: bool,
 }
 
 #[derive(clap::Args)]
@@ -129,6 +146,7 @@ fn main() -> ExitCode {
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
         Some(Subcommand::Debug(args)) => return debug::run(args),
+        Some(Subcommand::Profile(args)) => return run_profile(args),
         Some(Subcommand::Dap) => return run_dap(),
         Some(Subcommand::Lsp) => return run_lsp(),
         None => {}
@@ -155,6 +173,40 @@ fn compile_for_debug(
     match compile_program(program, sources, true, false, Dumps::default()) {
         Compiled::Module(result) => Ok(result.module),
         Compiled::Stopped(code) => Err(code),
+    }
+}
+
+/// Profiles a script and prints where its time went.
+///
+/// The program's own output goes to stdout as usual; the report goes to
+/// stderr, so a profiled run still pipes like an unprofiled one.
+fn run_profile(args: &ProfileArgs) -> ExitCode {
+    let mut sources = SourceMap::new();
+    let program = brasa_module::load(&args.script, &mut sources);
+
+    let module = match compile_for_debug(&program, &sources) {
+        Ok(module) => module,
+        Err(code) => return code,
+    };
+
+    let mut out = std::io::stdout();
+    let (outcome, profile) = brasa_vm::profile(
+        &module,
+        &mut out,
+        &[],
+        std::time::Duration::from_micros(args.interval),
+    );
+
+    let text = if args.collapsed {
+        profile.collapsed()
+    } else {
+        profile.report()
+    };
+    eprintln!("{text}");
+
+    match outcome {
+        brasa_runtime::Outcome::Success => ExitCode::from(0),
+        _ => ExitCode::from(70),
     }
 }
 
@@ -211,7 +263,9 @@ enum Compiled {
 /// this CLI has an opinion about. A subcommand keeps the whole line,
 /// since `brasa fmt --check` is genuinely ours.
 fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
-    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "dap", "debug", "help"];
+    const SUBCOMMANDS: &[&str] = &[
+        "fmt", "test", "bundle", "lsp", "dap", "debug", "profile", "help",
+    ];
 
     let argv: Vec<String> = argv.collect();
 

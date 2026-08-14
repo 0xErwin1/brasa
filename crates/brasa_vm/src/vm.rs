@@ -134,6 +134,9 @@ pub(crate) struct Vm<'a> {
     /// Whether a debugged run has already entered `main`, so a resume
     /// that finishes `<toplevel>` does not run it twice.
     debug_ran_entry: bool,
+    /// Present only while a profiled run is executing (BRS-121). Like
+    /// `debug`, the ordinary dispatch loop never looks at it.
+    pub(crate) profile: Option<crate::profile::Profiler>,
 }
 
 impl<'a> Vm<'a> {
@@ -175,7 +178,43 @@ impl<'a> Vm<'a> {
             rng: brasa_runtime::rand_glue::Rng::from_entropy(),
             debug: None,
             debug_ran_entry: false,
+            profile: None,
         }
+    }
+
+    /// A whole run under the profiler, returning what it measured.
+    pub(crate) fn run_profiled(&mut self) -> (Outcome, crate::profile::Profile) {
+        let result = (|| {
+            self.enter_function(FuncId(0), 0, 0)?;
+            self.execute_instrumented(1)?;
+            self.stack.clear();
+
+            if let Some(main) = self.module.entry {
+                if self.function(main).arity != 0 {
+                    return Err(Signal::Fatal(
+                        "brasa: `main` must take no parameters".to_string(),
+                    ));
+                }
+                self.enter_function(main, 0, 0)?;
+                self.execute_instrumented(1)?;
+                self.stack.clear();
+            }
+
+            Ok(())
+        })();
+
+        let names: Vec<String> = self
+            .module
+            .functions
+            .iter()
+            .map(|function| function.name.clone())
+            .collect();
+        let profiler = self
+            .profile
+            .take()
+            .expect("a profiled run always has a profiler");
+
+        (self.finish(result), profiler.finish(&names))
     }
 
     pub(crate) fn run(&mut self) -> Outcome {
@@ -456,7 +495,7 @@ impl<'a> Vm<'a> {
     /// uses, so a debugged run is the run the user would get.
     pub(crate) fn start_debug(&mut self) -> Result<(), Signal> {
         self.enter_function(FuncId(0), 0, 0)?;
-        self.execute_debug(1)?;
+        self.execute_instrumented(1)?;
         self.stack.clear();
 
         if let Some(main) = self.module.entry {
@@ -467,7 +506,7 @@ impl<'a> Vm<'a> {
             }
             self.debug_ran_entry = true;
             self.enter_function(main, 0, 0)?;
-            self.execute_debug(1)?;
+            self.execute_instrumented(1)?;
             self.stack.clear();
         }
 
@@ -477,7 +516,7 @@ impl<'a> Vm<'a> {
     /// Re-enters the loop after a pause. The frames are untouched, so
     /// this picks up exactly where the signal left off.
     pub(crate) fn resume_debug(&mut self) -> Result<(), Signal> {
-        self.execute_debug(1)?;
+        self.execute_instrumented(1)?;
         self.stack.clear();
 
         // The toplevel finished while paused inside it; `main` is still
@@ -487,7 +526,7 @@ impl<'a> Vm<'a> {
         {
             self.debug_ran_entry = true;
             self.enter_function(main, 0, 0)?;
-            self.execute_debug(1)?;
+            self.execute_instrumented(1)?;
             self.stack.clear();
         }
 
@@ -624,8 +663,9 @@ impl<'a> Vm<'a> {
         }
     }
 
-    /// [`Vm::execute`]'s twin, used only while a debug session is
-    /// attached (BRS-117).
+    /// [`Vm::execute`]'s twin, used by every consumer that needs to
+    /// observe execution: a debug session (BRS-117) and the sampling
+    /// profiler (BRS-121).
     ///
     /// It is a SEPARATE loop on purpose. The ticket's requirement is
     /// that a breakpoint cost nothing when none is set, and the
@@ -640,15 +680,38 @@ impl<'a> Vm<'a> {
     /// re-measure — and it makes the patching unnecessary, since a cold
     /// loop can afford an ordinary lookup. No new opcode, no saved-op
     /// table, and no unpatch-step-repatch dance on resume.
-    fn execute_debug(&mut self, min_frames: usize) -> Result<(), Signal> {
+    ///
+    /// The profiler rides the same split for the same reason. Counting
+    /// instructions in the hot loop would perturb the measurement AND
+    /// cost what the loop was tightened to save; here a clock
+    /// comparison per instruction is affordable, and the samples stay
+    /// time-based so the distribution is fair.
+    pub(crate) fn execute_instrumented(&mut self, min_frames: usize) -> Result<(), Signal> {
         while self.frames.len() >= min_frames {
             if self.heap.should_collect() {
+                // Collector time is measured apart from interpreted
+                // time: a script slow because of the collector and one
+                // slow because of its own loop want different fixes,
+                // and a single total hides which it is.
+                let started = std::time::Instant::now();
                 self.heap.collect(
                     self.stack
                         .iter()
                         .chain(self.globals.iter().flatten())
                         .chain(self.native_roots.iter()),
                 );
+
+                if let Some(profiler) = self.profile.as_mut() {
+                    profiler.add_gc(started.elapsed());
+                }
+            }
+
+            if self.profile.is_some() {
+                let stack: Vec<FuncId> = self.frames.iter().map(|frame| frame.func).collect();
+                self.profile
+                    .as_mut()
+                    .expect("checked above")
+                    .maybe_sample(|| stack.clone());
             }
 
             let depth = self.frames.len();

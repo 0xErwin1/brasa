@@ -34,6 +34,7 @@ mod vm;
 
 pub use brasa_runtime::{Outcome, Streams};
 pub mod debug;
+pub mod profile;
 
 pub use heap::{DEFAULT_GC_BUDGET_BYTES, GcRef};
 pub use value::Value;
@@ -87,6 +88,46 @@ pub struct RunStats {
 /// [`run_with_streams`] wires them elsewhere. `args` are the script's
 /// trailing CLI arguments, served by `env.args()`
 /// (spec: 05 — Stdlib de scripting, BRS-32).
+/// Runs `module` under the sampling profiler (BRS-121).
+///
+/// Uses the instrumented loop, so an ordinary `run` is unaffected —
+/// the profiler costs only the run that asked for it.
+pub fn profile<W: Write + Send>(
+    module: &Module,
+    out: &mut W,
+    args: &[String],
+    interval: std::time::Duration,
+) -> (Outcome, profile::Profile) {
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    let streams = Streams {
+        out,
+        err: &mut err,
+        input: &mut input,
+    };
+
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("brasa-vm".to_string())
+            .stack_size(VM_STACK_SIZE)
+            .spawn_scoped(scope, move || {
+                let mut vm = vm::Vm::new(
+                    module,
+                    streams,
+                    DEFAULT_MAX_CALL_DEPTH,
+                    DEFAULT_GC_BUDGET_BYTES,
+                    args,
+                );
+                vm.profile = Some(profile::Profiler::new(interval));
+                vm.run_profiled()
+            })
+            .expect("failed to spawn the VM thread");
+
+        handle.join().expect("the VM thread panicked")
+    })
+}
+
 pub fn run<W: Write + Send>(module: &Module, out: &mut W, args: &[String]) -> Outcome {
     run_with_depth(module, out, DEFAULT_MAX_CALL_DEPTH, args)
 }
