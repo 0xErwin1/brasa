@@ -279,40 +279,47 @@ mod tests {
         }
     }
 
-    /// The same cover for a free module, whose registry name is
+    /// The same cover for the free modules, whose registry names are
     /// qualified (`fs.read`) because a bare member name is not unique
-    /// across modules.
+    /// across modules (`fs.read`, `io.readAll`).
+    ///
+    /// Both directions walk `FREE_MODULES` rather than naming a module,
+    /// so converting the next one is covered without editing this file.
     #[test]
-    fn every_declared_fs_member_holds_a_free_id() {
-        for decl in brasa_stdlib::FS_MEMBERS {
-            let qualified = format!("{}.{}", brasa_stdlib::FsMember::MODULE, decl.name);
-            let id = builtin_id(&qualified)
-                .unwrap_or_else(|| panic!("`{qualified}` is declared but has no id"));
+    fn every_declared_free_member_holds_a_free_id() {
+        for (module, members) in brasa_stdlib::FREE_MODULES {
+            for decl in *members {
+                let qualified = format!("{}.{}", module, decl.name);
+                let id = builtin_id(&qualified)
+                    .unwrap_or_else(|| panic!("`{qualified}` is declared but has no id"));
 
-            assert!(
-                builtin_def(id).is_some_and(|def| !def.has_receiver),
-                "`{qualified}` is a module member, so its entry must take no receiver"
-            );
+                assert!(
+                    builtin_def(id).is_some_and(|def| !def.has_receiver),
+                    "`{qualified}` is a module member, so its entry must take no receiver"
+                );
+            }
         }
     }
 
-    /// The other direction: an id minted under `fs.` that no row
-    /// declares would be a member the checker cannot type and the VM
-    /// cannot reach.
+    /// The other direction: an id minted under a converted module's
+    /// prefix that no row declares would be a member the checker cannot
+    /// type and the VM cannot reach.
     #[test]
-    fn every_fs_registry_entry_is_declared() {
-        let prefix = format!("{}.", brasa_stdlib::FsMember::MODULE);
+    fn every_free_registry_entry_is_declared() {
+        for (module, _) in brasa_stdlib::FREE_MODULES {
+            let prefix = format!("{module}.");
 
-        for def in BUILTINS {
-            let Some(member) = def.name.strip_prefix(&prefix) else {
-                continue;
-            };
+            for def in BUILTINS {
+                let Some(member) = def.name.strip_prefix(&prefix) else {
+                    continue;
+                };
 
-            assert!(
-                brasa_stdlib::FsMember::from_name(member).is_some(),
-                "`{}` holds an id but no row declares it",
-                def.name
-            );
+                assert!(
+                    brasa_stdlib::free_member(module, member).is_some(),
+                    "`{}` holds an id but no row declares it",
+                    def.name
+                );
+            }
         }
     }
 

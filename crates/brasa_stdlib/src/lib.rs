@@ -67,6 +67,8 @@ pub enum TyDesc {
     Elem,
     /// The `Walk` record `fs.tryWalk` yields (BRS-66).
     Walk,
+    /// The `Json` tree `json.parse` yields (BRS-34).
+    Json,
     Vector(&'static TyDesc),
     Option(&'static TyDesc),
     Tuple(&'static [TyDesc]),
@@ -133,7 +135,7 @@ pub struct ModuleDecl {
 ///
 /// Every type is exactly one token tree, which is what keeps the table
 /// grammar trivial: named types are bare words (`int`, `string`,
-/// `bool`, `unit`, `unknown`, `walk`), the receiver's element type is
+/// `bool`, `unit`, `unknown`, `walk`, `json`), the receiver's element type is
 /// `elem`, and every composite type is bracketed — `[Vector<elem>]`,
 /// `[Option<elem>]`, `[Tuple<elem, unknown>]`, `[fn(elem) -> bool]`.
 #[macro_export]
@@ -158,6 +160,9 @@ macro_rules! ty {
     };
     (walk) => {
         $crate::TyDesc::Walk
+    };
+    (json) => {
+        $crate::TyDesc::Json
     };
     ([Vector<$inner:tt>]) => {
         $crate::TyDesc::Vector(&$crate::ty!($inner))
@@ -333,7 +338,44 @@ macro_rules! module_table {
 }
 
 pub mod fs;
+pub mod io;
+pub mod json;
 pub mod vector;
 
 pub use fs::{FS_MEMBERS, FsMember};
+pub use io::{IO_MEMBERS, IoMember};
+pub use json::{JSON_MEMBERS, JsonMember};
 pub use vector::{VECTOR_METHODS, VectorMember};
+
+/// Every free module that has been converted to a table, by module
+/// name. The layers that cover the whole free surface at once — the
+/// checker's `module.name` lookup and the bytecode registry's
+/// both-directions cross-check — walk this instead of naming each
+/// module, so converting the next one does not mean editing them.
+///
+/// A module absent here is not undeclared, only still hand-written in
+/// each layer; `proc`, `env`, `math`, `time` and `rand` are the ones
+/// left.
+pub const FREE_MODULES: &[(&str, &[ModuleDecl])] = &[
+    (FsMember::MODULE, FS_MEMBERS),
+    (JsonMember::MODULE, JSON_MEMBERS),
+    (IoMember::MODULE, IO_MEMBERS),
+];
+
+/// The declaration of `module.name`, or `None` when the module has no
+/// table yet or the name is not one of its members.
+///
+/// The two answers are deliberately the same: a caller that resolves a
+/// member wants the declaration or nothing, and one that wants to know
+/// whether a module is converted asks [`is_free_module`].
+pub fn free_member(module: &str, name: &str) -> Option<&'static ModuleDecl> {
+    let (_, members) = FREE_MODULES.iter().find(|(m, _)| *m == module)?;
+    members.iter().find(|decl| decl.name == name)
+}
+
+/// Whether this module's surface is declared by a table here — which
+/// is what makes "not a member of it" a final answer rather than a
+/// reason to look in a layer's own list.
+pub fn is_free_module(module: &str) -> bool {
+    FREE_MODULES.iter().any(|(m, _)| *m == module)
+}

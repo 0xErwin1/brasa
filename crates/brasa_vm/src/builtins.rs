@@ -13,7 +13,7 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
-use brasa_stdlib::{FsMember, VectorMember};
+use brasa_stdlib::{FsMember, IoMember, JsonMember, VectorMember};
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -627,60 +627,90 @@ impl Vm<'_> {
         })
     }
 
-    /// The `std::json` members, ported from the walker's `json_call`
-    /// (BRS-34, `docs/spec/05-stdlib.md`); all JSON behavior lives in
-    /// the shared `brasa_runtime::json_glue`, only value construction
-    /// happens here.
+    /// The `std::json` members, dispatched through the declaration in
+    /// `brasa_stdlib::json` (BRS-96, BRS-34); all JSON behavior lives
+    /// in the shared `brasa_runtime::json_glue`, only value
+    /// construction happens here.
+    ///
+    /// Exhaustive over the declared surface like [`Self::fs_call`], so
+    /// a member added to the table does not compile until it is
+    /// implemented. The `Json` ACCESSORS are not this surface — they
+    /// are methods on a receiver and live in [`Self::json_builtin`].
     fn json_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("parse", [Value::Str(text)]) => match json_glue::parse(text) {
-                Ok(tree) => Ok(Value::Json(tree)),
-                Err(err) => Err(native_error(err.name, err.message)),
+        let Some(member) = JsonMember::from_name(name) else {
+            return Err(unknown_module_member(JsonMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(JsonMember::MODULE, name);
+
+        match member {
+            JsonMember::Parse => match args.as_slice() {
+                [Value::Str(text)] => match json_glue::parse(text) {
+                    Ok(tree) => Ok(Value::Json(tree)),
+                    Err(err) => Err(native_error(err.name, err.message)),
+                },
+                _ => Err(invalid()),
             },
-            ("stringify", [Value::Json(tree)]) => Ok(Value::str(json_glue::stringify(tree))),
-            ("parse" | "stringify", _) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `json.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `json`"
-            ))),
+            JsonMember::Stringify => match args.as_slice() {
+                [Value::Json(tree)] => Ok(Value::str(json_glue::stringify(tree))),
+                _ => Err(invalid()),
+            },
         }
     }
 
-    /// The `std::io` members, ported from the walker's `io_call`
-    /// (BRS-34, `docs/spec/05-stdlib.md`): `puts`/`print` mirror the
+    /// The `std::io` members, dispatched through the declaration in
+    /// `brasa_stdlib::io` (BRS-96, BRS-34): `puts`/`print` mirror the
     /// prelude printers, `eprint` writes to the run's error stream, and
     /// the readers consume the run's input stream through the shared
     /// `brasa_runtime::io_glue`.
+    ///
+    /// Exhaustive over the declared surface like [`Self::fs_call`].
     fn io_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("puts" | "print" | "eprint", [value]) => {
-                let value = value.clone();
-                let text = self.display(&value)?;
-                self.write_io(name, &text)
-            }
-            ("readLine", []) => Ok(match io_glue::read_line(self.input) {
-                Some(line) => Value::some(Value::str(line)),
-                None => Value::NONE,
-            }),
-            ("readAll", []) => Ok(Value::str(io_glue::read_all(self.input))),
-            ("puts" | "print" | "eprint" | "readLine" | "readAll", _) => Err(Signal::Fatal(
-                format!("brasa: invalid argument(s) to `io.{name}`"),
-            )),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `io`"
-            ))),
+        let Some(member) = IoMember::from_name(name) else {
+            return Err(unknown_module_member(IoMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(IoMember::MODULE, name);
+
+        match member {
+            IoMember::Puts | IoMember::Print | IoMember::EPrint => match args.as_slice() {
+                [value] => {
+                    let value = value.clone();
+                    let text = self.display(&value)?;
+                    self.write_io(member, &text)
+                }
+                _ => Err(invalid()),
+            },
+            IoMember::ReadLine => match args.as_slice() {
+                [] => Ok(match io_glue::read_line(self.input) {
+                    Some(line) => Value::some(Value::str(line)),
+                    None => Value::NONE,
+                }),
+                _ => Err(invalid()),
+            },
+            IoMember::ReadAll => match args.as_slice() {
+                [] => Ok(Value::str(io_glue::read_all(self.input))),
+                _ => Err(invalid()),
+            },
         }
     }
 
     /// One printer write: `puts` appends a newline, `eprint` targets
     /// stderr. A closed read end is a silent exit on every stream,
     /// like the prelude printers.
-    fn write_io(&mut self, name: &str, text: &str) -> VmResult {
-        let result = match name {
-            "puts" => writeln!(self.out, "{text}"),
-            "print" => write!(self.out, "{text}"),
-            _ => write!(self.err, "{text}"),
+    ///
+    /// Taking the member rather than its name is what keeps the three
+    /// streams from being decided by a string fallback: before BRS-96
+    /// anything that was not `puts` or `print` went to stderr, so a
+    /// sixth member routed there by default.
+    fn write_io(&mut self, member: IoMember, text: &str) -> VmResult {
+        let result = match member {
+            IoMember::Puts => writeln!(self.out, "{text}"),
+            IoMember::Print => write!(self.out, "{text}"),
+            IoMember::EPrint => write!(self.err, "{text}"),
+            IoMember::ReadLine | IoMember::ReadAll => {
+                unreachable!("the readers do not write a stream")
+            }
         };
 
         match result {
@@ -1605,14 +1635,26 @@ fn builtin_error(name: &str) -> Signal {
     Signal::Fatal(format!("brasa: unknown builtin method `{name}`"))
 }
 
+/// A free-module member reached with operands it does not accept.
+fn invalid_module_args(module: &str, name: &str) -> Signal {
+    Signal::Fatal(format!("brasa: invalid argument(s) to `{module}.{name}`"))
+}
+
+/// A name a free module does not carry.
+fn unknown_module_member(module: &str, name: &str) -> Signal {
+    Signal::Fatal(format!(
+        "brasa: unknown member `{name}` on module `{module}`"
+    ))
+}
+
 /// A `std::fs` member reached with operands it does not accept.
 fn invalid_fs_args(name: &str) -> Signal {
-    Signal::Fatal(format!("brasa: invalid argument(s) to `fs.{name}`"))
+    invalid_module_args(FsMember::MODULE, name)
 }
 
 /// A name `std::fs` does not carry.
 fn unknown_fs_member(name: &str) -> Signal {
-    Signal::Fatal(format!("brasa: unknown member `{name}` on module `fs`"))
+    unknown_module_member(FsMember::MODULE, name)
 }
 
 /// Raises a stdlib-native error: an ordinary error signal carrying a

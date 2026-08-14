@@ -12,7 +12,7 @@
 //! remaining receivers and modules still carry their signatures — and,
 //! for the modules, their error contributions — in this file.
 
-use brasa_stdlib::{FsMember, RetDesc, TyDesc, VectorMember};
+use brasa_stdlib::{RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -141,6 +141,7 @@ fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
         TyDesc::Unit => Type::Unit,
         TyDesc::Unknown => Type::Unknown,
         TyDesc::Walk => Type::Walk,
+        TyDesc::Json => Type::Json,
         TyDesc::Elem => elem
             .expect("a receiver-less declaration cannot mention the receiver's element type")
             .clone(),
@@ -291,18 +292,17 @@ pub struct ModuleSig {
 /// Covers polymorphic members and constants too, which is why it is a
 /// function rather than a field on [`ModuleSig`].
 ///
-/// `std::fs` answers from its declaration table's `throws` column
-/// (`brasa_stdlib::fs`, BRS-96); the modules below still declare their
-/// contribution here.
+/// The converted free modules answer from their declaration table's
+/// `throws` column (`brasa_stdlib`, BRS-96); the modules below still
+/// declare their contribution here.
 pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
     use brasa_resolver::{
-        CLI_USAGE_ERROR, FS_IO_ERROR, HTTP_REQUEST_ERROR, JSON_PARSE_ERROR, PROC_NON_ZERO_EXIT,
-        PROC_SPAWN_ERROR,
+        CLI_USAGE_ERROR, FS_IO_ERROR, HTTP_REQUEST_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
     };
 
-    if module == FsMember::MODULE {
-        return match FsMember::from_name(name) {
-            Some(member) => member.decl().throws,
+    if brasa_stdlib::is_free_module(module) {
+        return match brasa_stdlib::free_member(module, name) {
+            Some(decl) => decl.throws,
             None => &[],
         };
     }
@@ -324,10 +324,8 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
         ("env", "cd") => brasa_stdlib::fs::ALL_ERRORS,
         // An unreadable current directory is the only way this fails.
         ("env", "cwd") => &[FS_IO_ERROR],
-        ("json", "parse") => &[JSON_PARSE_ERROR],
-        // Every `io`, `math`, `time` and `rand` member and
-        // `json.stringify` never throw (BRS-33/34/35); the `fs` surface
-        // answered from its table above.
+        // No `math`, `time` or `rand` member throws (BRS-35); `fs`,
+        // `json` and `io` answered from their tables above.
         _ => &[],
     }
 }
@@ -335,8 +333,9 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
 /// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
-/// BRS-35: `math`, `time`, and `rand`). `fs` is answered from its
-/// declaration table by [`fs_member`]. Polymorphic members
+/// BRS-35: `math`, `time`, and `rand`). `fs`, `json` and `io` are
+/// answered from their declaration tables by [`free_member`].
+/// Polymorphic members
 /// ([`module_member_special`]) and constants ([`module_constant`])
 /// resolve outside this fixed-type table.
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
@@ -346,8 +345,8 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
         ret,
     };
 
-    if module == FsMember::MODULE {
-        return fs_member(name);
+    if brasa_stdlib::is_free_module(module) {
+        return free_member(module, name);
     }
 
     match (module, name) {
@@ -420,30 +419,6 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![],
             Type::Unit,
         )),
-        // `std::json` (BRS-34): `parse` yields the compiler-known
-        // `Json` tree (throwing `json.ParseError`); `stringify` takes a
-        // `Json` value — serializing arbitrary language values is a v2
-        // design.
-        ("json", "parse") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::Json,
-        )),
-        ("json", "stringify") => Some(msig(
-            vec![ModuleParam::Ty(Type::Json)],
-            vec![],
-            Type::String,
-        )),
-        // `std::io` (BRS-34): the printers take any single value via
-        // the universal `toString`, like the prelude `puts`/`print`
-        // (`Unknown` unifies with everything).
-        ("io", "puts" | "print" | "eprint") => Some(msig(
-            vec![ModuleParam::Ty(Type::Unknown)],
-            vec![],
-            Type::Unit,
-        )),
-        ("io", "readLine") => Some(msig(vec![], vec![], Type::option(Type::String))),
-        ("io", "readAll") => Some(msig(vec![], vec![], Type::String)),
         // `std::math` (BRS-35): the float members. `abs`/`min`/`max`
         // are polymorphic over `int`/`float` and are special-cased in
         // the checker; the constants live in [`module_constant`].
@@ -473,12 +448,13 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
     }
 }
 
-/// The `std::fs` members, derived from their declarations
-/// (`brasa_stdlib::fs`, BRS-96). Every parameter is an ordinary typed
-/// one: no `fs` member accepts the alternative-shaped
-/// [`ModuleParam::Command`] argument `std::proc`'s runners take.
-fn fs_member(name: &str) -> Option<ModuleSig> {
-    let decl = FsMember::from_name(name)?.decl();
+/// The members of a converted free module, derived from their
+/// declarations (`brasa_stdlib`, BRS-96). Every parameter is an
+/// ordinary typed one: no member of these modules accepts the
+/// alternative-shaped [`ModuleParam::Command`] argument `std::proc`'s
+/// runners take, which is part of why `proc` is not converted.
+fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
+    let decl = brasa_stdlib::free_member(module, name)?;
 
     let params = |descs: &'static [TyDesc]| {
         descs
@@ -961,6 +937,87 @@ mod stdlib_declaration_tests {
         assert_eq!(brasa_stdlib::fs::NOT_FOUND, brasa_resolver::FS_NOT_FOUND);
         assert_eq!(brasa_stdlib::fs::DENIED, brasa_resolver::FS_DENIED);
         assert_eq!(brasa_stdlib::fs::IO_ERROR, brasa_resolver::FS_IO_ERROR);
+        assert_eq!(
+            brasa_stdlib::json::PARSE_ERROR,
+            brasa_resolver::JSON_PARSE_ERROR
+        );
+    }
+
+    /// And the general form of the same rule, which is what keeps a
+    /// module converted later from spelling an error the resolver never
+    /// heard of: an unlisted name is one no `catch` arm can match and
+    /// no `throws` clause can declare, so the member would be
+    /// uncatchable rather than merely misnamed.
+    #[test]
+    fn every_declared_error_is_a_known_native_error() {
+        for (module, members) in brasa_stdlib::FREE_MODULES {
+            for decl in *members {
+                for error in decl.throws {
+                    assert!(
+                        brasa_resolver::NATIVE_ERRORS.contains(error),
+                        "`{module}.{}` raises `{error}`, which is not a native error",
+                        decl.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// The `json` and `io` contributions, pinned the way the `fs` ones
+    /// are: `parse` is the one thrower on either surface.
+    #[test]
+    fn json_and_io_contribute_from_their_declarations() {
+        assert_eq!(
+            module_throws("json", "parse"),
+            &[brasa_resolver::JSON_PARSE_ERROR]
+        );
+        assert!(module_throws("json", "stringify").is_empty());
+
+        for name in ["puts", "print", "eprint", "readLine", "readAll"] {
+            assert!(
+                module_throws("io", name).is_empty(),
+                "`io.{name}` contributes an error, but the surface is infallible"
+            );
+        }
+    }
+
+    /// The signatures the two new tables answer, including the only
+    /// member on either whose result is an `Option`.
+    #[test]
+    fn json_and_io_signatures_come_from_the_declaration() {
+        let parse = module_member("json", "parse").expect("parse exists");
+        assert!(matches!(
+            parse.required.as_slice(),
+            [ModuleParam::Ty(Type::String)]
+        ));
+        assert_eq!(parse.ret, Type::Json);
+
+        let stringify = module_member("json", "stringify").expect("stringify exists");
+        assert!(matches!(
+            stringify.required.as_slice(),
+            [ModuleParam::Ty(Type::Json)]
+        ));
+        assert_eq!(stringify.ret, Type::String);
+
+        for name in ["puts", "print", "eprint"] {
+            let sig = module_member("io", name).expect("the printers exist");
+            assert!(matches!(
+                sig.required.as_slice(),
+                [ModuleParam::Ty(Type::Unknown)]
+            ));
+            assert_eq!(sig.ret, Type::Unit);
+        }
+
+        let read_line = module_member("io", "readLine").expect("readLine exists");
+        assert!(read_line.required.is_empty());
+        assert_eq!(read_line.ret, Type::option(Type::String));
+        assert_eq!(
+            module_member("io", "readAll").expect("readAll exists").ret,
+            Type::String
+        );
+
+        assert!(module_member("json", "asInt").is_none());
+        assert!(module_member("io", "readByte").is_none());
     }
 
     /// The `fs` signatures the declaration table now answers, including
