@@ -676,6 +676,32 @@ mod tests {
         );
     }
 
+    /// BRS-107: the tolerance itself, reachable under a root runner.
+    /// The conformance test builds an unreadable directory out of mode
+    /// 000, which root ignores — but `read_dir` on a path that is not a
+    /// directory at all fails for every user, and it fails in the same
+    /// arm of [`try_walk_into`]: record the place, do not raise, keep
+    /// walking.
+    #[test]
+    fn a_directory_that_cannot_be_opened_is_recorded_not_raised() {
+        let dir = std::env::temp_dir().join("brasa-fs-glue-unopenable-dir");
+        std::fs::create_dir_all(&dir).expect("the fixture directory is creatable");
+
+        let plain = dir.join("plain");
+        std::fs::write(&plain, b"not a directory").expect("the fixture file is writable");
+
+        let mut paths = Vec::new();
+        let mut unreadable = Vec::new();
+        try_walk_into(&plain, &[], &mut paths, &mut unreadable);
+
+        assert!(paths.is_empty());
+        assert_eq!(
+            unreadable,
+            vec![plain],
+            "an unopenable directory is a recorded place, not a raised error"
+        );
+    }
+
     /// Sorted and deduplicated as bytes, not as rendered strings. Two
     /// names differing only in bytes that are not valid UTF-8 render
     /// identically, and collapsing them would undercount the very thing
