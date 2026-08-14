@@ -1294,6 +1294,22 @@ impl<'a> Vm<'a> {
             Op::Gt => self.ordering(|o| o.is_gt())?,
             Op::Ge => self.ordering(|o| o.is_ge())?,
 
+            Op::EqInt => self.int_cmp(|a, b| a == b)?,
+            Op::LtInt => self.int_cmp(|a, b| a < b)?,
+            Op::LeInt => self.int_cmp(|a, b| a <= b)?,
+            Op::GtInt => self.int_cmp(|a, b| a > b)?,
+            Op::GeInt => self.int_cmp(|a, b| a >= b)?,
+            Op::EqFloat => self.float_cmp(|a, b| a == b)?,
+            Op::LtFloat => self.float_cmp(|a, b| a < b)?,
+            Op::LeFloat => self.float_cmp(|a, b| a <= b)?,
+            Op::GtFloat => self.float_cmp(|a, b| a > b)?,
+            Op::GeFloat => self.float_cmp(|a, b| a >= b)?,
+            Op::EqBool => {
+                let b = self.pop_bool().map_err(Self::bad_compare)?;
+                let a = self.pop_bool().map_err(Self::bad_compare)?;
+                self.push(Value::Bool(a == b));
+            }
+
             Op::Jump(target) => self.jump(target),
             Op::JumpIfFalse(target) => {
                 if !self.pop_bool()? {
@@ -1625,6 +1641,41 @@ impl<'a> Vm<'a> {
     #[inline(never)]
     fn bad_arith(_: Signal) -> Signal {
         Self::fatal("brasa: invalid operands for arithmetic operator")
+    }
+
+    /// A typed comparison opcode (BRS-99): the checker proved both
+    /// operands, so unlike [`Vm::ordering`] there is no dynamic dispatch
+    /// and no struct-`cmp` fallback to reach. The tag test stays — the
+    /// same defensive posture as [`Vm::int_arith`] — but its failure arm
+    /// is unreachable from checked code.
+    #[inline(always)]
+    fn int_cmp(&mut self, f: fn(i64, i64) -> bool) -> Result<(), Signal> {
+        let b = self.pop_int().map_err(Self::bad_compare)?;
+        let a = self.pop_int().map_err(Self::bad_compare)?;
+        self.push(Value::Bool(f(a, b)));
+        Ok(())
+    }
+
+    /// IEEE semantics fall out of the raw operator: any comparison
+    /// involving NaN is `false`, and `NaN != NaN` under [`Op::EqFloat`],
+    /// matching `value_eq`/`value_cmp` exactly.
+    #[inline(always)]
+    fn float_cmp(&mut self, f: fn(f64, f64) -> bool) -> Result<(), Signal> {
+        let b = self.pop();
+        let a = self.pop();
+        match (a, b) {
+            (Value::Float(a), Value::Float(b)) => {
+                self.push(Value::Bool(f(a, b)));
+                Ok(())
+            }
+            _ => Err(Self::fatal("brasa: invalid operands for comparison")),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn bad_compare(_: Signal) -> Signal {
+        Self::fatal("brasa: invalid operands for comparison")
     }
 
     /// Primitive ordering, plus the walker's dynamic struct-`cmp`

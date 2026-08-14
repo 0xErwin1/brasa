@@ -51,7 +51,7 @@ expression: "compile_source(name, source)"
      7  jump 15
      8  load_local 1
      9  const c2                    ; float 10.0
-    10  gt
+    10  gt_float
     11  jump_if_false 15
     12  pop
     13  const c3                    ; str "big circle"
@@ -78,7 +78,7 @@ expression: "compile_source(name, source)"
     34  jump 42
     35  load_local 2
     36  load_local 3
-    37  eq
+    37  eq_float
     38  jump_if_false 42
     39  pop
     40  const c5                    ; str "square"
@@ -114,14 +114,14 @@ expression: "compile_source(name, source)"
      0  load_local 0
      1  dup
      2  const c9                    ; int 0
-     3  eq
+     3  eq_int
      4  jump_if_false 8
      5  pop
      6  const c10                   ; str "zero"
      7  jump 23
      8  dup
      9  const c11                   ; int 1
-    10  eq
+    10  eq_int
     11  jump_if_false 15
     12  pop
     13  const c12                   ; str "one"

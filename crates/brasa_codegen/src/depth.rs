@@ -156,6 +156,17 @@ fn net_effect(op: &Op, structs: &[StructShape]) -> i32 {
         | Op::Le
         | Op::Gt
         | Op::Ge
+        | Op::EqInt
+        | Op::EqFloat
+        | Op::EqBool
+        | Op::LtInt
+        | Op::LeInt
+        | Op::GtInt
+        | Op::GeInt
+        | Op::LtFloat
+        | Op::LeFloat
+        | Op::GtFloat
+        | Op::GeFloat
         | Op::GetIndex
         | Op::MakeRange { .. } => -1,
 

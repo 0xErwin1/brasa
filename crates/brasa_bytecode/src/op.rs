@@ -104,6 +104,34 @@ pub enum Op {
     /// `a b -> bool`.
     Ge,
 
+    // --- typed comparison (BRS-99) -------------------------------------
+    // Emitted where the checker proved both operand types, so the
+    // dynamic dispatch and the struct-`cmp` fallback are skipped. Same
+    // observable results as the generic forms; generic code (type
+    // parameters, receiver-polymorphic builtins) keeps `Eq`/`Lt`/....
+    /// `a b -> bool`: int equality.
+    EqInt,
+    /// `a b -> bool`: IEEE float equality (`NaN != NaN`).
+    EqFloat,
+    /// `a b -> bool`: bool equality.
+    EqBool,
+    /// `a b -> bool`.
+    LtInt,
+    /// `a b -> bool`.
+    LeInt,
+    /// `a b -> bool`.
+    GtInt,
+    /// `a b -> bool`.
+    GeInt,
+    /// `a b -> bool`: IEEE; any comparison involving NaN is `false`.
+    LtFloat,
+    /// `a b -> bool`.
+    LeFloat,
+    /// `a b -> bool`.
+    GtFloat,
+    /// `a b -> bool`.
+    GeFloat,
+
     // --- jumps ---------------------------------------------------------
     /// Unconditional jump.
     Jump(CodeIx),

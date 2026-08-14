@@ -177,12 +177,14 @@ fn binary(f: &mut FuncCx, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId, sp
         BinaryOp::Eq => {
             compile_expr(f, lhs);
             compile_expr(f, rhs);
-            f.emit(Op::Eq, span);
+            let op = equality_op(f, lhs);
+            f.emit(op, span);
         }
         BinaryOp::NotEq => {
             compile_expr(f, lhs);
             compile_expr(f, rhs);
-            f.emit(Op::Eq, span);
+            let op = equality_op(f, lhs);
+            f.emit(op, span);
             f.emit(Op::Not, span);
         }
         BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
@@ -204,6 +206,43 @@ fn ordering_op(op: BinaryOp) -> Op {
         BinaryOp::Gt => Op::Gt,
         BinaryOp::GtEq => Op::Ge,
         _ => unreachable!("only ordering operators reach here"),
+    }
+}
+
+/// The typed comparison the checker's operand type licenses, or the
+/// generic form (BRS-99). Equality is structural for every type, so
+/// only the scalars where the typed op skips real dispatch are
+/// special-cased; generic operands (type parameters, `Unknown`) keep
+/// the dynamic op and its fallbacks.
+fn equality_op(f: &FuncCx, lhs: ExprId) -> Op {
+    match f.cx.types.expr_types.get(&lhs) {
+        Some(Type::Int) => Op::EqInt,
+        Some(Type::Float) => Op::EqFloat,
+        Some(Type::Bool) => Op::EqBool,
+        _ => Op::Eq,
+    }
+}
+
+/// The typed ordering for a statically `int`/`float` operand, or the
+/// generic form. Strings and chars stay dynamic: their comparison cost
+/// is the content walk, not the dispatch.
+fn typed_ordering_op(f: &FuncCx, op: BinaryOp, lhs: ExprId) -> Op {
+    match f.cx.types.expr_types.get(&lhs) {
+        Some(Type::Int) => match op {
+            BinaryOp::Lt => Op::LtInt,
+            BinaryOp::LtEq => Op::LeInt,
+            BinaryOp::Gt => Op::GtInt,
+            BinaryOp::GtEq => Op::GeInt,
+            _ => unreachable!("only ordering operators reach here"),
+        },
+        Some(Type::Float) => match op {
+            BinaryOp::Lt => Op::LtFloat,
+            BinaryOp::LtEq => Op::LeFloat,
+            BinaryOp::Gt => Op::GtFloat,
+            BinaryOp::GtEq => Op::GeFloat,
+            _ => unreachable!("only ordering operators reach here"),
+        },
+        _ => ordering_op(op),
     }
 }
 
@@ -230,7 +269,8 @@ fn ordering(f: &mut FuncCx, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) 
         return;
     }
 
-    f.emit(ordering_op(op), span);
+    let op = typed_ordering_op(f, op, lhs);
+    f.emit(op, span);
 }
 
 fn arithmetic(f: &mut FuncCx, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) {

@@ -30,7 +30,7 @@ expression: "compile_source(name, source)"
      9  const c3                    ; int 2
     10  rem_int
     11  const c0                    ; int 0
-    12  eq
+    12  eq_int
     13  jump_if_false 16
     14  jump 6
     15  jump 16
@@ -43,7 +43,7 @@ expression: "compile_source(name, source)"
     22  store_global g1             ; n
     23  load_global g1              ; n
     24  const c0                    ; int 0
-    25  gt
+    25  gt_int
     26  jump_if_false 38
     27  load_global g1              ; n
     28  const c1                    ; int 1
@@ -51,20 +51,20 @@ expression: "compile_source(name, source)"
     30  store_global g1             ; n
     31  load_global g1              ; n
     32  const c1                    ; int 1
-    33  eq
+    33  eq_int
     34  jump_if_false 37
     35  jump 38
     36  jump 37
     37  jump 23
     38  load_global g0              ; total
     39  const c2                    ; int 5
-    40  gt
+    40  gt_int
     41  jump_if_false 44
     42  const c5                    ; str "big"
     43  jump 51
     44  load_global g0              ; total
     45  const c3                    ; int 2
-    46  gt
+    46  gt_int
     47  jump_if_false 50
     48  const c6                    ; str "mid"
     49  jump 51

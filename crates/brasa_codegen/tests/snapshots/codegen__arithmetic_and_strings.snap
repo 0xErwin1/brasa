@@ -64,20 +64,20 @@ expression: "compile_source(name, source)"
     31  store_global g6             ; s
     32  load_global g0              ; a
     33  const c5                    ; int 10
-    34  lt
+    34  lt_int
     35  jump_if_false_or_pop 40
     36  load_global g1              ; b
     37  const c11                   ; int 0
-    38  eq
+    38  eq_int
     39  not
     40  jump_if_true_or_pop 44
     41  load_global g2              ; c
     42  const c12                   ; int 100
-    43  gt
+    43  gt_int
     44  store_global g7             ; cmp
     45  load_global g0              ; a
     46  const c13                   ; int 5
-    47  eq
+    47  eq_int
     48  not
     49  store_global g8             ; negated
     50  load_unit

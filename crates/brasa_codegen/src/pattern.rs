@@ -109,24 +109,32 @@ fn compile_pattern_test(f: &mut FuncCx, pattern: PatternId, fails: &mut Vec<Code
             }
         },
         Pattern::Literal(literal) => {
-            match literal {
+            // The literal itself names the scrutinee's type — the
+            // checker already unified them — so the scalar cases take
+            // the typed comparison (BRS-99).
+            let eq = match literal {
                 Literal::Int(v) => {
                     f.emit_const(Constant::Int(v), span);
+                    Op::EqInt
                 }
                 Literal::Float(v) => {
                     f.emit_const(Constant::Float(v), span);
+                    Op::EqFloat
                 }
                 Literal::Bool(v) => {
                     f.emit(if v { Op::LoadTrue } else { Op::LoadFalse }, span);
+                    Op::EqBool
                 }
                 Literal::Char(v) => {
                     f.emit_const(Constant::Char(v), span);
+                    Op::Eq
                 }
                 Literal::Str(v) => {
                     f.emit_const(Constant::Str(v), span);
+                    Op::Eq
                 }
-            }
-            f.emit(Op::Eq, span);
+            };
+            f.emit(eq, span);
             fails.push(f.emit(Op::JumpIfFalse(PLACEHOLDER), span));
         }
         Pattern::Tuple(elements) => {

@@ -49,7 +49,7 @@ expression: "compile_source(name, source)"
     16  load_local 0
     17  get_field 0
     18  const c3                    ; int 10
-    19  gt
+    19  gt_int
     20  jump_if_false 24
     21  pop
     22  const c4                    ; str "far"

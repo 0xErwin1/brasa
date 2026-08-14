@@ -33,7 +33,7 @@ expression: "compile_source(name, source)"
     14  concat
     15  load_global g1              ; stars
     16  const c5                    ; int 10
-    17  gt
+    17  gt_int
     18  to_string
     19  concat
     20  const c6                    ; str "!)"
