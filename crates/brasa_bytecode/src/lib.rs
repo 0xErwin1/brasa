@@ -1,6 +1,6 @@
 //! Bytecode container types for the Brasa VM (M3).
 //!
-//! Normative design: `docs/spec/07-bytecode.md`. This crate owns the
+//! Normative design: spec: 07 — Diseño del bytecode. This crate owns the
 //! instruction set ([`Op`]), the per-function [`Chunk`] (code, span side
 //! table, handler table), the interned [`ConstPool`], the [`Module`]
 //! format (function table, struct/enum shapes, global slots), and a
@@ -48,7 +48,7 @@ pub struct BuiltinId(pub u16);
 pub struct CodeIx(pub u32);
 
 /// Frame-local slot index (parameters, captures, then remaining locals;
-/// layout in `docs/spec/07-bytecode.md`).
+/// layout in spec: 07 — Diseño del bytecode).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SlotIx(pub u16);
 

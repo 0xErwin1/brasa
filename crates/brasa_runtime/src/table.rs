@@ -5,11 +5,11 @@
 //! `value_eq` scan, which made `insert`, `get`, `has?`, `add` and the
 //! `m[k]` index path O(n) and building a map O(n²). The spec closes
 //! `Hashable` to `int`, `string`, `char`, `bool` and tuples of those
-//! (`docs/spec/03-types.md`), so every legal key projects into owned
+//! (spec: 03 — Sistema de tipos), so every legal key projects into owned
 //! plain data and can be hashed.
 //!
 //! The `Vec` stays the source of truth because insertion order is
-//! normative (`docs/spec/05-stdlib.md`: `entries`/`keys`/`values`/`for`
+//! normative (spec: 05 — Stdlib de scripting: `entries`/`keys`/`values`/`for`
 //! iterate in insertion order, literals keep the first occurrence's
 //! position while the last value wins, `Set` keeps the first
 //! occurrence). A side [`HashMap`] from [`HashKey`] to the position in

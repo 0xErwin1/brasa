@@ -191,7 +191,7 @@ snapshot_test!(
 );
 // Ruled: the grammar wins here. Inline constraint members require both
 // a leading `def` and an explicit `self` parameter, matching the fixed
-// `docs/spec/01-syntax.md` example.
+// spec: 01 — Sintaxis example.
 snapshot_test!(
     generics_inline_constraint,
     "def log<T: { def toString(self): string }>(value: T)\n  puts value\nend"
@@ -231,7 +231,7 @@ snapshot_test!(tuple_as_map_key, "let m = { (0, 0): \"origin\" }");
 
 /// The pre-existing "parentheses right after a callee are a call" rule
 /// wins over tuple construction, so a tuple argument needs its own
-/// parentheses (`docs/spec/02-grammar.md`).
+/// parentheses (spec: 02 — Gramática formal).
 #[test]
 fn parens_after_a_callee_stay_a_call_not_a_tuple_argument() {
     insta::assert_snapshot!(

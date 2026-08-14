@@ -145,7 +145,7 @@ impl<'a> Parser<'a> {
 /// Decodes a `CHAR` token's text (including its surrounding quotes),
 /// applying the same escape set as strings via
 /// [`brasa_token::decode_escape`] (`\n \t \" \\ \#`, per
-/// `docs/spec/02-grammar.md`'s ambiguity table: "unknown escapes ... in
+/// spec: 02 — Gramática formal's ambiguity table: "unknown escapes ... in
 /// both string and char literals"). Any other `\<c>` is an unknown
 /// escape (an ERROR, never silently passed through), reported as
 /// `Some(c)` alongside the best-effort decoded value the caller still

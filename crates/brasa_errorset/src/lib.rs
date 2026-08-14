@@ -1,7 +1,7 @@
 //! Error-set inference for Brasa (BRS-22): the interprocedural fixpoint
 //! over the call graph.
 //!
-//! Per `docs/spec/04-errors.md` ("Error-set inference"), the error-set
+//! Per spec: 04 — Sistema de errores ("Error-set inference"), the error-set
 //! of a function is "the set of types it can throw: its own `throw`s ∪
 //! the error-sets of what it calls, minus what it catches. It is an
 //! interprocedural fixpoint analysis (recursion converges because the
@@ -9,7 +9,7 @@
 //! part of the written signature, and it travels between modules.
 //!
 //! The crate COMPUTES the sets, exposes them as side tables
-//! (`docs/spec/00-vision.md`, the `error_sets: Map<FuncId, ErrorSet>`
+//! (spec: 00 — Visión y alcance, the `error_sets: Map<FuncId, ErrorSet>`
 //! row), and then runs the checks that consume them (BRS-23):
 //! unreachable arms, `catch!` exhaustiveness, `throws` verification,
 //! and the rendering contract (a `toString` override's set must be
@@ -18,7 +18,7 @@
 //! needs its type.
 //!
 //! Panics never appear in an error-set: they are a separate channel
-//! (`docs/spec/04-errors.md`, "Panics vs errors"), so indexing,
+//! (spec: 04 — Sistema de errores, "Panics vs errors"), so indexing,
 //! division, and arithmetic contribute nothing here.
 //!
 //! Top-level code (`Item::Stmt` blocks and `TopLet` initializers) is
@@ -47,7 +47,7 @@ use brasa_typeck::TypeTables;
 use collect::Collector;
 
 /// A throwable primitive type. `throw` accepts any value
-/// (`docs/spec/04-errors.md`, "Throwing"), so primitives are legitimate
+/// (spec: 04 — Sistema de errores, "Throwing"), so primitives are legitimate
 /// error tags alongside nominal structs and enums.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Primitive {
@@ -73,7 +73,7 @@ impl Primitive {
 }
 
 /// One element of an error-set. Matching is nominal
-/// (`docs/spec/04-errors.md`, "`catch` distinguishes by the declared
+/// (spec: 04 — Sistema de errores, "`catch` distinguishes by the declared
 /// type of the thrown value"), so a tag is an identity, never a shape.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ErrorTag {
@@ -163,7 +163,7 @@ pub struct ErrorSetResult {
 /// added, openness only turns on, and a `catch` subtracts a fixed tag
 /// list from a growing subject set — so the sets only grow and the
 /// finite tag universe (declared items + six primitives) guarantees
-/// convergence (`docs/spec/04-errors.md`).
+/// convergence (spec: 04 — Sistema de errores).
 ///
 /// After convergence one extra checking pass recollects every body
 /// against the final sets (its output is identical by fixpoint) with

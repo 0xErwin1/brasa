@@ -1,5 +1,5 @@
 //! Backend-agnostic OS glue for `std::fs` plus `env.cwd`/`env.cd`
-//! (BRS-33, `docs/spec/05-stdlib.md`), shared by the walker and the VM
+//! (BRS-33, spec: 05 — Stdlib de scripting), shared by the walker and the VM
 //! so filesystem behavior and every observable message can never drift
 //! between backends. Value construction stays in each backend's own
 //! builtin table, like `proc_env`.

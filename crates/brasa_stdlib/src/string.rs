@@ -1,4 +1,4 @@
-//! The `string` method surface (`docs/spec/05-stdlib.md`, BRS-31 and
+//! The `string` method surface (spec: 05 — Stdlib de scripting, BRS-31 and
 //! BRS-53).
 //!
 //! A [`crate::RecvShape::Plain`] receiver: `string` has no type

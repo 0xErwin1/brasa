@@ -1,6 +1,6 @@
 //! Native builtin implementations: every `brasa_bytecode::BUILTINS`
 //! entry the code generator can emit, with the messages and failure
-//! classes `docs/spec/05-stdlib.md` fixes. Method-style entries dispatch on the receiver's
+//! classes spec: 05 — Stdlib de scripting fixes. Method-style entries dispatch on the receiver's
 //! runtime kind; higher-order entries (`map`, `filter`, `each`,
 //! `sortBy`) call back into user code through the VM's bounded
 //! reentrant loop.
@@ -177,7 +177,7 @@ impl Vm<'_> {
         })))
     }
 
-    /// The `std::cli` members (`docs/spec/05-stdlib.md`, BRS-112):
+    /// The `std::cli` members (spec: 05 — Stdlib de scripting, BRS-112):
     /// `parse(args, spec)` and `help(program, spec)`.
     ///
     /// A malformed DECLARATION is fatal rather than a `cli.UsageError`:
@@ -251,7 +251,7 @@ impl Vm<'_> {
         Ok(params)
     }
 
-    /// The `std::http` members (`docs/spec/05-stdlib.md`, BRS-113):
+    /// The `std::http` members (spec: 05 — Stdlib de scripting, BRS-113):
     /// `get(url, timeoutMs?)` and `post(url, body, timeoutMs?)`.
     ///
     /// A non-2xx status is an ANSWER and comes back in the `Response`;
@@ -416,7 +416,7 @@ impl Vm<'_> {
         match (member, args.as_slice()) {
             // A chosen exit is not an error: it unwinds past every
             // handler and the CLI prints nothing
-            // (`docs/spec/05-stdlib.md`).
+            // (spec: 05 — Stdlib de scripting).
             (EnvMember::Exit, [Value::Int(code)]) => {
                 let code = *code;
                 if !(0..=255).contains(&code) {
@@ -741,7 +741,7 @@ impl Vm<'_> {
         }
     }
 
-    /// The `Json` accessors (BRS-34, `docs/spec/05-stdlib.md`), pure
+    /// The `Json` accessors (BRS-34, spec: 05 — Stdlib de scripting), pure
     /// over the shared tree; `None` means the name is not a `Json`
     /// builtin (the caller reports it).
     fn json_builtin(
@@ -954,7 +954,7 @@ impl Vm<'_> {
                     .ok_or_else(|| builtin_error(name))
             }
             // The `Json` accessors flatten through `Option<Json>`
-            // (BRS-34, `docs/spec/05-stdlib.md`): `None` propagates,
+            // (BRS-34, spec: 05 — Stdlib de scripting): `None` propagates,
             // except `null?`, which is `false` — absent is not `null`.
             Value::Option(inner) => {
                 let inner = inner.clone();
@@ -1418,7 +1418,7 @@ impl Vm<'_> {
 
     /// `sort` in natural ascending order: the elements must satisfy the
     /// same orderable rule as `sortBy` keys, NaN panic included
-    /// (BRS-35, `docs/spec/05-stdlib.md`).
+    /// (BRS-35, spec: 05 — Stdlib de scripting).
     fn sort_natural(&mut self, items: Vec<Value>) -> VmResult {
         for item in &items {
             match item {
@@ -1610,7 +1610,7 @@ impl Vm<'_> {
 }
 
 /// The `Output` record's field accessors (BRS-32,
-/// `docs/spec/05-stdlib.md`): receiver-only builtins that yield the
+/// spec: 05 — Stdlib de scripting): receiver-only builtins that yield the
 /// field value, dispatched through the declared member enum
 /// (`brasa_stdlib::proc`, BRS-96).
 fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmResult {

@@ -1,4 +1,4 @@
-//! The `std::math` member surface (`docs/spec/05-stdlib.md`, BRS-35).
+//! The `std::math` member surface (spec: 05 — Stdlib de scripting, BRS-35).
 //!
 //! The module that uses all three row forms, which is why it was left
 //! for last: the float members are ordinary calls, `pi` and `e` are

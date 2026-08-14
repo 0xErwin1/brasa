@@ -4,7 +4,7 @@
 //! roots, the resolver's [`brasa_resolver::Resolutions`], and the
 //! checker's [`brasa_typeck::TypeTables`] — and produces a
 //! [`brasa_bytecode::Module`] per the normative design in
-//! `docs/spec/07-bytecode.md`. The observable-behavior oracle is the
+//! spec: 07 — Diseño del bytecode. The observable-behavior oracle is the
 //! conformance corpus (`brasa_vm/tests/conformance.rs`): where compiled
 //! code and a pinned expectation disagree, this crate has a bug. That
 //! role belonged to the reference tree-walker until BRS-108.
@@ -25,7 +25,7 @@
 //!   order; the VM copies them into the frame's capture slots in the
 //!   same order.
 //! - **Captures share bindings, not values**: a closure captures the
-//!   lexical binding (`docs/spec/01-syntax.md`), so rebinding the name
+//!   lexical binding (spec: 01 — Sintaxis), so rebinding the name
 //!   is observable from both sides. A binding both captured and
 //!   rebound is boxed into a heap cell that the capture slot and the
 //!   binding scope's own slot point at; reads and writes go through
@@ -111,7 +111,7 @@ pub fn compile(
 ///
 /// `roots` is every module's items concatenated in the loader's
 /// post-order, which is also the order `<toplevel>` runs them in
-/// (`docs/spec/01-syntax.md`: a module's top level runs the first time
+/// (spec: 01 — Sintaxis: a module's top level runs the first time
 /// it is imported, dependencies first). `entry_roots` is the executed
 /// file's slice of that list: only its `main` becomes
 /// [`Module::entry`], because an imported module's `main` is never

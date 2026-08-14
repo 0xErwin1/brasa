@@ -9,7 +9,7 @@
 //! over a tree with holes, or bail and leave the editor with nothing.
 //!
 //! Every phase is run unconditionally here, which is the difference
-//! between this and the CLI. `docs/spec/06-diagnostics.md`'s
+//! between this and the CLI. spec: 06 — Diagnósticos's
 //! clean-phase-gating principle is a rule for BATCH compilation, where
 //! running the checker over an unresolved tree only produces cascades a
 //! user did not ask for. An editor wants the opposite trade, and these

@@ -1,8 +1,8 @@
-//! Bytecode-limit diagnostics (`docs/spec/06-diagnostics.md`, the `C`
+//! Bytecode-limit diagnostics (spec: 06 — Diagnósticos, the `C`
 //! family) driven through the CLI.
 //!
 //! Each program here breaks a limit that is inherent to the instruction
-//! set in `docs/spec/07-bytecode.md`. What is pinned is the diagnostic:
+//! set in spec: 07 — Diseño del bytecode. What is pinned is the diagnostic:
 //! before these limits were checked, the same programs aborted the
 //! process with a raw Rust panic (`TryFromIntError`) instead. They are
 //! reported at compile time even for a run that would never reach the
@@ -42,7 +42,7 @@ fn assert_rejected(name: &str, source: &str, expected: &[&str]) {
 
     // Under `--check` as well as under a plain run: the limits are
     // properties of the program's bytecode encoding rather than of a
-    // run, which is what `docs/spec/06-diagnostics.md` promises. Code
+    // run, which is what spec: 06 — Diagnósticos promises. Code
     // generation therefore has to happen before the `--check` return,
     // and running both ways is what holds it there.
     let mut seen: Option<String> = None;

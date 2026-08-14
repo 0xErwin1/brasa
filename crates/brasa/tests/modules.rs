@@ -91,7 +91,7 @@ fn exported_lets_are_readable_and_a_mutable_one_is_assignable() {
     assert_eq!(stdout(&output), "brasa\n2\n");
 }
 
-/// `docs/spec/01-syntax.md`: everything is private unless `pub`. The
+/// spec: 01 — Sintaxis: everything is private unless `pub`. The
 /// diagnostic has to point at both ends — the use and the declaration
 /// that forgot the keyword — or the reader has to go hunting.
 #[test]
@@ -139,7 +139,7 @@ fn a_name_the_module_does_not_declare_at_all_is_reported_as_missing() {
     );
 }
 
-/// `docs/spec/01-syntax.md`: top-level statements run once, the first
+/// spec: 01 — Sintaxis: top-level statements run once, the first
 /// time the module is imported, in post-order DFS — dependencies first.
 /// The pin is the interleaving, which is the whole of the rule.
 #[test]
@@ -164,7 +164,7 @@ fn top_levels_run_once_each_dependencies_first() {
     );
 }
 
-/// `docs/spec/01-syntax.md`: only the executed file's `main` is invoked.
+/// spec: 01 — Sintaxis: only the executed file's `main` is invoked.
 /// An imported module's `main` is an ordinary private function.
 #[test]
 fn an_imported_modules_main_is_not_invoked() {
@@ -245,7 +245,7 @@ fn two_spellings_of_one_file_are_one_module() {
     );
 }
 
-/// `docs/spec/01-syntax.md`: import cycles are a compile error. The
+/// spec: 01 — Sintaxis: import cycles are a compile error. The
 /// diagnostic names the whole chain, because reconstructing it by hand
 /// is the entire cost of the error.
 #[test]

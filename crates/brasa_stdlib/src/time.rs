@@ -1,4 +1,4 @@
-//! The `std::time` member surface (`docs/spec/05-stdlib.md`, BRS-35).
+//! The `std::time` member surface (spec: 05 — Stdlib de scripting, BRS-35).
 //!
 //! Epoch timestamps, sleep, and basic ISO-8601 formatting. The plainest
 //! table left: four calls, no constants, nothing delegated, and nothing

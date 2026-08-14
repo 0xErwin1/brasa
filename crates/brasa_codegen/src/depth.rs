@@ -1,7 +1,7 @@
 //! The operand-depth pass: an abstract interpretation over the finished
 //! chunk that assigns every reachable instruction its entry depth.
 //!
-//! Two outputs (`docs/spec/07-bytecode.md`): each handler entry's
+//! Two outputs (spec: 07 — Diseño del bytecode): each handler entry's
 //! `depth` (the operand depth to restore before its dispatch sequence —
 //! the depth at the subject's first instruction) and the function's
 //! `max_stack` (the maximum operand depth above the locals boundary,

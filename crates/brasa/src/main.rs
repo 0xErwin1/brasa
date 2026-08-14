@@ -51,12 +51,12 @@ struct Cli {
     check: bool,
 
     /// Print the inferred error-sets to stdout instead of executing the
-    /// script (`docs/spec/04-errors.md`, error-set inference).
+    /// script (spec: 04 — Sistema de errores, error-set inference).
     #[arg(long)]
     dump_error_sets: bool,
 
     /// Print the compiled bytecode disassembly to stdout instead of
-    /// executing the script (`docs/spec/07-bytecode.md`).
+    /// executing the script (spec: 07 — Diseño del bytecode).
     #[arg(long)]
     dump_bytecode: bool,
 
@@ -309,7 +309,7 @@ fn compile_program(
     // Code generation runs even under `--check`: the limits it reports
     // are properties of the program, so a program that cannot be
     // compiled must be rejected here rather than at run time
-    // (`docs/spec/06-diagnostics.md`, code generation).
+    // (spec: 06 — Diagnósticos, code generation).
     let generate = if with_tests {
         brasa_codegen::compile_tests
     } else {

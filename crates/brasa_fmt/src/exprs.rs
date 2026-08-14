@@ -209,7 +209,7 @@ impl<'a> Printer<'a> {
     /// `min_prec`, adding the parentheses the AST dropped when it does
     /// not. `brasa_ast` has no node for grouping, so every parenthesis in
     /// the output is derived here from the precedence table in
-    /// `docs/spec/02-grammar.md`.
+    /// spec: 02 — Gramática formal.
     fn child(&mut self, id: ExprId, min_prec: u8, col: usize, level: usize) -> String {
         if self.prec(id) >= min_prec {
             return self.expr(id, col, level);
@@ -796,7 +796,7 @@ impl<'a> Printer<'a> {
 
         // A chain the author split across lines stays split: the leading
         // dots are the canonical style for pipelines
-        // (`docs/spec/01-syntax.md`) and collapsing them back onto one
+        // (spec: 01 — Sintaxis) and collapsing them back onto one
         // line would be the formatter overruling a real decision.
         let split = links.iter().any(|link| self.dot_on_new_line(link.recv_end));
         let flat = format!("{base_text}{}", rendered.concat());

@@ -2,7 +2,7 @@
 //!
 //! Executes a compiled [`brasa_bytecode::Module`] with an iterative
 //! dispatch loop over one contiguous value stack, per the normative
-//! design in `docs/spec/07-bytecode.md`. The observable-behavior oracle
+//! design in spec: 07 — Diseño del bytecode. The observable-behavior oracle
 //! is the conformance corpus (`tests/conformance.rs`): outputs, error
 //! and panic messages, stacktraces, and exit semantics must match what
 //! is pinned there byte for byte — where they disagree, this crate has
@@ -84,7 +84,7 @@ pub struct RunStats {
 /// the stdin readers reach the real process streams;
 /// [`run_with_streams`] wires them elsewhere. `args` are the script's
 /// trailing CLI arguments, served by `env.args()`
-/// (`docs/spec/05-stdlib.md`, BRS-32).
+/// (spec: 05 — Stdlib de scripting, BRS-32).
 pub fn run<W: Write + Send>(module: &Module, out: &mut W, args: &[String]) -> Outcome {
     run_with_depth(module, out, DEFAULT_MAX_CALL_DEPTH, args)
 }

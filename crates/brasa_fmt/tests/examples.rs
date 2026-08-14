@@ -1,6 +1,6 @@
 //! The bundled examples are the formatter's corpus.
 //!
-//! They are written in the style `docs/spec/01-syntax.md` documents, so
+//! They are written in the style spec: 01 — Sintaxis documents, so
 //! `brasa fmt` must leave every one of them byte-identical. A difference
 //! here is a disagreement about the canonical style, to be settled by
 //! changing one side or the other on purpose — never by re-recording a

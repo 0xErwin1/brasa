@@ -1,7 +1,7 @@
 //! The native builtin registry: the stable `name -> BuiltinId` mapping
 //! shared by the code generator (BRS-27) and the VM (BRS-28).
 //!
-//! `docs/spec/07-bytecode.md` (calls) keeps the builtin registry a
+//! spec: 07 — Diseño del bytecode (calls) keeps the builtin registry a
 //! stdlib concern — bytecode only carries the opaque [`BuiltinId`] — but
 //! the two consumers must agree on the mapping, so the table lives here
 //! in the shared vocabulary crate. Ids are positions in [`BUILTINS`];
@@ -15,7 +15,7 @@
 //!
 //! Two internal entries exist for code the generator can prove faulty
 //! at compile time but must fail at runtime, mirroring the
-//! behavior fixed by `docs/spec/05-stdlib.md`:
+//! behavior fixed by spec: 05 — Stdlib de scripting:
 //!
 //! - `<fatal>`: raises an uncatchable fatal error with the message
 //!   string argument (e.g. a member call on a module that has not
@@ -56,10 +56,10 @@ const fn method(name: &'static str) -> BuiltinDef {
 /// types (`len` is one id for string, Vector, Map, and Set); the VM
 /// dispatches on the receiver's runtime kind.
 pub const BUILTINS: &[BuiltinDef] = &[
-    // Prelude functions (`docs/spec/05-stdlib.md`).
+    // Prelude functions (spec: 05 — Stdlib de scripting).
     free("puts"),
     free("print"),
-    // `std::math` members (`docs/spec/05-stdlib.md`).
+    // `std::math` members (spec: 05 — Stdlib de scripting).
     free("math.sqrt"),
     free("math.floor"),
     free("math.ceil"),

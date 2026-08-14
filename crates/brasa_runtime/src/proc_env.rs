@@ -1,5 +1,5 @@
 //! Backend-agnostic OS glue for `std::proc` and `std::env` (BRS-32,
-//! `docs/spec/05-stdlib.md`), shared by the walker and the VM so the
+//! spec: 05 — Stdlib de scripting), shared by the walker and the VM so the
 //! process-spawning behavior and every observable message can never
 //! drift between backends. Value construction stays in each backend's
 //! own builtin table, like the rest of the stdlib.
@@ -14,7 +14,7 @@ pub struct RawOutput {
     pub code: i64,
 }
 
-/// The `/bin/sh -c` argv for `proc.shell` (`docs/spec/05-stdlib.md`:
+/// The `/bin/sh -c` argv for `proc.shell` (spec: 05 — Stdlib de scripting:
 /// the explicit opt-in to shell interpretation).
 pub fn shell_argv(line: &str) -> Vec<String> {
     vec!["/bin/sh".to_string(), "-c".to_string(), line.to_string()]
@@ -91,7 +91,7 @@ fn default_limit() -> usize {
 /// commands arrive as argv arrays of plain `String`s and the results
 /// come back as plain data after every child has exited. The VM and the
 /// collector stay single-threaded and no interleaving is observable in
-/// the language (`docs/spec/00-vision.md`: concurrency is out of v1).
+/// the language (spec: 00 — Visión y alcance: concurrency is out of v1).
 ///
 /// `limit` is clamped to at least one, and `None` means the machine's
 /// parallelism. An unbounded fan-out is never offered: the caller of
@@ -148,7 +148,7 @@ pub fn run_all(
 
 /// The child's exit code; a signal-terminated child reports
 /// `128 + signal`, the Unix shell convention
-/// (`docs/spec/05-stdlib.md`).
+/// (spec: 05 — Stdlib de scripting).
 pub fn exit_code(status: std::process::ExitStatus) -> i64 {
     if let Some(code) = status.code() {
         return i64::from(code);
@@ -167,7 +167,7 @@ pub fn exit_code(status: std::process::ExitStatus) -> i64 {
 
 /// The `proc.NonZeroExit` message: command, exit code, and the child's
 /// trimmed stderr when non-empty — the v1 stand-in for a structured
-/// payload (`docs/spec/05-stdlib.md`, recorded limitation).
+/// payload (spec: 05 — Stdlib de scripting, recorded limitation).
 pub fn non_zero_exit_message(shown: &str, output: &RawOutput) -> String {
     let mut message = format!("command `{shown}` exited with code {}", output.code);
 
@@ -198,7 +198,7 @@ pub fn valid_env_name(key: &str) -> bool {
 
 /// The merged environment for `env.vars`: process variables (decoded
 /// lossily) overridden by the overlay, sorted by name for
-/// deterministic iteration (`docs/spec/05-stdlib.md`).
+/// deterministic iteration (spec: 05 — Stdlib de scripting).
 pub fn merged_env(overlay: &HashMap<String, String>) -> Vec<(String, String)> {
     let mut merged: HashMap<String, String> = std::env::vars_os()
         .map(|(key, value)| {

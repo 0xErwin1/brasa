@@ -1,6 +1,6 @@
 # Brasa examples
 
-Programs written to the language as specified in `docs/spec/`. They are
+Programs written to the language as specified in the spec docs. They are
 a human-readable tour and test material: every file here is parsed,
 formatted, statically checked, and pinned to an execution expectation.
 

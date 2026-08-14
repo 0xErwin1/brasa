@@ -1,4 +1,4 @@
-//! The `std::rand` member surface (`docs/spec/05-stdlib.md`, BRS-35).
+//! The `std::rand` member surface (spec: 05 — Stdlib de scripting, BRS-35).
 //!
 //! A deterministic PRNG: `rand.seed` fixes the stream, so a script that
 //! seeds gets the same draws on every run.

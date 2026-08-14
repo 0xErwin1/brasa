@@ -88,7 +88,7 @@ fn run_vm(compiled: &Compiled) -> brasa_vm::Outcome {
     brasa_vm::run(&compiled.module, &mut out, &[])
 }
 
-/// The shared acceptance set (`docs/spec/07-bytecode.md`): arithmetic
+/// The shared acceptance set (spec: 07 — Diseño del bytecode): arithmetic
 /// loops, collection traversal, closure-heavy code, catch on the happy
 /// path, call-heavy recursion, and string building.
 const PROGRAMS: &[(&str, &str)] = &[

@@ -12,7 +12,7 @@ pub struct LetStmt {
 
 /// The shared shape of `if`/`elsif`/`else`, used by both `Stmt::If` and
 /// `Expr::If`, mirroring the AST's single-node treatment of the two
-/// surface forms (`docs/spec/02-grammar.md`).
+/// surface forms (spec: 02 — Gramática formal).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfNode {
     /// `if`, then each `elsif`, in source order.
@@ -42,7 +42,7 @@ pub enum Stmt {
         body: Block,
     },
     /// `for` stays a core node rather than desugaring into calls: per
-    /// `docs/spec/03-types.md` ("`for` only iterates built-in types in
+    /// spec: 03 — Sistema de tipos ("`for` only iterates built-in types in
     /// v1": Vector, Map, Set, ranges, strings), there is no user-level
     /// iteration protocol to lower into, so this node itself is the
     /// iteration hook for the tree-walker and VM. Ranges stay lazy —

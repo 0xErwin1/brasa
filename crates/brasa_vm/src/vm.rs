@@ -1,6 +1,6 @@
 //! The dispatch loop: frames, calls, and handler-table unwinding.
 //!
-//! Execution model (`docs/spec/07-bytecode.md`): one contiguous value
+//! Execution model (spec: 07 — Diseño del bytecode): one contiguous value
 //! stack shared by all frames; a frame is `{func, ip, base}` plus the
 //! return-truncation point (`base` minus the callee slot for
 //! `call_value`). The loop is iterative — compiled calls push frames,
@@ -101,7 +101,7 @@ pub(crate) struct Vm<'a> {
     /// interned once here, so every `const` push shares one allocation.
     consts: Vec<Value>,
     pub(crate) out: &'a mut (dyn Write + Send),
-    /// Where `io.eprint` writes (`docs/spec/05-stdlib.md`).
+    /// Where `io.eprint` writes (spec: 05 — Stdlib de scripting).
     pub(crate) err: &'a mut (dyn Write + Send),
     /// What `io.readLine`/`io.readAll` consume.
     pub(crate) input: &'a mut (dyn std::io::BufRead + Send),
@@ -110,7 +110,7 @@ pub(crate) struct Vm<'a> {
     /// methods, keyed by the pattern text.
     pub(crate) regex_cache: std::collections::HashMap<String, Rc<regex::Regex>>,
     /// The script's trailing CLI arguments, served by `env.args()`
-    /// (BRS-32, `docs/spec/05-stdlib.md`).
+    /// (BRS-32, spec: 05 — Stdlib de scripting).
     pub(crate) script_args: Vec<String>,
     /// `env.set` overrides (BRS-32): merged over the process
     /// environment by `env.get`/`env.vars` and passed to every child
@@ -409,7 +409,7 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
-    /// Handler-table unwinding (`docs/spec/07-bytecode.md`): errors and
+    /// Handler-table unwinding (spec: 07 — Diseño del bytecode): errors and
     /// panics search each frame's table at the faulting `ip`; fatal and
     /// broken-pipe signals never match. Popping below `min_frames`
     /// propagates the signal to the bounded caller.
@@ -1412,7 +1412,7 @@ impl<'a> Vm<'a> {
     /// Methods before fields, in the same order as the call path. The
     /// two used to disagree, each mirroring one of the walker's own
     /// paths, and it never mattered: a struct's fields and its methods
-    /// are ONE member namespace (`docs/spec/06-diagnostics.md`, R006),
+    /// are ONE member namespace (spec: 06 — Diagnósticos, R006),
     /// so no checked program can hold a name that both would find. Two
     /// orders for one concept is still a defect, whoever implements it.
     fn bind_member_by_name(&mut self, recv: Value, name: &str) -> VmResult {
@@ -1460,7 +1460,7 @@ impl<'a> Vm<'a> {
                 .map(|v| Value::some(v.clone()))
                 .unwrap_or(Value::NONE)),
             // `Json` indexing is total (BRS-34,
-            // `docs/spec/05-stdlib.md`): a missing member, an
+            // spec: 05 — Stdlib de scripting): a missing member, an
             // out-of-range position, or a wrong-kind node is `None`,
             // and chains flatten through `Option<Json>` (`None`
             // propagates).
@@ -1727,7 +1727,7 @@ impl<'a> Vm<'a> {
     /// What makes that safe is that no builtin reads a popped operand
     /// after reentering compiled code, which is where a collection can
     /// sweep it. Two families reenter. The callback-taking builtins
-    /// do, and `docs/spec/05-stdlib.md` requires every one of them to
+    /// do, and spec: 05 — Stdlib de scripting requires every one of them to
     /// traverse a snapshot taken before the first call, so none may
     /// read its receiver again afterwards; the traversal helpers root
     /// the receiver anyway, so a future one cannot get this wrong

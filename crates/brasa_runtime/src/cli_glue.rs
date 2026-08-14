@@ -1,5 +1,5 @@
 //! Backend-agnostic argument parsing for `std::cli`
-//! (`docs/spec/05-stdlib.md`, BRS-112).
+//! (spec: 05 — Stdlib de scripting, BRS-112).
 //!
 //! The shape is a declaration plus one parse, not a builder: Brasa has
 //! no named arguments, so a builder would need an opaque accumulating

@@ -1,9 +1,9 @@
 //! VM runtime values and their structural operations.
 //!
-//! Mirrors the value semantics of `docs/spec/03-types.md` over
+//! Mirrors the value semantics of spec: 03 — Sistema de tipos over
 //! the bytecode module's shape indices: inline scalars, ranges, and
 //! `FuncId`s; heap kinds behind the handle aliases below. Structural
-//! equality and primitive ordering follow `docs/spec/03-types.md`
+//! equality and primitive ordering follow spec: 03 — Sistema de tipos
 //! (structural equality, and ordering only on the primitives that have
 //! it); the conformance corpus pins the observable behavior.
 
@@ -69,28 +69,28 @@ pub enum Value {
     /// inline it would set the size of every stack slot.
     NativeError(Handle<NativeErrorValue>),
     /// INTERNAL: the caught-signal value handler dispatch operates on
-    /// (`docs/spec/07-bytecode.md`, throw/catch). Never observable in
+    /// (spec: 07 — Diseño del bytecode, throw/catch). Never observable in
     /// the language.
     Caught(Handle<Caught>),
     /// INTERNAL: a `for` loop iterator (`iter_new` / `iter_next`).
     /// Never observable in the language.
     Iter(MutHandle<IterState>),
     /// INTERNAL: one lexical binding a closure shares with the scope
-    /// that binds it (`docs/spec/07-bytecode.md`, closures). It lives
+    /// that binds it (spec: 07 — Diseño del bytecode, closures). It lives
     /// in a frame slot and in the closure's capture list, and only
     /// `make_binding` / `load_binding` / `store_binding` ever see it —
     /// every read of the binding yields its contents, so no language
     /// value is ever a binding.
     Binding(GcRef),
     /// The `std::proc` `Output` record (BRS-32,
-    /// `docs/spec/05-stdlib.md`): captured stdout/stderr plus the exit
+    /// spec: 05 — Stdlib de scripting): captured stdout/stderr plus the exit
     /// code. Frozen at construction and free of heap references, so a
     /// plain [`Handle`] is a precise collector for it.
     ProcOutput(Handle<OutputValue>),
     /// The `fs.tryWalk` record (BRS-66), holding what the traversal
     /// reached and what it could not read.
     Walk(Handle<WalkValue>),
-    /// A `std::json` tree (BRS-34, `docs/spec/05-stdlib.md`): frozen at
+    /// A `std::json` tree (BRS-34, spec: 05 — Stdlib de scripting): frozen at
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
     Json(brasa_runtime::json_glue::JsonRef),
@@ -321,7 +321,7 @@ struct Assumed(RefCell<HashSet<(GcRef, GcRef)>>);
 /// [`CYCLE_GUARD_DEPTH`], re-entering a pair already being compared
 /// yields `true`. Assuming the pair equal and deriving no contradiction
 /// from it IS equality on a cyclic value — `==` is always structural
-/// (`docs/spec/03-types.md`) and there is no identity operator to fall
+/// (spec: 03 — Sistema de tipos) and there is no identity operator to fall
 /// back on.
 fn coinductive(
     pair: (GcRef, GcRef),

@@ -11,7 +11,7 @@
 //! collection literals, a minimal builtin method table, and generics
 //! with structural interface constraints (BRS-17: inference at every
 //! use site, constraint satisfaction, no interface-typed values)
-//! (`docs/spec/03-types.md`, `docs/spec/05-stdlib.md`), plus `match`
+//! (spec: 03 — Sistema de tipos, spec: 05 — Stdlib de scripting), plus `match`
 //! exhaustiveness (BRS-18) and the `?.`/`??` operator rules with
 //! source-language diagnostics (BRS-19). Deferred and traversed with a
 //! silently-unifying `Unknown` type: error sets (M2) and stdlib module
@@ -58,7 +58,7 @@ pub struct TypeckResult {
 /// Type-checks the module rooted at `roots`. `sugar_origins` is
 /// lowering's side table marking which `match` expressions were
 /// desugared from `?.`/`??`, so their misuse reports in source terms
-/// (`docs/spec/06-diagnostics.md`, T028–T030).
+/// (spec: 06 — Diagnósticos, T028–T030).
 pub fn check(
     hir: &Hir,
     roots: &[ItemId],

@@ -1,4 +1,4 @@
-//! The checker's type representation (`docs/spec/03-types.md`).
+//! The checker's type representation (spec: 03 — Sistema de tipos).
 //!
 //! Types are plain values built with `Box`; there is no interning. The
 //! checker clones freely — Brasa types are shallow in practice (a couple
@@ -12,10 +12,10 @@ use brasa_resolver::DefRef;
 /// A Brasa type as the checker sees it.
 ///
 /// `Range` is its own lazy type over ints, not `Vector<int>`
-/// (`docs/spec/03-types.md`). `Never` is the type of `return`, `throw`,
+/// (spec: 03 — Sistema de tipos). `Never` is the type of `return`, `throw`,
 /// `break`, and `continue`; it unifies with everything so
 /// `let x = if ok then v else return end` works
-/// (`docs/spec/03-types.md`, flow rules). `Unknown` stands for every
+/// (spec: 03 — Sistema de tipos, flow rules). `Unknown` stands for every
 /// construct deferred past this milestone — error sets (M2), stdlib
 /// module members (M4) — and doubles as the error type after a reported
 /// mismatch: it unifies silently and never produces follow-on
@@ -24,7 +24,7 @@ use brasa_resolver::DefRef;
 /// `Generic` is a rigid type parameter of the item (or struct method)
 /// that declared it: instantiation is checker-side only, since the VM
 /// executes one uniform function per generic definition — there is no
-/// monomorphization (`docs/spec/03-types.md`, generics execution model).
+/// monomorphization (spec: 03 — Sistema de tipos, generics execution model).
 /// `Struct`/`Enum` carry their generic arguments; the vector is empty
 /// for non-generic definitions.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,12 +54,12 @@ pub enum Type {
         index: usize,
     },
     /// The compiler-known `Output` record returned by the `std::proc`
-    /// runners (`docs/spec/05-stdlib.md`, BRS-32): exactly the fields
+    /// runners (spec: 05 — Stdlib de scripting, BRS-32): exactly the fields
     /// `stdout: string`, `stderr: string`, `code: int`. Native — not
     /// user-constructible and not a pattern.
     ProcOutput,
     /// The compiler-known `Response` record returned by `std::http`
-    /// (`docs/spec/05-stdlib.md`, BRS-113): the fields `status: int` and
+    /// (spec: 05 — Stdlib de scripting, BRS-113): the fields `status: int` and
     /// `body: string`, plus a `header(name: string): Option<string>`
     /// method. Native like `Output` — not user-constructible and not a
     /// pattern.
@@ -69,11 +69,11 @@ pub enum Type {
     /// wants, and so the runtime record stays free of heap references.
     HttpResponse,
     /// The compiler-known `Args` record returned by `cli.parse`
-    /// (`docs/spec/05-stdlib.md`, BRS-112): `flag(name): bool`,
+    /// (spec: 05 — Stdlib de scripting, BRS-112): `flag(name): bool`,
     /// `option(name): Option<string>`, and `rest: Vector<string>`.
     /// Native like `Output` — not user-constructible and not a pattern.
     CliArgs,
-    /// The compiler-known `Walk` record (`docs/spec/05-stdlib.md`,
+    /// The compiler-known `Walk` record (spec: 05 — Stdlib de scripting,
     /// BRS-66) with exactly the fields `paths: Vector<string>` and
     /// `unreadable: Vector<string>`. Native, like `Output` — not
     /// user-constructible and not a pattern. It exists so `tryWalk` can
@@ -81,7 +81,7 @@ pub enum Type {
     /// best-effort traversal that returned only a short list would be a
     /// partial answer presented as a complete one.
     Walk,
-    /// The compiler-known `Json` document type (`docs/spec/05-stdlib.md`,
+    /// The compiler-known `Json` document type (spec: 05 — Stdlib de scripting,
     /// BRS-34): an immutable parsed JSON tree produced by `json.parse`.
     /// Opaque in v1 — no constructors and no patterns; access goes
     /// through Option-yielding indexing and the `as*` accessors.
@@ -90,7 +90,7 @@ pub enum Type {
 
 /// How one `Expr::OptionWrap` node resolved: `?.` flattens, so the
 /// checker decides per node whether the member value gets wrapped in
-/// `Some` or is already an `Option` (`docs/spec/03-types.md`, the `?.`
+/// `Some` or is already an `Option` (spec: 03 — Sistema de tipos, the `?.`
 /// operator rule). Code generation consumes this table verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapDecision {
@@ -209,7 +209,7 @@ pub(crate) fn generic_name(hir: &Hir, owner: DefRef, index: usize) -> String {
 ///
 /// `Unknown` and `Never` join with anything and the more-known side
 /// wins, so deferred constructs and `never`-typed flow never fail
-/// unification (`docs/spec/03-types.md`, flow rules). Everything else
+/// unification (spec: 03 — Sistema de tipos, flow rules). Everything else
 /// follows the no-coercion rule: types are compatible only when they
 /// are structurally identical. A `Generic` is rigid: it unifies only
 /// with the same `(owner, index)` parameter (via the equality fallback);

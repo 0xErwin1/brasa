@@ -1,5 +1,5 @@
 //! Backend-agnostic stream glue for `std::io` (BRS-34,
-//! `docs/spec/05-stdlib.md`), shared by the walker and the VM.
+//! spec: 05 — Stdlib de scripting), shared by the walker and the VM.
 //!
 //! Decisions recorded here (mirrored in the spec):
 //!

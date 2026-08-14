@@ -31,7 +31,7 @@ pub enum RetRule {
 }
 
 /// Whether `elem` can be a `sort` element or a `sortBy` key: the
-/// orderable primitives (`docs/spec/05-stdlib.md`, BRS-35). Flexible
+/// orderable primitives (spec: 05 — Stdlib de scripting, BRS-35). Flexible
 /// types stay allowed — the cause of the imprecision was already
 /// reported.
 fn orderable(elem: &Type) -> bool {
@@ -95,7 +95,7 @@ pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
 /// `Option<Json>` selecting the `Json` table is the flattening that
 /// lets an indexing chain end in `.asString() ?? fallback`: `Json`
 /// values cannot be constructed in the language, so a chain has no
-/// other way to terminate (BRS-34, `docs/spec/05-stdlib.md`). It is a
+/// other way to terminate (BRS-34, spec: 05 — Stdlib de scripting). It is a
 /// question about which table a receiver picks, not about any row.
 fn receiver_table(recv: &Type) -> Option<(&'static [brasa_stdlib::MethodDecl], Recv<'_>)> {
     match recv {
@@ -269,7 +269,7 @@ pub enum ModuleParam {
     Ty(Type),
     /// A `std::proc` command: `Vector<string>` (the primary argv form)
     /// or `string` (whitespace-split sugar) —
-    /// `docs/spec/05-stdlib.md`.
+    /// spec: 05 — Stdlib de scripting.
     Command,
 }
 
@@ -282,7 +282,7 @@ pub struct ModuleSig {
 }
 
 /// The stdlib-native errors a std module member raises, by canonical
-/// qualified name (`docs/spec/05-stdlib.md`).
+/// qualified name (spec: 05 — Stdlib de scripting).
 ///
 /// This lives beside the signature table on purpose. Before BRS-96 the
 /// error-set pass carried its own copy of this knowledge, and adding a
@@ -356,7 +356,7 @@ fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
 
 /// Looks up a plain-value module member (`math.pi`): the members
 /// declared [`ModuleKind::Constant`], read without a call
-/// (`docs/spec/05-stdlib.md`, BRS-35).
+/// (spec: 05 — Stdlib de scripting, BRS-35).
 pub fn module_constant(module: &str, name: &str) -> Option<Type> {
     match brasa_stdlib::free_member(module, name)?.kind {
         ModuleKind::Constant(ty) => Some(lower(&ty, Recv::None)),

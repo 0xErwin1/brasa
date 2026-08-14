@@ -1,6 +1,6 @@
 # Failure case: an uncaught throw propagates to the top level and ends
 # the program with the error message and a non-zero exit
-# (`docs/spec/04-errors.md`).
+# (spec: 04 — Sistema de errores).
 
 struct BoomError
   code: int

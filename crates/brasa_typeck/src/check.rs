@@ -1,6 +1,6 @@
 //! The type-checking walk over one resolved module.
 //!
-//! Inference is local (`docs/spec/03-types.md`): function signatures are
+//! Inference is local (spec: 03 — Sistema de tipos): function signatures are
 //! the boundary (parameters annotated, return annotated or `unit`),
 //! `let x = e` takes `e`'s type, `let x: T = e` checks `e` against `T`
 //! with expected-type propagation into literals, constructors, and
@@ -82,7 +82,7 @@ impl KeyRole {
 /// What a generic constraint means once resolved: a builtin interface
 /// (closed satisfaction lists), a user interface (structural member
 /// check), or an inline anonymous interface (same semantics,
-/// `docs/spec/01-syntax.md`).
+/// spec: 01 — Sintaxis).
 enum ConstraintKind<'h> {
     Builtin(BuiltinType),
     Iface(ItemId, &'h [IfaceMember]),
@@ -100,7 +100,7 @@ enum Unsatisfied {
     /// `throws`. Only builtin `Comparable` reports this: its member is
     /// reached through `< <= > >=`, which have no channel to report a
     /// failure on. A user interface may declare throwing members
-    /// (`docs/spec/04-errors.md`), so structural satisfaction never
+    /// (spec: 04 — Sistema de errores), so structural satisfaction never
     /// fails this way.
     Throwing(String),
 }
@@ -198,9 +198,9 @@ impl<'a> Checker<'a> {
 
     /// Function signatures come straight from annotations, so they exist
     /// before any body is checked (the local-inference boundary,
-    /// `docs/spec/03-types.md`). Generic parameters stay rigid
+    /// spec: 03 — Sistema de tipos). Generic parameters stay rigid
     /// [`Type::Generic`]s in the stored signature; call sites substitute
-    /// them once the arguments are known (`docs/spec/02-grammar.md`, no
+    /// them once the arguments are known (spec: 02 — Gramática formal, no
     /// turbofish — instantiation is always inferred).
     fn collect_signatures(&mut self, roots: &[ItemId]) {
         for &root in roots {
@@ -382,9 +382,9 @@ impl<'a> Checker<'a> {
     // --- statements ----------------------------------------------------
 
     /// Checks a block and returns its value: the last expression
-    /// statement's type (implicit return, `docs/spec/01-syntax.md`),
+    /// statement's type (implicit return, spec: 01 — Sintaxis),
     /// `never` when the block ends in `return`/`throw`/`break`/`continue`
-    /// (`docs/spec/03-types.md`, flow rules), `unit` otherwise. `used`
+    /// (spec: 03 — Sistema de tipos, flow rules), `unit` otherwise. `used`
     /// says whether the value is consumed; `expected` propagates into
     /// the tail expression.
     fn check_block(&mut self, block: &[StmtId], expected: Option<&Type>, used: bool) -> Type {
@@ -402,7 +402,7 @@ impl<'a> Checker<'a> {
                 self.check_value(value, expected, used)
             }
             // A trailing `if` parses as a statement, but `if` with an
-            // `else` is an expression (`docs/spec/03-types.md`), so a
+            // `else` is an expression (spec: 03 — Sistema de tipos), so a
             // consumed block tail types it as one.
             Stmt::If(node) if used => {
                 let node = node.clone();
@@ -454,7 +454,7 @@ impl<'a> Checker<'a> {
             Stmt::Continue => self.check_loop_jump(id, "continue"),
             Stmt::Throw(value) => {
                 // The operand may be any value for now; error-set
-                // inference is M2 (`docs/spec/04-errors.md`).
+                // inference is M2 (spec: 04 — Sistema de errores).
                 self.check_expr(*value, None);
             }
             Stmt::If(node) => {
@@ -539,7 +539,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `let` binds immutably; only `let mut` allows reassignment, of the
-    /// same type (`docs/spec/03-types.md`). Field and index targets are
+    /// same type (spec: 03 — Sistema de tipos). Field and index targets are
     /// always assignable — immutability belongs to the variable, not the
     /// value (interior mutation, closed decision in the same spec) — but
     /// the assigned value must still match the member type.
@@ -580,7 +580,7 @@ impl<'a> Checker<'a> {
                     .unwrap_or(Type::Unknown);
 
                 // A `Json` tree is immutable after `parse` (BRS-34,
-                // `docs/spec/05-stdlib.md`), so a `Json` index is never
+                // spec: 05 — Stdlib de scripting), so a `Json` index is never
                 // an assignment target.
                 let json_recv = match &recv_ty {
                     Type::Json => true,
@@ -711,7 +711,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `for` iterates the built-in types only (`docs/spec/03-types.md`):
+    /// `for` iterates the built-in types only (spec: 03 — Sistema de tipos):
     /// `Vector<T>` yields `T`, `Map<K, V>` yields `(K, V)` entries,
     /// `Set<T>` yields `T`, ranges yield `int`, strings yield `char`.
     fn check_iterable(&mut self, iterable: ExprId) -> Type {
@@ -789,7 +789,7 @@ impl<'a> Checker<'a> {
             Expr::OptionWrap(inner) => self.check_option_wrap(id, *inner),
             Expr::ToString(inner) => {
                 // Every type has a derived `toString`
-                // (`docs/spec/03-types.md`), so the operand is free.
+                // (spec: 03 — Sistema de tipos), so the operand is free.
                 self.check_expr(*inner, None);
                 Type::String
             }
@@ -823,7 +823,7 @@ impl<'a> Checker<'a> {
             }
             Expr::Range { lo, hi, .. } => {
                 // Ranges are their own lazy type over ints, never
-                // `Vector<int>` (`docs/spec/03-types.md`).
+                // `Vector<int>` (spec: 03 — Sistema de tipos).
                 self.check_expect(*lo, &Type::Int);
                 self.check_expect(*hi, &Type::Int);
                 Type::Range
@@ -914,7 +914,7 @@ impl<'a> Checker<'a> {
             && let Some(Res::Builtin(builtin)) = self.res.expr_res.get(&callee)
         {
             // `puts`/`print` print any single value via the universal
-            // derived `toString` (`docs/spec/05-stdlib.md`).
+            // derived `toString` (spec: 05 — Stdlib de scripting).
             let name = builtin.name();
             self.tables
                 .expr_types
@@ -949,7 +949,7 @@ impl<'a> Checker<'a> {
 
         // Direct calls to generic functions solve the type parameters
         // from the arguments — there is no turbofish, instantiation is
-        // always inferred at the call site (`docs/spec/02-grammar.md`).
+        // always inferred at the call site (spec: 02 — Gramática formal).
         if let Some(&Res::Item(item)) = self.res.expr_res.get(&callee)
             && let Item::FuncDef(func) = hir.item(item)
             && !func.generics.is_empty()
@@ -1012,9 +1012,9 @@ impl<'a> Checker<'a> {
 
     /// Checks a direct call to a generic function. Instantiation is
     /// always inferred from the arguments — there is no turbofish
-    /// (`docs/spec/02-grammar.md`) — and everything happens in the
+    /// (spec: 02 — Gramática formal) — and everything happens in the
     /// checker: the VM runs one uniform function per generic definition
-    /// (`docs/spec/03-types.md`, generics execution model).
+    /// (spec: 03 — Sistema de tipos, generics execution model).
     ///
     /// Each argument checks against the signature with everything solved
     /// so far substituted in, solving remaining type parameters
@@ -1024,7 +1024,7 @@ impl<'a> Checker<'a> {
     /// type is fully solved, so literals never unify against a rigid
     /// `T`. Constraints are then checked against the solved types —
     /// satisfaction happens at the call site, where the concrete types
-    /// are known (`docs/spec/03-types.md`) — and the result is the
+    /// are known (spec: 03 — Sistema de tipos) — and the result is the
     /// substituted return type.
     fn check_generic_call(
         &mut self,
@@ -1677,7 +1677,7 @@ impl<'a> Checker<'a> {
             return Member::Sig(sig);
         }
         if name == "toString" {
-            // Universal derived `toString` (`docs/spec/03-types.md`).
+            // Universal derived `toString` (spec: 03 — Sistema de tipos).
             return Member::Sig(MethodSig {
                 params: vec![],
                 ret: RetRule::Fixed(Type::String),
@@ -1721,7 +1721,7 @@ impl<'a> Checker<'a> {
         }
         if name == "toString" {
             // The universal derived `toString`; a declared method of the
-            // same name replaces it (`docs/spec/03-types.md`).
+            // same name replaces it (spec: 03 — Sistema de tipos).
             return Member::Sig(MethodSig {
                 params: vec![],
                 ret: RetRule::Fixed(Type::String),
@@ -1811,7 +1811,7 @@ impl<'a> Checker<'a> {
         );
 
         // `puts (24).toFloat()` is the trap: the parentheses were meant
-        // as grouping, but `docs/spec/02-grammar.md` rules that
+        // as grouping, but spec: 02 — Gramática formal rules that
         // parentheses right after a callee are a CALL, so the receiver
         // is `puts`'s `unit` result and the real cause never appears in
         // the message.
@@ -1901,7 +1901,7 @@ impl<'a> Checker<'a> {
     /// Whether a generic parameter's constraint is exactly the given
     /// builtin interface. This is the only way a generic entails
     /// `Comparable` or `Hashable`: an inline constraint never grants a
-    /// builtin (`docs/spec/03-types.md`, closed satisfaction lists).
+    /// builtin (spec: 03 — Sistema de tipos, closed satisfaction lists).
     fn generic_has_builtin(&self, owner: DefRef, index: usize, builtin: BuiltinType) -> bool {
         matches!(
             self.res.constraint_res.get(&(owner, index)),
@@ -1911,7 +1911,7 @@ impl<'a> Checker<'a> {
 
     /// Converts an interface member signature into a function type with
     /// `Self` mapped to `self_ty` — the type satisfying the interface
-    /// (`docs/spec/03-types.md`, structural interfaces). Conversion runs
+    /// (spec: 03 — Sistema de tipos, structural interfaces). Conversion runs
     /// suppressed: type errors inside an interface body are not this use
     /// site's fault.
     fn iface_member_fn(&mut self, member: &IfaceMember, self_ty: &Type) -> Type {
@@ -1956,7 +1956,7 @@ impl<'a> Checker<'a> {
 
     /// Checks every solved type parameter against its declared
     /// constraint. Satisfaction is checked here, at the use site, where
-    /// the concrete types are known (`docs/spec/03-types.md`). Flexible
+    /// the concrete types are known (spec: 03 — Sistema de tipos). Flexible
     /// solutions skip silently (their cause was already reported), and
     /// constraints the resolver failed to resolve were reported there.
     fn check_constraints(
@@ -1990,7 +1990,7 @@ impl<'a> Checker<'a> {
     /// Whether `candidate` satisfies the constraint: it has all the
     /// interface's members with compatible signatures, `Self` replaced
     /// by the candidate — no conformance declarations
-    /// (`docs/spec/03-types.md`). Builtin interfaces use their closed
+    /// (spec: 03 — Sistema de tipos). Builtin interfaces use their closed
     /// lists: `Comparable` is `int`/`float`/`string`/`char`, `Printable`
     /// is every type, `Hashable` is `int`/`string`/`char`/`bool` and
     /// tuples of those. A generic candidate satisfies a constraint only
@@ -2032,7 +2032,7 @@ impl<'a> Checker<'a> {
                 // against `0`. An operator has no way to report a
                 // failure, so a throwing `cmp` would escape the caller's
                 // `throws` contract; conformance is where that is
-                // decided (`docs/spec/03-types.md`).
+                // decided (spec: 03 — Sistema de tipos).
                 if self.member_declares_throws(candidate, "cmp") {
                     return Err(Unsatisfied::Throwing("cmp".to_string()));
                 }
@@ -2142,7 +2142,7 @@ impl<'a> Checker<'a> {
 
     /// The closed `Hashable` list: `int`, `string`, `char`, `bool`, and
     /// tuples of those recursively — never `float`, structs, or
-    /// collections (`docs/spec/03-types.md`).
+    /// collections (spec: 03 — Sistema de tipos).
     fn hashable(&self, ty: &Type) -> bool {
         match ty {
             Type::Int | Type::String | Type::Char | Type::Bool => true,
@@ -2242,13 +2242,13 @@ impl<'a> Checker<'a> {
 
         match recv_ty {
             // `Vector[int] -> T`; out of range is a runtime panic, not a
-            // type matter (`docs/spec/03-types.md`).
+            // type matter (spec: 03 — Sistema de tipos).
             Type::Vector(elem) => {
                 self.check_expect(index, &Type::Int);
                 *elem
             }
             // `Map[K] -> Option<V>`: a missing key is a normal case
-            // (`docs/spec/03-types.md`).
+            // (spec: 03 — Sistema de tipos).
             Type::Map(key, value) => {
                 self.check_expect(index, &key);
                 Type::Option(value)
@@ -2257,7 +2257,7 @@ impl<'a> Checker<'a> {
             // total: a missing member, an out-of-range position, or a
             // node of the wrong kind is `None`, never a panic. Chains
             // flatten: indexing an `Option<Json>` propagates `None`
-            // (BRS-34, `docs/spec/05-stdlib.md`).
+            // (BRS-34, spec: 05 — Stdlib de scripting).
             Type::Json => {
                 self.check_json_index(index);
                 Type::option(Type::Json)
@@ -2360,7 +2360,7 @@ impl<'a> Checker<'a> {
             }
             BinaryOp::And | BinaryOp::Or => {
                 // `&&`/`||` take `bool` only; nothing is truthy
-                // (`docs/spec/03-types.md`).
+                // (spec: 03 — Sistema de tipos).
                 self.check_expect(lhs, &Type::Bool);
                 self.check_expect(rhs, &Type::Bool);
                 Type::Bool
@@ -2370,7 +2370,7 @@ impl<'a> Checker<'a> {
 
     /// `+ - * / % **` work on `int×int` and `float×float` with no
     /// mixing; `+` additionally concatenates `string×string`
-    /// (`docs/spec/03-types.md`, operator table).
+    /// (spec: 03 — Sistema de tipos, operator table).
     fn check_arithmetic(&mut self, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId) -> Type {
         let lt = self.check_expr(lhs, None);
         let rt = self.check_expr(rhs, None);
@@ -2415,7 +2415,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `==`/`!=` require both sides to have the same type; comparison is
-    /// structural (`docs/spec/03-types.md`, operator table).
+    /// structural (spec: 03 — Sistema de tipos, operator table).
     fn check_equality(&mut self, id: ExprId, lhs: ExprId, rhs: ExprId) -> Type {
         let lt = self.check_expr(lhs, None);
         let rt = self.check_expr(rhs, None);
@@ -2437,7 +2437,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `< <= > >=` order `int`, `float`, `string`, `char`, and generics
-    /// constrained by `Comparable` (`docs/spec/03-types.md`, operator
+    /// constrained by `Comparable` (spec: 03 — Sistema de tipos, operator
     /// table). Only the named `Comparable` constraint grants ordering:
     /// an inline constraint never entails a builtin interface.
     fn check_ordering(&mut self, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId) -> Type {
@@ -2488,7 +2488,7 @@ impl<'a> Checker<'a> {
 
     /// `?.` flattens: when the member value is already an `Option` the
     /// wrap is a no-op, otherwise it wraps in `Some`
-    /// (`docs/spec/03-types.md`, the `?.` operator rule). The per-node
+    /// (spec: 03 — Sistema de tipos, the `?.` operator rule). The per-node
     /// decision is recorded for the tree-walker; nodes whose operand
     /// type is deferred (`Unknown`) record nothing.
     fn check_option_wrap(&mut self, id: ExprId, inner: ExprId) -> Type {
@@ -2509,7 +2509,7 @@ impl<'a> Checker<'a> {
 
     /// Lambda parameters take their explicit annotations, then the
     /// expected function type from context, and are an error otherwise
-    /// (`docs/spec/03-types.md`, inference rules). An expected `unit`
+    /// (spec: 03 — Sistema de tipos, inference rules). An expected `unit`
     /// return discards the body value, mirroring `unit` functions.
     fn check_lambda(
         &mut self,
@@ -2592,7 +2592,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `if` is an expression when there is an `else`; without one it is
-    /// `unit` (`docs/spec/03-types.md`). Decision: branch-type
+    /// `unit` (spec: 03 — Sistema de tipos). Decision: branch-type
     /// mismatches are errors in value position and tolerated (typing
     /// `unit`) in statement position, mirroring `match`.
     fn check_if(&mut self, id: ExprId, node: &IfNode, expected: Option<&Type>, used: bool) -> Type {
@@ -2648,7 +2648,7 @@ impl<'a> Checker<'a> {
 
     /// `match` is an expression whose arms must all produce the same
     /// type, or it is used as a statement and types `unit`
-    /// (`docs/spec/03-types.md`). Either way it must be exhaustive
+    /// (spec: 03 — Sistema de tipos). Either way it must be exhaustive
     /// (BRS-18): the check runs after the arms are typed, in
     /// [`Self::check_exhaustiveness`].
     fn check_match(
@@ -2741,7 +2741,7 @@ impl<'a> Checker<'a> {
         if poisoned { Type::Unknown } else { acc }
     }
 
-    /// Types a `match` desugared from `?.`/`??` (`docs/spec/03-types.md`,
+    /// Types a `match` desugared from `?.`/`??` (spec: 03 — Sistema de tipos,
     /// operator table). A non-`Option` receiver/left side is the
     /// operator's own error (T028/T029) at the real user expression;
     /// otherwise the arms type like any match — `OptionWrap` implements
@@ -2868,8 +2868,8 @@ impl<'a> Checker<'a> {
     }
 
     /// Reports the missing cases of a non-exhaustive `match`
-    /// (`docs/spec/01-syntax.md`: cover every case or use `_`;
-    /// `docs/spec/03-types.md`: the checker understands enums, bools,
+    /// (spec: 01 — Sintaxis: cover every case or use `_`;
+    /// spec: 03 — Sistema de tipos: the checker understands enums, bools,
     /// tuples, and nested patterns, and requires `_` for `int`/
     /// `string`). The algorithm and the decisions it fixes live in
     /// [`crate::exhaust`]; a flexible scrutinee skips the check.
@@ -2919,7 +2919,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `catch` produces the subject's type, so every arm must unify with
-    /// it (`docs/spec/04-errors.md`); in statement position the arm
+    /// it (spec: 04 — Sistema de errores); in statement position the arm
     /// values are discarded like `match` arms (decision).
     ///
     /// The binding is re-typed per arm, mirroring the interpreter's
@@ -2965,7 +2965,7 @@ impl<'a> Checker<'a> {
     }
 
     /// What the catch binding narrows to in one arm
-    /// (`docs/spec/04-errors.md`, per-arm binding):
+    /// (spec: 04 — Sistema de errores, per-arm binding):
     ///
     /// - exactly one named type with a recorded resolution → that type
     ///   (structs/enums, or a primitive — the spec allows throwing
@@ -2973,7 +2973,7 @@ impl<'a> Checker<'a> {
     ///   legitimate);
     /// - exactly one resolved panic name (`panics.X`, BRS-24) →
     ///   `string`: the runtime binds the panic's detail message
-    ///   (`docs/spec/04-errors.md`);
+    ///   (spec: 04 — Sistema de errores);
     /// - exactly one resolved native-error name (`string.ParseError`,
     ///   BRS-41) → `string`, for the same reason: a native error
     ///   carries only a message, and the runtime binds it in the arm —
@@ -3068,7 +3068,7 @@ impl<'a> Checker<'a> {
     /// Vector literals unify every element against the expected element
     /// type or, absent one, the first element (decision); an empty
     /// literal without context cannot infer its element type
-    /// (`docs/spec/03-types.md`, inference rules).
+    /// (spec: 03 — Sistema de tipos, inference rules).
     fn check_vector_lit(
         &mut self,
         id: ExprId,
@@ -3219,9 +3219,9 @@ impl<'a> Checker<'a> {
     /// For a generic struct there is no explicit instantiation syntax,
     /// so the arguments are inferred: first from the expected type, then
     /// by unifying the field values against the declared field types
-    /// (`docs/spec/02-grammar.md`, no turbofish). Constraints are
+    /// (spec: 02 — Gramática formal, no turbofish). Constraints are
     /// checked against the solved arguments right here, where the
-    /// concrete types are known (`docs/spec/03-types.md`).
+    /// concrete types are known (spec: 03 — Sistema de tipos).
     fn check_struct_lit(
         &mut self,
         id: ExprId,
@@ -3422,7 +3422,7 @@ impl<'a> Checker<'a> {
     }
 
     /// `Set(v)` builds a `Set<T>` from a `Vector<T>`
-    /// (`docs/spec/01-syntax.md`, collection literals): exactly one
+    /// (spec: 01 — Sintaxis, collection literals): exactly one
     /// argument, which must be a `Vector`. An expected `Set<T>` flows
     /// into the vector's element type.
     fn check_set_ctor(&mut self, span: Span, args: &[ExprId], expected: Option<&Type>) -> Type {
@@ -3477,7 +3477,7 @@ impl<'a> Checker<'a> {
 
     /// A variant constructor of a generic enum infers the enum's type
     /// arguments like a generic call: from the expected type first, then
-    /// from the payload values (`docs/spec/02-grammar.md`, no
+    /// from the payload values (spec: 02 — Gramática formal, no
     /// turbofish). Constraints are checked against the solved arguments.
     fn check_generic_variant(
         &mut self,
@@ -3811,7 +3811,7 @@ impl<'a> Checker<'a> {
     /// Generic parameters become rigid [`Type::Generic`]s. Interfaces in
     /// type position are an error: generic constraints are the only
     /// place interfaces are usable in v1 — there are no interface-typed
-    /// values (`docs/spec/03-types.md`, structural interfaces).
+    /// values (spec: 03 — Sistema de tipos, structural interfaces).
     fn conv(&mut self, id: TypeExprId) -> Type {
         let hir = self.hir;
 
@@ -3836,9 +3836,9 @@ impl<'a> Checker<'a> {
     /// Converts a user-defined nominal type reference, checking generic
     /// arity and the declared constraints against the given arguments —
     /// the annotation establishes concrete arguments just like a call
-    /// or literal does (`docs/spec/03-types.md`, satisfaction at the
+    /// or literal does (spec: 03 — Sistema de tipos, satisfaction at the
     /// use site). Interfaces are rejected here: they are only usable as
-    /// generic constraints in v1 (`docs/spec/03-types.md`).
+    /// generic constraints in v1 (spec: 03 — Sistema de tipos).
     fn conv_item(&mut self, id: TypeExprId, item: ItemId, args: &[TypeExprId]) -> Type {
         let hir = self.hir;
 
@@ -4043,7 +4043,7 @@ fn fn_of_sig(sig: MethodSig) -> Type {
 /// the same index expression reads.
 ///
 /// A `Map` read is `Option<V>` because a missing key is a normal case
-/// (`docs/spec/03-types.md`), but there is no key to be missing on the
+/// (spec: 03 — Sistema de tipos), but there is no key to be missing on the
 /// writing side: `m[k] = v` stores a `V`. Every other receiver writes
 /// what it reads — a `Vector` element is a `T` both ways.
 fn index_assign_ty(recv_ty: &Type, read_ty: Type) -> Type {

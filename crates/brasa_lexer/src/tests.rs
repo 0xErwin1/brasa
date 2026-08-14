@@ -160,7 +160,7 @@ fn fix3_leading_bom_is_skipped_and_spans_index_into_the_original_source() {
     );
 }
 
-// --- integration: the full example program from docs/spec/01-syntax.md ---
+// --- integration: the full example program from spec: 01 — Sintaxis ---
 
 snapshot!(
     example_program,

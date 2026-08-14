@@ -1,4 +1,4 @@
-//! Backend-agnostic glue for `std::http` (`docs/spec/05-stdlib.md`,
+//! Backend-agnostic glue for `std::http` (spec: 05 — Stdlib de scripting,
 //! BRS-113): one blocking request, one response, no runtime.
 //!
 //! Decisions recorded here (mirrored in the spec):

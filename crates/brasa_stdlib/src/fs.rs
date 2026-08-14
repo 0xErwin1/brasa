@@ -1,4 +1,4 @@
-//! The `std::fs` member surface (`docs/spec/05-stdlib.md`, BRS-33).
+//! The `std::fs` member surface (spec: 05 — Stdlib de scripting, BRS-33).
 //!
 //! `fs` is a free module: every member is called as `fs.read(path)`,
 //! with no receiver, so its rows are written in [`crate::module_table!`]

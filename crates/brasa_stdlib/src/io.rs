@@ -1,4 +1,4 @@
-//! The `std::io` member surface (`docs/spec/05-stdlib.md`, BRS-34).
+//! The `std::io` member surface (spec: 05 — Stdlib de scripting, BRS-34).
 //!
 //! A free module like [`crate::fs`], and the only converted one whose
 //! `throws` column is empty on every row: a closed stream ends the run

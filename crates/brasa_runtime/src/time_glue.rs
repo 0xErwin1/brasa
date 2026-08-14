@@ -1,4 +1,4 @@
-//! Shared `std::time` glue (BRS-35, `docs/spec/05-stdlib.md`): both
+//! Shared `std::time` glue (BRS-35, spec: 05 — Stdlib de scripting): both
 //! backends call these, so clock reads, sleeping, and ISO-8601
 //! formatting behave identically.
 //!

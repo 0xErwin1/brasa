@@ -62,8 +62,6 @@ at the gap:
 | Modules | one file = one module, explicit `pub`; `import "util.bras"` relative, `import lib::helpers` on a search path, `import std::fs` for the stdlib |
 | Naming | `camelCase`, predicates end in `?` (`file.exists?`) |
 
-The full specification lives in [`docs/spec/`](docs/spec/).
-
 ## Architecture
 
 ```

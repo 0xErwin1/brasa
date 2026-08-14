@@ -13,7 +13,7 @@ pub enum ImportPath {
     /// The root decides what it names. `std` is reserved for the
     /// standard library and is never looked for on disk; every other
     /// root is a module resolved against the search path
-    /// (`docs/spec/01-syntax.md`, modules).
+    /// (spec: 01 — Sintaxis, modules).
     Path(Vec<String>),
     /// `import "utils.bras"` / `import "./sub/helpers.bras"`, resolved
     /// relative to the importing file.
@@ -59,7 +59,7 @@ pub struct GenericParam {
     pub name: String,
     /// The span of the parameter name itself, so diagnostics about the
     /// generic point at the name rather than the whole declaring item
-    /// (`docs/spec/06-diagnostics.md`).
+    /// (spec: 06 — Diagnósticos).
     pub name_span: Span,
     pub constraint: Option<Constraint>,
 }
@@ -97,7 +97,7 @@ pub enum Throws {
 /// A method signature inside an `interface` body or an inline anonymous
 /// interface constraint. Never carries generics, but MAY declare `throws`:
 /// interfaces are contracts and error contracts are not inferred (see
-/// `docs/spec/04-errors.md`), so a throwing interface method must state
+/// spec: 04 — Sistema de errores), so a throwing interface method must state
 /// its error set here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfaceMember {
@@ -155,7 +155,7 @@ pub struct Variant {
     /// [`GenericParam::name_span`].
     pub name_span: Span,
     /// Empty when the variant carries no payload (`Point` in the `Shape`
-    /// example of `docs/spec/01-syntax.md`).
+    /// example of spec: 01 — Sintaxis).
     pub fields: Vec<Field>,
 }
 

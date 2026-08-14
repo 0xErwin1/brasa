@@ -1,7 +1,7 @@
 //! Item compilation: the synthetic `<toplevel>` function, declared
 //! functions, and struct methods.
 //!
-//! Entry convention (`docs/spec/07-bytecode.md`, module execution):
+//! Entry convention (spec: 07 — Diseño del bytecode, module execution):
 //! `functions[0]` runs top-level statements and top-`let` initializers
 //! in source order; the driver then calls `main` (a regular
 //! function-table entry) if the file defines one.

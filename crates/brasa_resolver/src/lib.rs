@@ -9,7 +9,7 @@
 //! binding site, what it resolved to — queryable by HIR node ID so later
 //! phases never re-walk scopes.
 //!
-//! The language rules implemented here come from `docs/spec`: two
+//! The language rules implemented here come from the spec docs: two
 //! namespaces (`02-grammar.md`), inner-scope-only shadowing
 //! (`01-syntax.md`, `03-types.md`), module-wide item visibility with
 //! in-order top-level execution (`01-syntax.md`), qualified-only imports

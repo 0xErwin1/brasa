@@ -1,7 +1,7 @@
 //! Stable diagnostic codes, one constant per error kind.
 //!
 //! This is the machine-facing side of the public registry in
-//! `docs/spec/06-diagnostics.md`; the spec table and these constants must
+//! spec: 06 — Diagnósticos; the spec table and these constants must
 //! stay in sync. Codes follow `<PhaseLetter><3 digits>` (`L` lexer, `P`
 //! parser, `M` module loading, `R` resolver, `T` type checker, `E`
 //! error-sets, `C` code
@@ -56,7 +56,7 @@ pub const P_INTERPOLATION_NOT_ALLOWED: &str = "P009";
 /// regular file, or denied by the OS.
 pub const M_UNREADABLE_IMPORT: &str = "M001";
 /// An import cycle. Top-level `let`s evaluate on import
-/// (`docs/spec/01-syntax.md`), so a cycle has no sound evaluation order.
+/// (spec: 01 — Sintaxis), so a cycle has no sound evaluation order.
 pub const M_IMPORT_CYCLE: &str = "M002";
 /// An import chain deeper than the loader follows.
 pub const M_IMPORTS_TOO_DEEP: &str = "M003";

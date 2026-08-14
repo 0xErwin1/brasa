@@ -1,6 +1,6 @@
 //! The compiled module: what BRS-27 emits and BRS-28 executes.
 //!
-//! Entry convention (`docs/spec/07-bytecode.md`, module execution):
+//! Entry convention (spec: 07 — Diseño del bytecode, module execution):
 //! `functions[0]` is the synthetic `<toplevel>` function — every
 //! module's top-level statements and top-`let` initializers, imported
 //! modules first — and the driver then calls [`Module::entry`] if the
@@ -28,14 +28,14 @@ pub struct Module {
     pub globals: Vec<String>,
     /// The module's `test` items, in source order, when it was compiled
     /// for `brasa test`. Empty for a normal run, which never compiles
-    /// one (`docs/spec/01-syntax.md`): a test body is dead weight at
+    /// one (spec: 01 — Sintaxis): a test body is dead weight at
     /// cold start.
     pub tests: Vec<TestEntry>,
     /// The `main` to call after `<toplevel>` returns, when the executed
     /// file defines one. Named by the code generator rather than found
     /// by name at run time: an imported module may define its own
     /// `main`, and only the executed file's is an entry point
-    /// (`docs/spec/01-syntax.md`).
+    /// (spec: 01 — Sintaxis).
     pub entry: Option<FuncId>,
 }
 
@@ -63,7 +63,7 @@ pub struct Function {
     pub locals: u16,
     /// Maximum operand-stack depth above the locals boundary, computed
     /// by the code generator so the VM can reserve stack space on frame
-    /// entry without per-push checks (`docs/spec/07-bytecode.md`,
+    /// entry without per-push checks (spec: 07 — Diseño del bytecode,
     /// function table).
     pub max_stack: u16,
     pub chunk: Chunk,

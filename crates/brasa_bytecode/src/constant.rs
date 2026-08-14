@@ -1,7 +1,7 @@
 //! The per-module constant pool.
 //!
 //! Interned: inserting an equal constant returns the existing index.
-//! Floats intern by bit pattern (`docs/spec/07-bytecode.md`, constant
+//! Floats intern by bit pattern (spec: 07 — Diseño del bytecode, constant
 //! pool): `0.0` and `-0.0` are distinct entries and NaN payloads are
 //! preserved. `unit` and bools have dedicated push ops and never enter
 //! the pool.

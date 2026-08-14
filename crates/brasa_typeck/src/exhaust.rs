@@ -1,11 +1,11 @@
 //! Match exhaustiveness checking (BRS-18).
 //!
 //! `match` must cover every case or use `_`
-//! (`docs/spec/01-syntax.md`); the checker understands enums, bools,
+//! (spec: 01 — Sintaxis); the checker understands enums, bools,
 //! tuples, and nested patterns, and requires `_` for open types like
-//! `int` and `string` (`docs/spec/03-types.md`). Exhaustiveness applies
+//! `int` and `string` (spec: 03 — Sistema de tipos). Exhaustiveness applies
 //! whether the `match` is a value or a statement — only `catch` is
-//! non-exhaustive by default, and that is M2 (`docs/spec/04-errors.md`).
+//! non-exhaustive by default, and that is M2 (spec: 04 — Sistema de errores).
 //!
 //! The algorithm is Maranget-style usefulness: the arm patterns form a
 //! matrix, and the check asks whether a row of wildcards is still
@@ -16,7 +16,7 @@
 //! columns; otherwise only the wildcard-headed rows survive (the default
 //! matrix) and any missing constructor becomes a witness head.
 //!
-//! Decisions this unit fixes (`docs/spec/03-types.md`):
+//! Decisions this unit fixes (spec: 03 — Sistema de tipos):
 //!
 //! - A guarded arm never counts toward exhaustiveness (the guard could
 //!   be false), so its row is excluded from the matrix.

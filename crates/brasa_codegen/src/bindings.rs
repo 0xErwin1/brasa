@@ -2,7 +2,7 @@
 //! in a frame slot.
 //!
 //! A closure captures a lexical BINDING, not a snapshot of its value
-//! (`docs/spec/01-syntax.md`, lambdas): rebinding the name is visible
+//! (spec: 01 — Sintaxis, lambdas): rebinding the name is visible
 //! from both the capturing and the captured side. A frame slot cannot
 //! express that on its own — the closure outlives the frame, and the
 //! capture is a separate slot in a separate frame — so a shared binding

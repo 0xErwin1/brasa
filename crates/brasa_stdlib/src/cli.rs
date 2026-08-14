@@ -1,4 +1,4 @@
-//! The `std::cli` surface (`docs/spec/05-stdlib.md`, BRS-112): the two
+//! The `std::cli` surface (spec: 05 — Stdlib de scripting, BRS-112): the two
 //! module members and the `Args` record `parse` yields.
 
 /// `cli.UsageError`: the command line did not match the declaration.

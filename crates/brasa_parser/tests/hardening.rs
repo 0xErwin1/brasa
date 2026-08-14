@@ -375,7 +375,7 @@ fn non_empty_interface_body_parses_clean() {
 // rather than fail it. The snapshots pin the diagnostics that recovery
 // produces, which is the part a future change can silently regress.
 
-/// `()` is not a zero-element tuple (`docs/spec/02-grammar.md`): the unit
+/// `()` is not a zero-element tuple (spec: 02 — Gramática formal): the unit
 /// value is spelled `unit`, so this stays a parse error.
 #[test]
 fn empty_parens_are_a_parse_error_not_a_zero_tuple() {

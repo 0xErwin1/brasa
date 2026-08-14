@@ -7,7 +7,7 @@
 //! Two decisions shape the format:
 //!
 //! - **Source, not bytecode.** The compiled module is in-memory only —
-//!   bytecode is never serialized (`docs/spec/07-bytecode.md`) — so the
+//!   bytecode is never serialized (spec: 07 — Diseño del bytecode) — so the
 //!   bundle carries the source of every module and compiles it at
 //!   startup. That keeps the format independent of the opcode set, the
 //!   value representation and the shape tables, none of which are

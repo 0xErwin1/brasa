@@ -1,4 +1,4 @@
-//! The `std::json` member surface (`docs/spec/05-stdlib.md`, BRS-34).
+//! The `std::json` member surface (spec: 05 — Stdlib de scripting, BRS-34).
 //!
 //! A free module like [`crate::fs`], and the smallest one: two members
 //! that convert between a `string` and the compiler-known `Json` tree.

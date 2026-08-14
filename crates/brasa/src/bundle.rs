@@ -9,7 +9,7 @@
 //! seek and one 16-byte read before it does anything else.
 //!
 //! What is embedded is source, not bytecode: the compiled module is
-//! in-memory only (`docs/spec/07-bytecode.md`), and compiling the front
+//! in-memory only (spec: 07 — Diseño del bytecode), and compiling the front
 //! half of the pipeline at startup is invisible against process spawn.
 
 use std::io::{IsTerminal, Read, Seek, SeekFrom, Write};

@@ -1,5 +1,5 @@
 //! `catch`/`catch!` lowering to static handler tables plus a
-//! dispatch sequence (`docs/spec/07-bytecode.md`, throw/catch).
+//! dispatch sequence (spec: 07 — Diseño del bytecode, throw/catch).
 //!
 //! The handler entry covers the compiled subject only; the dispatch
 //! sequence tests the caught-signal value arm by arm: `jump_if_panic`

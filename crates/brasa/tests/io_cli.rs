@@ -1,4 +1,4 @@
-//! CLI-level `std::io` tests (BRS-34, `docs/spec/05-stdlib.md`).
+//! CLI-level `std::io` tests (BRS-34, spec: 05 — Stdlib de scripting).
 //!
 //! The library-level conformance harness injects all three streams, so
 //! it pins the `std::io` semantics themselves. What only the CLI can

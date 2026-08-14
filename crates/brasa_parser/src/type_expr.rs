@@ -10,7 +10,7 @@ impl<'a> Parser<'a> {
     /// `type = TYPE_IDENT ("<" type ("," type)* ">")? | "(" type ("," type)* ")" | fn_type`.
     ///
     /// The grammar's lexicon only allows `TYPE_IDENT` (uppercase) as a
-    /// type name, but `docs/spec/01-syntax.md` uses lowercase primitives
+    /// type name, but spec: 01 — Sintaxis uses lowercase primitives
     /// (`int`, `float`, `bool`, `string`, `char`, `unit`) everywhere,
     /// including in the examples this parser must accept. This resolves
     /// that inconsistency by accepting either an `Ident` or a `TypeIdent`

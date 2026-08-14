@@ -48,7 +48,7 @@
 //! columns, and broken otherwise. Only constructs that *can* be broken
 //! are: newlines are statement separators in Brasa, and the sole
 //! continuation rules are bracket nesting and a line starting with `|>`,
-//! `.` or `?.` (`docs/spec/02-grammar.md`). So argument lists, collection
+//! `.` or `?.` (spec: 02 — Gramática formal). So argument lists, collection
 //! literals, method chains and pipes break, and a long binary expression
 //! does not — breaking one would change what the program parses as.
 //!

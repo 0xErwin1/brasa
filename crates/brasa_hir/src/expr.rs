@@ -2,7 +2,7 @@
 //!
 //! The AST's `Pipe`, `Coalesce`, `SafeNav`, and interpolated `StringLit`
 //! do not exist here: lowering desugars each of them exactly once (see
-//! `docs/spec/00-vision.md`'s HIR row and `crate::lower`). Two nodes are
+//! spec: 00 — Visión y alcance's HIR row and `crate::lower`). Two nodes are
 //! HIR-only: [`Expr::OptionWrap`] and [`Expr::ToString`], both introduced
 //! by lowering to carry type-directed behavior the syntax alone cannot
 //! resolve.
@@ -21,7 +21,7 @@ pub struct LambdaParam {
     pub name: String,
     /// The span of the parameter name itself, copied from the AST, so
     /// diagnostics about the parameter point at the name rather than the
-    /// whole lambda (`docs/spec/06-diagnostics.md`).
+    /// whole lambda (spec: 06 — Diagnósticos).
     pub name_span: Span,
     pub ty: Option<TypeExprId>,
 }
@@ -92,7 +92,7 @@ pub enum Expr {
     /// "Wrap in `Some` unless the operand is already an `Option`."
     ///
     /// Produced only by `?.` lowering for the member access in the `Some`
-    /// arm. Per `docs/spec/03-types.md`'s operator table, `?.` flattens:
+    /// arm. Per spec: 03 — Sistema de tipos's operator table, `?.` flattens:
     /// the result is never a nested `Option`, so when the member itself
     /// yields `Option<R>` the whole expression is `Option<R>`, not
     /// `Option<Option<R>>`. Which of the two cases applies is
@@ -103,7 +103,7 @@ pub enum Expr {
     /// Implicit `toString` conversion of the operand.
     ///
     /// Produced only by string-interpolation lowering for each `#{expr}`
-    /// piece. Per `docs/spec/03-types.md`, every type has an
+    /// piece. Per spec: 03 — Sistema de tipos, every type has an
     /// automatically derived `toString`; the type checker later makes
     /// this a no-op for operands that are already strings.
     ToString(ExprId),
@@ -131,7 +131,7 @@ pub enum Expr {
         inclusive: bool,
     },
     /// Postfix `catch`/`catch!` on `subject`; semantics in
-    /// `docs/spec/04-errors.md`. Not sugar — error handling is core.
+    /// spec: 04 — Sistema de errores. Not sugar — error handling is core.
     Catch {
         subject: ExprId,
         exhaustive: bool,

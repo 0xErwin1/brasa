@@ -1,5 +1,5 @@
 //! Fixed-decimal number rendering, shared by both backends so the two
-//! cannot drift (`docs/spec/05-stdlib.md`, `toFixed`).
+//! cannot drift (spec: 05 — Stdlib de scripting, `toFixed`).
 //!
 //! Rust's `{:.N}` formatting is the correctly-rounded rendering of the
 //! exact binary value, so it is the base: a `f64` is a binary fraction

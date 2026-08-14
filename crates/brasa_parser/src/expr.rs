@@ -13,7 +13,7 @@ use brasa_token::TokenKind;
 use crate::Parser;
 
 /// `(left_bp, right_bp)` for each binary operator at precedence levels
-/// 2-10 of `docs/spec/02-grammar.md`. `**` and `??` are the
+/// 2-10 of spec: 02 — Gramática formal. `**` and `??` are the
 /// right-associative entries (their right bp is lower than their left
 /// bp); ranges are non-associative and use equal bps plus an explicit
 /// check in [`Parser::parse_bp`] that rejects chaining.
@@ -78,12 +78,12 @@ pub(crate) fn is_bare_ident_callee(ast: &brasa_ast::Ast, expr: ExprId) -> bool {
 /// as a parenless "command call" (`puts "hello"` ≡ `puts("hello")`,
 /// Ruby-style, extended to `puts a, b` for more than one argument).
 ///
-/// This is not in `docs/spec/02-grammar.md`'s formal grammar, which
+/// This is not in spec: 02 — Gramática formal's formal grammar, which
 /// states plainly that "parentheses are mandatory in calls... there is
 /// no call without parentheses". It is applied anyway (ruled: statement
 /// position only, see `Parser::maybe_apply_command_call` in `stmt.rs`)
 /// because every one of the bundled `examples/*.bras` fixtures (and every
-/// `puts ...` line in `docs/spec/01-syntax.md`) relies on exactly this
+/// `puts ...` line in spec: 01 — Sintaxis) relies on exactly this
 /// shape and could not otherwise parse. Scoping it to statement position
 /// keeps `(...)` mandatory everywhere else: `let x = puts "a"` still
 /// fails to parse cleanly, since nothing in expression position ever
@@ -115,7 +115,7 @@ pub(crate) fn starts_command_call_arg(kind: TokenKind) -> bool {
 /// The note explaining why a `[` right after `callee` opened an index,
 /// or `None` when the vector-literal reading was never on the table.
 ///
-/// `docs/spec/02-grammar.md`'s ambiguity table rules that a `[` after a
+/// spec: 02 — Gramática formal's ambiguity table rules that a `[` after a
 /// callee binds as postfix indexing rather than as a vector-literal first
 /// argument, so `puts [1, 2]` is `puts[1, 2]`. That ruling is invisible in
 /// the bare "expected an expression"/"expected `]`" wording, which sends a
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `"do" "|" lparams? "|" NL block "end"`. Per the ambiguity note in
-    /// `docs/spec/02-grammar.md` ("a parameterless lambda uses `do ...
+    /// spec: 02 — Gramática formal ("a parameterless lambda uses `do ...
     /// end` or `|_|`"), the `|params|` delimiters themselves are treated
     /// as optional when there are no parameters, accepting both `do NL
     /// block end` and `do || NL block end`-style spellings.
@@ -440,7 +440,7 @@ impl<'a> Parser<'a> {
     /// `||` lexes as one `OrOr` token, so an empty parameter list shows
     /// up either as two `Pipe` tokens (`| |`) or as a single `OrOr`
     /// (`||`); both spell a parameterless lambda
-    /// (`docs/spec/02-grammar.md`, ambiguity table).
+    /// (spec: 02 — Gramática formal, ambiguity table).
     fn parse_lambda_params_if_present(&mut self) -> Vec<LambdaParam> {
         if self.eat(TokenKind::OrOr).is_some() {
             return Vec::new();
@@ -467,7 +467,7 @@ impl<'a> Parser<'a> {
     /// A lambda parameter is a name, `_`, or a destructuring pattern.
     /// `match` and `for` already bind through patterns, so the one
     /// binding position that could not was this one
-    /// (`docs/spec/02-grammar.md`).
+    /// (spec: 02 — Gramática formal).
     fn parse_lambda_param(&mut self) -> LambdaParam {
         if self.at(TokenKind::LParen) {
             return self.parse_lambda_pattern_param();
@@ -735,7 +735,7 @@ impl<'a> Parser<'a> {
     /// (tuple literal).
     ///
     /// A top-level comma is the only thing that separates the two forms,
-    /// per `docs/spec/02-grammar.md`: `(a)` stays a grouping, so the
+    /// per spec: 02 — Gramática formal: `(a)` stays a grouping, so the
     /// one-element tuple needs its comma (`(a,)`). Unlike patterns and
     /// types — neither of which has a grouping form — an expression
     /// cannot give up parenthesized grouping, so the comma carries the
@@ -870,7 +870,7 @@ impl<'a> Parser<'a> {
     /// statements, not expressions, but the inline single-line arm form
     /// has no separate "statement" spelling; a bare `throw`/etc. right
     /// after `=>` is normalized into a one-statement block, the same way
-    /// `docs/spec/02-grammar.md`'s inline `if...then` branches are
+    /// spec: 02 — Gramática formal's inline `if...then` branches are
     /// normalized into one-statement blocks (`brasa_ast::stmt::IfNode`'s
     /// docs).
     fn parse_arm_body(&mut self) -> ArmBody {

@@ -1,6 +1,6 @@
 //! Token definitions for Brasa.
 //!
-//! The token set mirrors the lexical grammar in `docs/spec/02-grammar.md`.
+//! The token set mirrors the lexical grammar in spec: 02 — Gramática formal.
 //! Kept separate from the lexer so the parser depends on token *types*
 //! without depending on how they are produced; see `brasa_lexer` for the
 //! scanner that turns source text into a stream of these tokens.
@@ -204,7 +204,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
 
 /// Why [`parse_int`] rejected an `INT` literal's text.
 ///
-/// The lexer's `INT` pattern (`docs/spec/02-grammar.md`) accepts `0x`/`0b`
+/// The lexer's `INT` pattern (spec: 02 — Gramática formal) accepts `0x`/`0b`
 /// with nothing but underscores after the prefix (`0x_`, `0b__`), per the
 /// grammar's own note that underscore placement is lenient; that shape is
 /// a distinct failure from a value too big for `i64`, and callers should
@@ -217,7 +217,7 @@ pub enum IntParseError {
     Overflow,
 }
 
-/// Parses an `INT` literal (`docs/spec/02-grammar.md`): decimal, `0x`
+/// Parses an `INT` literal (spec: 02 — Gramática formal): decimal, `0x`
 /// hex, or `0b` binary, with optional `_` digit separators. No octal form
 /// exists in Brasa.
 ///
@@ -261,7 +261,7 @@ pub struct UnknownEscape {
 
 /// The single source of truth for the escape set allowed inside `STRING`,
 /// `RAWSTRING`, and `CHAR` literals (`\n \t \" \\ \#`), per
-/// `docs/spec/02-grammar.md`'s ambiguity table.
+/// spec: 02 — Gramática formal's ambiguity table.
 ///
 /// Returns `None` for any other `\<c>`, which both string and char-literal
 /// decoding treat as an error rather than a silent pass-through or drop.
@@ -279,7 +279,7 @@ pub fn decode_escape(escaped: char) -> Option<char> {
 /// Decodes the escape sequences allowed inside `STRING`/`RAWSTRING` text
 /// (`\n \t \" \\ \#`, see [`decode_escape`]).
 ///
-/// Per `docs/spec/02-grammar.md`'s ambiguity table, any other `\<c>` is an
+/// Per spec: 02 — Gramática formal's ambiguity table, any other `\<c>` is an
 /// error, never a silent pass-through or drop. This validates that ruling
 /// and collects every offending escape found.
 ///

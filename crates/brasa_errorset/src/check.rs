@@ -2,9 +2,9 @@
 //! `catch` arms (E001), `catch!` exhaustiveness (E002/E003), `throws`
 //! contract verification (E004/E005/E006), and the rendering contract
 //! (E007). Wording and kind boundaries follow
-//! `docs/spec/06-diagnostics.md`.
+//! spec: 06 — Diagnósticos.
 //!
-//! Precision rules on open sets (`docs/spec/04-errors.md`): the tags of
+//! Precision rules on open sets (spec: 04 — Sistema de errores): the tags of
 //! an open set are a sound lower bound, so openness never suppresses a
 //! "this CAN be thrown" finding, but every "this CANNOT be thrown"
 //! claim — unreachability, exhaustiveness, `throws never` emptiness —
@@ -14,7 +14,7 @@
 //!
 //! - A `_` arm is flagged unreachable only inside `catch!`, and only
 //!   when the closed subject set minus the unguarded named arms is
-//!   empty (`docs/spec/04-errors.md` forbids unreachable arms in
+//!   empty (spec: 04 — Sistema de errores forbids unreachable arms in
 //!   `catch!`). In a plain `catch`, a defensive `_` is never
 //!   flagged: non-exhaustive handling is the default there.
 //! - An open subject under `catch!` is E003, erring on the side of
@@ -56,7 +56,7 @@
 //!   declaration back in charge of a rule that exists precisely because
 //!   declarations are optional.
 //! - E004/E005/E007 point at the declaring function's name
-//!   (`docs/spec/06-diagnostics.md`, span rules).
+//!   (spec: 06 — Diagnósticos, span rules).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -302,7 +302,7 @@ pub(crate) fn throws_contract(
 /// empty.
 ///
 /// `T034` states this rule where the contract is written, but `throws`
-/// is inferred (`docs/spec/04-errors.md`), so a `toString` that throws
+/// is inferred (spec: 04 — Sistema de errores), so a `toString` that throws
 /// without writing a clause slips past a declaration-site check
 /// entirely. The set the fixpoint derives is the real subject of the
 /// rule, and it must be empty: rendering is reached from `puts`, string
@@ -377,7 +377,7 @@ pub(crate) fn render_contract(
 
 /// E006: a `throws` list naming a member of the `panics.` union.
 ///
-/// A panic is a separate channel (`docs/spec/04-errors.md`): it never
+/// A panic is a separate channel (spec: 04 — Sistema de errores): it never
 /// enters an error-set, so the declaration is a claim about the body
 /// that nothing the body does could ever satisfy — and, unlike an
 /// over-declared error type, it is not a harmlessly wider contract but

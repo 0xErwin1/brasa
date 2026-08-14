@@ -27,7 +27,7 @@ pub struct GenericParam {
     pub name: String,
     /// The span of the parameter name itself, copied from the AST, so
     /// diagnostics about the generic point at the name rather than the
-    /// whole declaring item (`docs/spec/06-diagnostics.md`).
+    /// whole declaring item (spec: 06 — Diagnósticos).
     pub name_span: Span,
     pub constraint: Option<Constraint>,
 }

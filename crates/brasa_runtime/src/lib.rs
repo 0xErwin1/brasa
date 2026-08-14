@@ -5,8 +5,8 @@
 //!
 //! Nothing here knows how a program is executed. These modules hold the
 //! semantics a backend must not restate — the error mapping of
-//! `docs/spec/05-stdlib.md`, the insertion-order guarantees of
-//! `docs/spec/03-types.md` — so that a second implementation cannot
+//! spec: 05 — Stdlib de scripting, the insertion-order guarantees of
+//! spec: 03 — Sistema de tipos — so that a second implementation cannot
 //! quietly disagree with the first about what a member does.
 
 pub mod cli_glue;
@@ -30,12 +30,12 @@ pub const DEFAULT_MAX_CALL_DEPTH: usize = 4096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Success,
-    /// An uncaught thrown error (`docs/spec/04-errors.md`: message and
+    /// An uncaught thrown error (spec: 04 — Sistema de errores: message and
     /// exit code, no stacktrace).
     Error {
         message: String,
     },
-    /// An uncaught panic (`docs/spec/04-errors.md`: message plus the
+    /// An uncaught panic (spec: 04 — Sistema de errores: message plus the
     /// call chain, innermost first).
     Panic {
         message: String,

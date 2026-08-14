@@ -112,7 +112,7 @@ pub fn severity(severity: Severity) -> DiagnosticSeverity {
 /// One compiler diagnostic as the protocol's.
 ///
 /// The error code travels as `code` so a client can filter on it and a
-/// user can search it — `docs/spec/06-diagnostics.md` gives every
+/// user can search it — spec: 06 — Diagnósticos gives every
 /// diagnostic a stable one, and dropping it here would waste that.
 ///
 /// Labels become related information rather than being flattened into

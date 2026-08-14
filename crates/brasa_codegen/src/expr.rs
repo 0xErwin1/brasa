@@ -1,5 +1,5 @@
 //! Expression lowering: every `compile_expr` call pushes exactly one
-//! value. Dispatch follows `docs/spec/07-bytecode.md` case by case, on
+//! value. Dispatch follows spec: 07 — Diseño del bytecode case by case, on
 //! the checker's static types (`expr_types`) rather than on runtime
 //! values — the two agree for every checked program.
 
@@ -159,7 +159,7 @@ fn ident(f: &mut FuncCx, id: ExprId, name: &str, span: Span) {
 fn binary(f: &mut FuncCx, id: ExprId, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) {
     match op {
         // Short-circuit forms keep the deciding value on the taken
-        // branch (`docs/spec/07-bytecode.md`, jumps).
+        // branch (spec: 07 — Diseño del bytecode, jumps).
         BinaryOp::And => {
             compile_expr(f, lhs);
             let jump = f.emit(Op::JumpIfFalseOrPop(PLACEHOLDER), span);
@@ -212,7 +212,7 @@ fn ordering(f: &mut FuncCx, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) 
     compile_expr(f, rhs);
 
     // `T: Comparable` compiles to the user's `cmp` plus an int
-    // comparison against 0 (`docs/spec/07-bytecode.md`, comparison).
+    // comparison against 0 (spec: 07 — Diseño del bytecode, comparison).
     if let Some(Type::Struct(item, _)) = f.cx.types.expr_types.get(&lhs) {
         let item = *item;
         match struct_method(f, item, "cmp") {
@@ -303,7 +303,7 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
             };
             assertion(f, builtin, args, span);
         }
-        // `puts`/`print` (`docs/spec/05-stdlib.md`).
+        // `puts`/`print` (spec: 05 — Stdlib de scripting).
         Expr::Ident(_) if matches!(f.cx.res.expr_res.get(&callee), Some(Res::Builtin(_))) => {
             let Some(Res::Builtin(builtin)) = f.cx.res.expr_res.get(&callee).copied() else {
                 unreachable!("guarded by the match arm");
@@ -466,7 +466,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
 
     // A receiver typed as a generic parameter: the constraint's method
     // is a different function at every instantiation and the body is
-    // shared (no monomorphization, `docs/spec/03-types.md`), so the
+    // shared (no monomorphization, spec: 03 — Sistema de tipos), so the
     // target comes from the runtime value's method table.
     if matches!(f.cx.types.expr_types.get(&recv), Some(Type::Generic { .. })) {
         compile_expr(f, recv);

@@ -2,14 +2,14 @@
 //! contributes to its own error-set, given the previous iteration's
 //! sets for everything it calls.
 //!
-//! Call rules (`docs/spec/04-errors.md`, "Error-set inference" and
+//! Call rules (spec: 04 — Sistema de errores, "Error-set inference" and
 //! "Interaction with the rest of the language"):
 //!
 //! | Callee shape | Contribution |
 //! |---|---|
 //! | direct `FuncDef` item | that item's current set |
 //! | declared struct method | that method's current set |
-//! | `puts` / `print` | nothing (`docs/spec/05-stdlib.md`: print any value) |
+//! | `puts` / `print` | nothing (spec: 05 — Stdlib de scripting: print any value) |
 //! | any `std::` module member | whatever `brasa_typeck::builtins::module_throws` says it raises — declared once, beside the member's signature (BRS-96) |
 //! | any builtin METHOD | whatever `brasa_typeck::builtins::method_throws` says, from the same declaration (BRS-96). Today that is `string.toInt`/`toFloat` raising `string.ParseError` (BRS-41) and the regex four raising `string.RegexError` (BRS-31); this file no longer names them |
 //! | builtin container/primitive method | the sets of literal lambda arguments (a HOF invokes its function argument — the lambda's set "flows to whoever invokes" it); a non-literal fn-typed argument opens the set |
@@ -152,7 +152,7 @@ impl<'a> Collector<'a> {
             // A field read cannot throw; index, unary, and binary
             // operations only panic (IndexOutOfBounds, DivisionByZero,
             // IntegerOverflow), and panics are not in error-sets
-            // (`docs/spec/04-errors.md`, "Panics vs errors").
+            // (spec: 04 — Sistema de errores, "Panics vs errors").
             Expr::Field { recv, .. } => self.expr(*recv),
             Expr::Index { recv, index } => {
                 let mut set = self.expr(*recv);
@@ -241,7 +241,7 @@ impl<'a> Collector<'a> {
     /// Computes the body set of the lambda literal at `id`, records it
     /// in [`Self::lambda_sets`], and returns it. The set does not leak
     /// into the enclosing function unless the lambda is invoked there
-    /// (`docs/spec/04-errors.md`: "their error-set flows to whoever
+    /// (spec: 04 — Sistema de errores: "their error-set flows to whoever
     /// invokes them").
     fn lambda(&mut self, id: ExprId) -> ErrorSet {
         let Expr::Lambda { body, .. } = self.hir.expr(id) else {
@@ -313,7 +313,7 @@ impl<'a> Collector<'a> {
     fn method_call(&mut self, recv: ExprId, name: &str, args: &[ExprId]) -> ErrorSet {
         if self.is_module_ref(recv) {
             // The throwing module members whose signatures have closed
-            // (`docs/spec/05-stdlib.md`). BRS-32: the `proc` runners
+            // (spec: 05 — Stdlib de scripting). BRS-32: the `proc` runners
             // raise `proc.NonZeroExit` on a non-zero exit and
             // `proc.SpawnError` when the child cannot start. BRS-33:
             // the filesystem-touching `fs` members and `env.cd` raise
@@ -402,7 +402,7 @@ impl<'a> Collector<'a> {
 
     /// The callee contribution of `recv.name(...)` on a struct: a
     /// declared method uses its [`DefRef::Method`] set; the universal
-    /// derived `toString` (`docs/spec/03-types.md`) throws nothing; any
+    /// derived `toString` (spec: 03 — Sistema de tipos) throws nothing; any
     /// other member is a field holding a function — an indirect call.
     fn struct_method(&mut self, item: brasa_hir::ItemId, name: &str) -> ErrorSet {
         let Item::StructDef(def) = self.hir.item(item) else {
@@ -465,7 +465,7 @@ impl<'a> Collector<'a> {
     /// `subject catch (e) arms`: the SUBJECT's contributions are
     /// filtered by the unguarded arms, then guards and arm bodies add
     /// their own contributions (guards run, and an arm may rethrow or
-    /// wrap — `docs/spec/04-errors.md`, "Re-throwing with wrapping is a
+    /// wrap — spec: 04 — Sistema de errores, "Re-throwing with wrapping is a
     /// normal `throw` inside the arm").
     ///
     /// Subtraction rules:
@@ -480,7 +480,7 @@ impl<'a> Collector<'a> {
     ///   same rule exhaustiveness uses;
     /// - panic arms (`panics.X`, recorded in `catch_arm_panics`, which
     ///   this pass never reads) subtract nothing: panics are not in
-    ///   error-sets (`docs/spec/04-errors.md`);
+    ///   error-sets (spec: 04 — Sistema de errores);
     /// - dotted names in namespaces that have not landed and
     ///   unresolved arm names subtract nothing.
     ///

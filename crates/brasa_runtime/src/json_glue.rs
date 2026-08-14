@@ -1,5 +1,5 @@
 //! Backend-agnostic glue for `std::json` (BRS-34,
-//! `docs/spec/05-stdlib.md`), shared by the walker and the VM so JSON
+//! spec: 05 — Stdlib de scripting), shared by the walker and the VM so JSON
 //! behavior and every observable message can never drift between
 //! backends. Value construction stays in each backend's own builtin
 //! table, like `fs_glue` and `proc_env`.

@@ -64,7 +64,7 @@ pub enum DefRef {
 }
 
 /// Prelude values, predeclared in the outermost scope
-/// (`docs/spec/05-stdlib.md`).
+/// (spec: 05 — Stdlib de scripting).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinValue {
     Puts,
@@ -90,8 +90,8 @@ impl BuiltinValue {
 }
 
 /// Prelude types and interfaces, predeclared in the outermost scope:
-/// primitives and core containers per `docs/spec/05-stdlib.md`, stdlib
-/// interfaces per `docs/spec/03-types.md`.
+/// primitives and core containers per spec: 05 — Stdlib de scripting, stdlib
+/// interfaces per spec: 03 — Sistema de tipos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinType {
     Int,
@@ -105,7 +105,7 @@ pub enum BuiltinType {
     Map,
     Set,
     Range,
-    /// The compiler-known `Json` type (`docs/spec/05-stdlib.md`, BRS-34):
+    /// The compiler-known `Json` type (spec: 05 — Stdlib de scripting, BRS-34):
     /// predeclared like `Option`, so annotations can name it; values
     /// only come from `json.parse` (importing `std::json`).
     Json,
@@ -145,7 +145,7 @@ impl BuiltinType {
     }
 }
 
-/// The closed panic union of `docs/spec/04-errors.md`, by qualified
+/// The closed panic union of spec: 04 — Sistema de errores, by qualified
 /// name, in spec order. This is the canonical list: the resolver
 /// validates `panics.`-qualified `catch` arm names against it, and the
 /// VM raises by the same names — a unit test in `brasa_vm::vm` asserts
@@ -159,56 +159,56 @@ pub const PANIC_UNION: &[&str] = &[
 ];
 
 /// The canonical qualified name of the native `string` parse error
-/// (`docs/spec/05-stdlib.md`: `toInt`/`toFloat` throw it).
+/// (spec: 05 — Stdlib de scripting: `toInt`/`toFloat` throw it).
 pub const STRING_PARSE_ERROR: &str = "string.ParseError";
 
 /// The canonical qualified name of the native `string` regex error
-/// (`docs/spec/05-stdlib.md`: the regex methods throw it when the
+/// (spec: 05 — Stdlib de scripting: the regex methods throw it when the
 /// pattern argument is not a valid regex).
 pub const STRING_REGEX_ERROR: &str = "string.RegexError";
 
 /// The canonical qualified name of the native `proc` non-zero-exit
-/// error (`docs/spec/05-stdlib.md`: `proc.run`/`proc.shell` throw it
+/// error (spec: 05 — Stdlib de scripting: `proc.run`/`proc.shell` throw it
 /// when the child exits with a non-zero code).
 pub const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
 
 /// The canonical qualified name of the native `proc` spawn error
-/// (`docs/spec/05-stdlib.md`: every runner throws it when the child
+/// (spec: 05 — Stdlib de scripting: every runner throws it when the child
 /// cannot start — missing binary, permission denied, empty command).
 pub const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
 
 /// The canonical qualified name of the native `fs` not-found error
-/// (`docs/spec/05-stdlib.md`, BRS-33: a path that does not exist).
+/// (spec: 05 — Stdlib de scripting, BRS-33: a path that does not exist).
 pub const FS_NOT_FOUND: &str = "fs.NotFound";
 
 /// The canonical qualified name of the native `fs` permission error
-/// (`docs/spec/05-stdlib.md`, BRS-33: the OS denied the operation).
+/// (spec: 05 — Stdlib de scripting, BRS-33: the OS denied the operation).
 pub const FS_DENIED: &str = "fs.Denied";
 
 /// The canonical qualified name of the native `fs` catch-all I/O error
-/// (`docs/spec/05-stdlib.md`, BRS-33: every other OS failure, carrying
+/// (spec: 05 — Stdlib de scripting, BRS-33: every other OS failure, carrying
 /// the OS message).
 pub const FS_IO_ERROR: &str = "fs.IoError";
 
 /// The canonical qualified name of the native `json` parse error
-/// (`docs/spec/05-stdlib.md`, BRS-34: `json.parse` throws it when the
+/// (spec: 05 — Stdlib de scripting, BRS-34: `json.parse` throws it when the
 /// input is not valid JSON).
 pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 
 /// The canonical qualified name of the native `http` request error
-/// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
+/// (spec: 05 — Stdlib de scripting, BRS-113): a request that never produced a
 /// response — DNS, connection, TLS, or timeout. A non-2xx status is an
 /// answer, not an error, so it is not here.
 pub const HTTP_REQUEST_ERROR: &str = "http.RequestError";
 
 /// The canonical qualified name of the native `cli` usage error
-/// (`docs/spec/05-stdlib.md`, BRS-112): a command line the declaration
+/// (spec: 05 — Stdlib de scripting, BRS-112): a command line the declaration
 /// does not accept. Catchable rather than a panic, because the script
 /// decides its own exit status.
 pub const CLI_USAGE_ERROR: &str = "cli.UsageError";
 
 /// The closed list of stdlib-native errors whose namespaces have
-/// landed, by qualified dotted name (`docs/spec/05-stdlib.md`). This is
+/// landed, by qualified dotted name (spec: 05 — Stdlib de scripting). This is
 /// the canonical list, like [`PANIC_UNION`]: the resolver validates
 /// dotted `catch` arm names in these namespaces against it, the
 /// error-set pass tags native throwers with these names, and the
@@ -216,7 +216,7 @@ pub const CLI_USAGE_ERROR: &str = "cli.UsageError";
 /// sketched by the spec has landed (`json` closed with BRS-34); other
 /// dotted roots stay unchecked until their modules close. Unlike
 /// panics, these ARE errors: they appear in error-sets and `_` catches
-/// them (`docs/spec/04-errors.md`).
+/// them (spec: 04 — Sistema de errores).
 pub const NATIVE_ERRORS: &[&str] = &[
     STRING_PARSE_ERROR,
     STRING_REGEX_ERROR,
@@ -251,12 +251,12 @@ pub enum Res {
     /// A module-level `FuncDef` or `TopLet` item.
     Item(ItemId),
     /// The module handle bound by an `Item::Import`; member access stays
-    /// unresolved until the type checker (`docs/spec/01-syntax.md`, no
+    /// unresolved until the type checker (spec: 01 — Sintaxis, no
     /// selective import — all access is qualified).
     Module(ItemId),
     Builtin(BuiltinValue),
     /// `self` inside a method whose parameter list contains
-    /// `Param::SelfParam` (`docs/spec/01-syntax.md`).
+    /// `Param::SelfParam` (spec: 01 — Sintaxis).
     SelfParam,
 }
 
@@ -271,7 +271,7 @@ pub enum TypeRes {
         index: usize,
     },
     /// `Self` inside an interface body or inline interface constraint
-    /// (`docs/spec/03-types.md`).
+    /// (spec: 03 — Sistema de tipos).
     SelfType,
 }
 
@@ -285,7 +285,7 @@ pub enum CtorRes {
     OptionSome,
     OptionNone,
     /// The builtin `Set(vector)` constructor
-    /// (`docs/spec/01-syntax.md`, collection literals). Never appears
+    /// (spec: 01 — Sintaxis, collection literals). Never appears
     /// in `ctor_pattern_res`: `Set(...)` is not a valid pattern.
     SetCtor,
     EnumVariant {
@@ -327,7 +327,7 @@ pub struct Resolutions {
     /// ([`PANIC_UNION`]), keyed like [`Resolutions::catch_arm_types`];
     /// the value is the canonical qualified name. Kept in a separate
     /// table on purpose: panics are not error types
-    /// (`docs/spec/04-errors.md`) — they never subtract from error-sets
+    /// (spec: 04 — Sistema de errores) — they never subtract from error-sets
     /// and never count toward `catch!` exhaustiveness, so the
     /// error-set checks, which only consume `catch_arm_types`, must not
     /// see them.

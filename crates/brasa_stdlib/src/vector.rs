@@ -1,4 +1,4 @@
-//! The `Vector<T>` method surface (`docs/spec/05-stdlib.md`).
+//! The `Vector<T>` method surface (spec: 05 — Stdlib de scripting).
 //!
 //! Types are written in the [`crate::ty!`] language: bare words for
 //! primitives, `elem` for the receiver's element type, and brackets

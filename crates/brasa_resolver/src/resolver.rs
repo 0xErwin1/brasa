@@ -4,28 +4,28 @@
 //! Scoping rules implemented here (with the decisions the spec leaves
 //! open, see `crate` docs):
 //!
-//! - Two namespaces (`docs/spec/02-grammar.md`): values (`IDENT`) and
+//! - Two namespaces (spec: 02 — Gramática formal): values (`IDENT`) and
 //!   types/constructors (`TYPE_IDENT`) never collide.
 //! - Items (`def`/`struct`/`enum`/`interface`) are visible module-wide,
 //!   so forward references between them are fine. Top-level statements
-//!   execute in order (`docs/spec/01-syntax.md`), so code in top-level
+//!   execute in order (spec: 01 — Sintaxis), so code in top-level
 //!   position sees only top-level `let`s declared earlier; function and
 //!   method bodies (which only run once everything is declared) see all
 //!   of them.
 //! - Shadowing is allowed in inner scopes only
-//!   (`docs/spec/01-syntax.md`, `docs/spec/03-types.md`): re-binding a
+//!   (spec: 01 — Sintaxis, spec: 03 — Sistema de tipos): re-binding a
 //!   name in the *same* scope is a duplicate-definition error.
 //! - `self` resolves only inside a function whose parameter list
-//!   contains `self` (`docs/spec/01-syntax.md`); lambdas nested in such
+//!   contains `self` (spec: 01 — Sintaxis); lambdas nested in such
 //!   a method may use it too (they close over the method scope).
-//! - Imports (`docs/spec/01-syntax.md`) bind the last `std::` segment or
+//! - Imports (spec: 01 — Sintaxis) bind the last `std::` segment or
 //!   the file stem in the value namespace. For a file import, whose
 //!   module `brasa_module` has already loaded, `stem.member` and
 //!   `stem.Type` resolve here against that module's own scope, and only
 //!   `pub` declarations are reachable. A `std::` module's members stay
 //!   opaque: they are builtins the type checker knows.
 //! - `catch` arm types (`CatchType`): bare names resolve in the type
-//!   namespace (`docs/spec/04-errors.md`, arms match error types
+//!   namespace (spec: 04 — Sistema de errores, arms match error types
 //!   nominally); `panics.X` names are validated against the builtin
 //!   closed panic union (BRS-24, no import needed — like the prelude);
 //!   names in landed native-error namespaces (`string.`, `proc.`,
@@ -72,7 +72,7 @@ enum ThrowsName {
     None,
 }
 
-/// The std modules that exist in v1 (`docs/spec/05-stdlib.md`).
+/// The std modules that exist in v1 (spec: 05 — Stdlib de scripting).
 ///
 /// Public because a name here is a promise that both backends can run
 /// it: the parity suite reads this list and exercises every entry, so a
@@ -114,7 +114,7 @@ pub(crate) fn builtin_type(name: &str) -> Option<BuiltinType> {
 
 /// The name an import binds in the value namespace: the last `std::`
 /// segment, or the file stem for file imports
-/// (`docs/spec/01-syntax.md`). `None` when the path is degenerate (which
+/// (spec: 01 — Sintaxis). `None` when the path is degenerate (which
 /// the parser already reported).
 pub(crate) fn import_binding_name(import: &Import) -> Option<&str> {
     match &import.path {
@@ -146,7 +146,7 @@ struct ValueBinding {
     /// Whether an importer may name this through `stem.member`. Only
     /// module-level `pub` declarations are exported; locals carry
     /// `false` and are never reached through a module scope anyway
-    /// (`docs/spec/01-syntax.md`: everything is private except `pub`).
+    /// (spec: 01 — Sintaxis: everything is private except `pub`).
     exported: bool,
 }
 
@@ -358,7 +358,7 @@ impl<'h> Resolver<'h> {
     /// one enum is a duplicate-definition error, reported here at the
     /// declaration site — without this it would only surface as a
     /// self-ambiguity at every constructor use. Both labels point at the
-    /// variant names themselves (`docs/spec/06-diagnostics.md`). Fields
+    /// variant names themselves (spec: 06 — Diagnósticos). Fields
     /// within each variant are checked too.
     fn check_enum_hygiene(&mut self, def: &'h EnumDef) {
         let mut seen: HashMap<&'h str, Span> = HashMap::new();
@@ -423,7 +423,7 @@ impl<'h> Resolver<'h> {
 
     /// A repeated field name within one struct or enum variant is a
     /// duplicate-definition error; both labels point at the field names
-    /// themselves (`docs/spec/06-diagnostics.md`). Returns the span each
+    /// themselves (spec: 06 — Diagnósticos). Returns the span each
     /// name was first declared at.
     fn check_duplicate_fields(&mut self, fields: &'h [Field]) -> HashMap<&'h str, Span> {
         let mut seen: HashMap<&'h str, Span> = HashMap::new();
@@ -595,9 +595,9 @@ impl<'h> Resolver<'h> {
 
     /// Declares `generics` as a new type frame owned by `owner` and
     /// resolves their constraints. `with_self` additionally binds `Self`
-    /// (interface bodies, `docs/spec/03-types.md`). Diagnostics about a
+    /// (interface bodies, spec: 03 — Sistema de tipos). Diagnostics about a
     /// generic (duplicates, bad constraints) point at the parameter's
-    /// name (`docs/spec/06-diagnostics.md`); `span` — the owning item's —
+    /// name (spec: 06 — Diagnósticos); `span` — the owning item's —
     /// is only the `Self` binding's span, since `Self` has no name token
     /// of its own.
     fn push_generic_frame(
@@ -845,7 +845,7 @@ impl<'h> Resolver<'h> {
 
     /// Declares a local in the innermost value scope. A clash in the
     /// *same* scope is a duplicate-definition error (shadowing is only
-    /// allowed in inner scopes, `docs/spec/03-types.md`); the newer
+    /// allowed in inner scopes, spec: 03 — Sistema de tipos); the newer
     /// binding still wins afterwards to keep later references resolving.
     fn declare_local(
         &mut self,
@@ -1230,7 +1230,7 @@ impl<'h> Resolver<'h> {
 
                 // Bare arm type names resolve here; `panics.X` names
                 // check against the builtin closed panic union (BRS-24,
-                // `docs/spec/04-errors.md` — no import needed, like the
+                // spec: 04 — Sistema de errores — no import needed, like the
                 // prelude); names in landed native-error namespaces
                 // (`string.`, `proc.`, `fs.`, `json.`) check against
                 // the closed native-error list (BRS-41); dotted names
@@ -1324,7 +1324,7 @@ impl<'h> Resolver<'h> {
     }
 
     /// A `panics.`-qualified `catch` arm name: the union is closed
-    /// (`docs/spec/04-errors.md`), so the name either matches a member
+    /// (spec: 04 — Sistema de errores), so the name either matches a member
     /// of [`PANIC_UNION`] — recorded in `catch_arm_panics` with the
     /// canonical `&'static str` — or is an `R011` error.
     fn resolve_panic_arm(
@@ -1376,7 +1376,7 @@ impl<'h> Resolver<'h> {
     }
 
     /// Matches a dotted name against the closed native-error list
-    /// (`docs/spec/05-stdlib.md`), returning its canonical
+    /// (spec: 05 — Stdlib de scripting), returning its canonical
     /// `&'static str` or reporting `R012`. Shared by the two places an
     /// error contract names a native error — `catch` arms and `throws`
     /// declarations — so both accept exactly the same set of names.
@@ -1708,7 +1708,7 @@ impl<'h> Resolver<'h> {
         };
 
         // A `std::` module, or one whose file failed to load. The std
-        // modules export no types (`docs/spec/05-stdlib.md`: their
+        // modules export no types (spec: 05 — Stdlib de scripting: their
         // members are functions and constants), and a failed load was
         // already reported by the loader.
         let Some(&target) = self.module_of_import.get(&import_item) else {

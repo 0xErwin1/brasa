@@ -1,4 +1,4 @@
-//! The `std::http` surface (`docs/spec/05-stdlib.md`, BRS-113): the two
+//! The `std::http` surface (spec: 05 — Stdlib de scripting, BRS-113): the two
 //! request members and the `Response` record they yield.
 
 /// `http.RequestError`: the request never produced a response. A

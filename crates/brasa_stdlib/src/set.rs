@@ -1,4 +1,4 @@
-//! The `Set<T>` method surface (`docs/spec/05-stdlib.md`, BRS-35).
+//! The `Set<T>` method surface (spec: 05 — Stdlib de scripting, BRS-35).
 //!
 //! A [`crate::RecvShape::Elem`] receiver, like `Vector<T>`.
 //!

@@ -1,4 +1,4 @@
-//! The Brasa language server (`docs/spec/00-vision.md`, M5 — BRS-92).
+//! The Brasa language server (spec: 00 — Visión y alcance, M5 — BRS-92).
 //!
 //! Minimal on purpose: diagnostics as you type, and hover showing the
 //! inferred type and error-set. Both are things the compiler already

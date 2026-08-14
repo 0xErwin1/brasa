@@ -26,7 +26,7 @@ pub enum BinaryOp {
     Gt,
     GtEq,
     /// `&&` and the `and` keyword are aliases with identical semantics
-    /// (`docs/spec/02-grammar.md`), so both lex to this one operator.
+    /// (spec: 02 — Gramática formal), so both lex to this one operator.
     And,
     /// `||` and the `or` keyword alias.
     Or,
@@ -49,7 +49,7 @@ pub struct LambdaParam {
     pub name: String,
     /// The span of the parameter name itself, so diagnostics about the
     /// parameter point at the name rather than the whole lambda
-    /// (`docs/spec/06-diagnostics.md`).
+    /// (spec: 06 — Diagnósticos).
     pub name_span: Span,
     /// Set when the parameter was written as a destructuring pattern
     /// (`|(key, hits)|`), in which case `name` is empty: the value
@@ -123,7 +123,7 @@ pub enum Expr {
         name: String,
     },
     /// `recv?.name` (safe field access) or `recv?.name(args)` (safe
-    /// method call). Per `docs/spec/02-grammar.md`'s `postfix`
+    /// method call). Per spec: 02 — Gramática formal's `postfix`
     /// production, a trailing `(args)` is technically its own postfix
     /// operation and could instead be modeled as a `Call` wrapping a bare
     /// `SafeNav`; this AST folds it into `SafeNav` directly instead, so
@@ -151,14 +151,14 @@ pub enum Expr {
     /// `a |> f(b)`: `target` is the already-parsed callable expression
     /// (usually a call; a bare callable like `a |> foo.filter` also
     /// parses). Kept as its own node; desugaring into a plain call
-    /// happens once, in AST->HIR lowering (`docs/spec/00-vision.md`),
+    /// happens once, in AST->HIR lowering (spec: 00 — Visión y alcance),
     /// not in the parser.
     Pipe {
         lhs: ExprId,
         target: ExprId,
     },
     /// `a ?? b`: the null-coalescing operator. Kept raw, the same way
-    /// `Pipe` and `SafeNav` are: `docs/spec/00-vision.md`'s HIR row lists
+    /// `Pipe` and `SafeNav` are: spec: 00 — Visión y alcance's HIR row lists
     /// `?./?? -> match over Option` as a lowering step, so desugaring
     /// into a `match` over `Option::Some`/`Option::None` happens once, in
     /// AST->HIR lowering, not in the parser.
@@ -181,7 +181,7 @@ pub enum Expr {
     /// `(a, b)`. Always at least one element: a comma at the top level of
     /// a parenthesized expression is what distinguishes a tuple from a
     /// grouping, so `(a)` never reaches this node (see
-    /// `docs/spec/02-grammar.md`'s ambiguity table) and the one-element
+    /// spec: 02 — Gramática formal's ambiguity table) and the one-element
     /// tuple is spelled `(a,)`.
     TupleLit(Vec<ExprId>),
     StructLit {
@@ -195,7 +195,7 @@ pub enum Expr {
     },
     /// Postfix `catch`/`catch!` on `subject`. `exhaustive` is `true`
     /// for `catch!`; unhandled catch types re-throw only when it is
-    /// `false`; full semantics in `docs/spec/04-errors.md`.
+    /// `false`; full semantics in spec: 04 — Sistema de errores.
     Catch {
         subject: ExprId,
         exhaustive: bool,

@@ -5,7 +5,7 @@
 //!
 //! The CLI gates each phase on the previous one being clean: an
 //! unresolved tree is not type-checked, because doing so only produces
-//! cascades nobody asked for (`docs/spec/06-diagnostics.md`). An editor
+//! cascades nobody asked for (spec: 06 — Diagnósticos). An editor
 //! wants the opposite trade. The file under the cursor is almost always
 //! broken somewhere, and the type three functions away from the break is
 //! still useful and still correct.

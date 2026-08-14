@@ -4,25 +4,6 @@ Brasa is a statically-typed scripting language (Ruby-flavored syntax,
 bytecode VM, GC) implemented in Rust. Goal: replace Python/bash for ~90% of
 scripting tasks.
 
-## Source of truth
-
-`docs/spec/` is normative. Read it before changing anything user-visible:
-
-| Doc | Contents |
-|-----|----------|
-| `docs/spec/00-vision.md` | Goals, closed decisions, compiler architecture, roadmap |
-| `docs/spec/01-syntax.md` | User-facing syntax |
-| `docs/spec/02-grammar.md` | Lexical grammar + EBNF + ambiguity resolutions |
-| `docs/spec/03-types.md` | Type system semantics |
-| `docs/spec/04-errors.md` | Error system (thrown values, inferred error-sets) |
-| `docs/spec/05-stdlib.md` | Stdlib surface (native, written in Rust) |
-| `docs/spec/06-diagnostics.md` | Diagnostic model, code registry, wording |
-| `docs/spec/07-bytecode.md` | Bytecode: execution model, values, instruction set, module format |
-
-Spec changes must be mirrored to the Atlas workspace `brasa` (project
-`brasa-lang`, folder Spec). Work items live on the Atlas board `Roadmap`
-as epics BRS-1..BRS-6 with subtasks; reference them in commits.
-
 ## Environment
 
 Nix + direnv + devenv. Never install toolchains imperatively.

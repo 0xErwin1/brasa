@@ -33,7 +33,7 @@ impl<'a> Vm<'a> {
         self.render(value, false, 0, &mut Vec::new())
     }
 
-    /// Renders one arena cell (`docs/spec/07-bytecode.md`: every
+    /// Renders one arena cell (spec: 07 — Diseño del bytecode: every
     /// reference cycle passes through a Vector, Map, Set, or Struct),
     /// emitting [`CYCLE_MARKER`] instead of recursing when the cell is
     /// already being rendered further up the current path. The path is
@@ -204,7 +204,7 @@ impl<'a> Vm<'a> {
             // <message>` without duplication.
             Value::NativeError(error) => Ok(error.message.to_string()),
             // The `Output` record renders like a struct
-            // (`docs/spec/05-stdlib.md`, BRS-32).
+            // (spec: 05 — Stdlib de scripting, BRS-32).
             Value::ProcOutput(output) => {
                 let stdout =
                     self.render(&Value::Str(output.stdout.clone()), true, depth + 1, path)?;
@@ -253,7 +253,7 @@ impl<'a> Vm<'a> {
             // A `Json` value renders as its compact serialization —
             // the same text `json.stringify` yields, in every position
             // (JSON is its own quoting) — BRS-34,
-            // `docs/spec/05-stdlib.md`.
+            // spec: 05 — Stdlib de scripting.
             Value::Json(tree) => Ok(brasa_runtime::json_glue::stringify(tree)),
             Value::Caught(_) | Value::Iter(_) | Value::Binding(_) => {
                 unreachable!("internal values never render")
@@ -283,7 +283,7 @@ impl<'a> Vm<'a> {
 /// Renders tuple elements in source syntax. A one-element tuple keeps
 /// its comma (`(1,)`): bare parentheses around a single expression mean
 /// grouping, so without the comma the output would read back as a
-/// scalar (`docs/spec/02-grammar.md`).
+/// scalar (spec: 02 — Gramática formal).
 fn render_tuple(parts: &[String]) -> String {
     if let [only] = parts {
         return format!("({only},)");

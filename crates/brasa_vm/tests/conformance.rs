@@ -1062,7 +1062,7 @@ puts add5(compose())
 }
 
 /// A closure captures the lexical BINDING, not a snapshot of its value
-/// (BRS-106, `docs/spec/01-syntax.md`): rebinding the name after the
+/// (BRS-106, spec: 01 — Sintaxis): rebinding the name after the
 /// closure was created is visible through the closure.
 #[test]
 fn rebinding_a_captured_local_is_visible_through_the_closure() {
@@ -1101,7 +1101,7 @@ puts read()
 
 /// Sharing the binding is not sharing a value: mutation THROUGH a
 /// captured object was always visible and stays visible, because the
-/// object is a reference either way (`docs/spec/03-types.md`).
+/// object is a reference either way (spec: 03 — Sistema de tipos).
 #[test]
 fn mutation_through_a_captured_container_stays_visible() {
     assert_success(
@@ -1197,7 +1197,7 @@ puts perIteration()
     );
 }
 
-/// The other half of the same rule (`docs/spec/01-syntax.md`): a name
+/// The other half of the same rule (spec: 01 — Sintaxis): a name
 /// declared OUTSIDE the loop is declared once, so every iteration's
 /// closure captures the one binding and all of them read the last value
 /// written to it.
@@ -2206,7 +2206,7 @@ puts maxOf('x', 'c')
 // --- structural interfaces as generic constraints ----------------------
 //
 // A constrained generic body is compiled once for every instantiation
-// (`docs/spec/03-types.md`, "Generics: execution model"), so the
+// (spec: 03 — Sistema de tipos, "Generics: execution model"), so the
 // constraint's method has no single static target: the walker
 // dispatches on the runtime value and the VM must reach the same
 // target through the value's method table.
@@ -3712,7 +3712,7 @@ puts "all: #{io.readAll()}"
 }
 
 /// Invalid UTF-8 decodes lossily rather than failing the run: a Unix
-/// filter must never die on a stray byte (`docs/spec/05-stdlib.md`).
+/// filter must never die on a stray byte (spec: 05 — Stdlib de scripting).
 #[test]
 fn invalid_utf8_input_decodes_lossily() {
     assert_success_io(
@@ -4157,7 +4157,7 @@ fn assert_cycle_success(body: &str, expected_stdout: &str) {
 }
 
 /// Two equivalent cyclic structures compare EQUAL: `==` is always
-/// structural (`docs/spec/03-types.md`) with no identity operator to
+/// structural (spec: 03 — Sistema de tipos) with no identity operator to
 /// fall back on, so equality on a cyclic value is the coinductive one —
 /// assume the pair equal, and report equal when nothing contradicts it.
 /// Before BRS-55 every line here aborted the process with an
@@ -5126,7 +5126,7 @@ fn every_builtin_crosses_all_three_stdlib_layers() {
         // safe to freeze into a corpus that outlives the oracle.
         // `ls` and `walk` sort bytewise instead of handing back
         // readdir order (`brasa_runtime::fs_glue`), and `Map`/`Set`
-        // are insertion-ordered by `docs/spec/07-bytecode.md`, backed
+        // are insertion-ordered by spec: 07 — Diseño del bytecode, backed
         // by `OrderedMap`/`OrderedSet` whose hash index only answers
         // lookups and never decides iteration.
         assert_eq!(

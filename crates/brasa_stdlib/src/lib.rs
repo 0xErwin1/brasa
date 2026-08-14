@@ -24,7 +24,7 @@
 //! share one id across receiver kinds (`len` serves string, `Vector`,
 //! `Map` and `Set`), so the two orders cannot be the same list.
 //!
-//! `docs/spec/05-stdlib.md` remains normative and hand-written: this
+//! spec: 05 — Stdlib de scripting remains normative and hand-written: this
 //! removes duplication inside the compiler, not between the compiler
 //! and the spec.
 //!
@@ -282,7 +282,7 @@ pub enum ParamDesc {
     Ty(TyDesc),
     /// A `std::proc` command: `Vector<string>` (the argv form) or
     /// `string` (the whitespace-split sugar for a command an author
-    /// typed literally) — `docs/spec/05-stdlib.md`.
+    /// typed literally) — spec: 05 — Stdlib de scripting.
     ///
     /// The checker owns both the acceptance test and its wording, since
     /// naming one expected type would be a lie about the other.

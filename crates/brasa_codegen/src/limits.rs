@@ -2,7 +2,7 @@
 //! report them.
 //!
 //! Every limit here is inherent to the normative encoding in
-//! `docs/spec/07-bytecode.md`: an `argc`/`arity` operand is a `u8`, and
+//! spec: 07 — Diseño del bytecode: an `argc`/`arity` operand is a `u8`, and
 //! slot, count, field, and variant operands are `u16`. Nothing is
 //! arbitrary and nothing is a policy choice, so each message states the
 //! exact limit the program has to fit into.

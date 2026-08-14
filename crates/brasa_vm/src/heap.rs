@@ -4,7 +4,7 @@
 //! Why mark & sweep at all: reference cycles ARE constructible in the
 //! language today. The checker accepts recursive struct types
 //! (`struct S` with a `Vector<S>` field typechecks), and every mutable
-//! container is a shared reference (`docs/spec/03-types.md`), so
+//! container is a shared reference (spec: 03 — Sistema de tipos), so
 //! `s.v.push(s)` closes a cycle that plain `Rc` can never reclaim. The
 //! same holds for closures stored inside a container they capture.
 //!

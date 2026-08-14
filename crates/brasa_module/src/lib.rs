@@ -2,7 +2,7 @@
 //! reaches.
 //!
 //! A Brasa program is a set of files, not one file
-//! (`docs/spec/01-syntax.md`, Modules). This crate sits ahead of the
+//! (spec: 01 — Sintaxis, Modules). This crate sits ahead of the
 //! rest of the pipeline: it walks `import "path"` items from the entry
 //! file, reads and parses each reachable file, lowers them all into one
 //! shared [`brasa_hir::Hir`], and hands the later phases a module list
@@ -43,7 +43,7 @@ pub struct Module {
     pub path: PathBuf,
     pub file: FileId,
     /// The name this module binds in an importer's scope: the file stem
-    /// (`docs/spec/01-syntax.md`).
+    /// (spec: 01 — Sintaxis).
     pub name: String,
     /// Top-level HIR items in source order.
     pub roots: Vec<ItemId>,
@@ -62,7 +62,7 @@ pub struct Program {
     pub modules: Vec<Module>,
     /// The file the user invoked. Its `main` is the program's entry
     /// point; an imported module's `main` is never called
-    /// (`docs/spec/01-syntax.md`).
+    /// (spec: 01 — Sintaxis).
     pub entry: usize,
     pub sugar_origins: HashMap<brasa_hir::ExprId, SugarOrigin>,
     pub diagnostics: Vec<Diagnostic>,
@@ -201,7 +201,7 @@ fn load_inner(
 ///
 /// Two deliberate limits. There is no manifest — a standalone file has
 /// to keep running with no project around it
-/// (`docs/spec/00-vision.md`), so a manifest could only ever be
+/// (spec: 00 — Visión y alcance), so a manifest could only ever be
 /// optional, and an optional one is not worth its weight yet. And there
 /// is no walk up the ancestors looking for a `lib`: implicit project
 /// roots are surprising when they fire and worse when they do not, and
@@ -238,7 +238,7 @@ fn canonicalize(path: &Path) -> PathBuf {
 }
 
 /// The name a file binds in an importer's scope: its stem
-/// (`docs/spec/01-syntax.md`). A path with no usable stem keeps its
+/// (spec: 01 — Sintaxis). A path with no usable stem keeps its
 /// whole display form so diagnostics still name something.
 fn module_name(path: &Path) -> String {
     path.file_stem()
@@ -482,7 +482,7 @@ impl Loader<'_> {
     }
 
     /// `import "foo.bras"`: relative to the importing file
-    /// (`docs/spec/01-syntax.md`). An absolute path is taken verbatim,
+    /// (spec: 01 — Sintaxis). An absolute path is taken verbatim,
     /// which `join` already does.
     fn resolve_relative(&self, importer: &Path, raw: &str) -> PathBuf {
         let base = importer.parent().unwrap_or_else(|| Path::new("."));

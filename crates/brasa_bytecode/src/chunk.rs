@@ -1,6 +1,6 @@
 //! A function's code: instructions, span side table, handler table.
 //!
-//! The span table is the debug information (`docs/spec/07-bytecode.md`,
+//! The span table is the debug information (spec: 07 — Diseño del bytecode,
 //! chunk format): one `Span` per instruction, so runtime error
 //! locations and panic stacktrace lines resolve without a separate line
 //! map. Handler entries implement `catch` as static tables — zero

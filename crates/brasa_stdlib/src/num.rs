@@ -1,4 +1,4 @@
-//! The `int` and `float` method surfaces (`docs/spec/05-stdlib.md`).
+//! The `int` and `float` method surfaces (spec: 05 — Stdlib de scripting).
 //!
 //! Two [`crate::RecvShape::Plain`] receivers in one file because they
 //! are each three rows and they mirror each other: every conversion

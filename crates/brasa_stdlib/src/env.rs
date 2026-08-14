@@ -1,4 +1,4 @@
-//! The `std::env` member surface (`docs/spec/05-stdlib.md`, BRS-32 and
+//! The `std::env` member surface (spec: 05 — Stdlib de scripting, BRS-32 and
 //! BRS-33).
 //!
 //! A free module like [`crate::fs`], and the first converted one whose

@@ -1,6 +1,6 @@
 //! AST→HIR lowering: the one place where sugar disappears.
 //!
-//! Per `docs/spec/00-vision.md`'s HIR row every desugaring happens here,
+//! Per spec: 00 — Visión y alcance's HIR row every desugaring happens here,
 //! exactly once:
 //!
 //! - `a |> f(b)` becomes `f(a, b)`; a non-call target calls it with `a`.
@@ -20,7 +20,7 @@
 //!
 //! Fresh temporaries are named `$tmp0`, `$tmp1`, ... from a monotonic
 //! per-lowering counter. `$` cannot appear in a Brasa identifier
-//! (`docs/spec/02-grammar.md`'s lexical grammar), so these names can
+//! (spec: 02 — Gramática formal's lexical grammar), so these names can
 //! never collide with user bindings; no separate hygiene mechanism is
 //! needed.
 
@@ -339,7 +339,7 @@ impl LowerCtx<'_> {
         }
     }
 
-    /// Lowers `target op= value` (`docs/spec/00-vision.md`: `+=` →
+    /// Lowers `target op= value` (spec: 00 — Visión y alcance: `+=` →
     /// assignment). A plain `=` copies through; a compound operator
     /// rewrites to `target = target <op> value`, rebuilding the lvalue
     /// so `Field`/`Index` receivers (and indices) are bound to fresh
@@ -582,7 +582,7 @@ impl LowerCtx<'_> {
     }
 
     /// `a |> f(b, c)` → `f(a, b, c)`. Pure syntactic rewriting
-    /// (`docs/spec/03-types.md`'s operator table).
+    /// (spec: 03 — Sistema de tipos's operator table).
     ///
     /// The parser's pipe target is a whole postfix expression, so a
     /// target that is not itself a call (`a |> foo.filter`) lowers to
@@ -688,7 +688,7 @@ impl LowerCtx<'_> {
     /// `lhs ?? rhs` → `match lhs { Some($t) => $t, None => rhs }`. The
     /// `match` is what keeps `??` lazy: `rhs` sits in the `None` arm and
     /// is evaluated only when `lhs` is `None`
-    /// (`docs/spec/03-types.md`'s operator table).
+    /// (spec: 03 — Sistema de tipos's operator table).
     fn lower_coalesce(&mut self, lhs: ast::ExprId, rhs: ast::ExprId, span: Span) -> ExprId {
         let scrutinee = self.lower_expr(lhs);
         let temp = self.fresh_temp();
@@ -737,7 +737,7 @@ impl LowerCtx<'_> {
     /// `a?.b` → `match a { Some($t) => OptionWrap($t.b), None => None }`;
     /// `a?.m(args)` wraps the method call the same way. `OptionWrap`
     /// rather than a plain `Some(...)` because `?.`'s no-nested-Option
-    /// flatten rule (`docs/spec/03-types.md`) is type-directed; see
+    /// flatten rule (spec: 03 — Sistema de tipos) is type-directed; see
     /// [`crate::Expr::OptionWrap`]. Chained `a?.b?.c` needs nothing
     /// special: each `SafeNav` lowers independently and the outer one
     /// matches on the inner one's `Option` result.
@@ -820,7 +820,7 @@ impl LowerCtx<'_> {
         match_expr
     }
 
-    /// Interpolation → concatenation (`docs/spec/00-vision.md`): text
+    /// Interpolation → concatenation (spec: 00 — Visión y alcance): text
     /// parts become plain `Str` literals, each `#{e}` becomes
     /// `ToString(e)`, and the pieces fold left-to-right with string `+`.
     /// A literal with no interpolation collapses to one `Str` (its text

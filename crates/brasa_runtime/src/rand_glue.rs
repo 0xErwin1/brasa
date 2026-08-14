@@ -1,4 +1,4 @@
-//! Shared `std::rand` glue (BRS-35, `docs/spec/05-stdlib.md`): one
+//! Shared `std::rand` glue (BRS-35, spec: 05 — Stdlib de scripting): one
 //! hand-rolled, documented PRNG both backends hold per run, so a
 //! seeded sequence is identical on the walker and the VM (and pinnable
 //! in parity tests). Not cryptographic — scripting randomness only.

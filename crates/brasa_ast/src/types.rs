@@ -9,7 +9,7 @@ pub enum TypeExpr {
     Named {
         /// The name as written, which may be a qualified path
         /// (`lib.Point`) naming a type exported by an imported file
-        /// module (`docs/spec/01-syntax.md`, modules).
+        /// module (spec: 01 — Sintaxis, modules).
         ///
         /// The qualifier lives in this `String` rather than in a field
         /// of its own, the way `CatchType::Named` already carries dotted

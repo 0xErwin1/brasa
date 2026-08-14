@@ -1,4 +1,4 @@
-//! The `Map<K, V>` method surface (`docs/spec/05-stdlib.md`, BRS-35).
+//! The `Map<K, V>` method surface (spec: 05 — Stdlib de scripting, BRS-35).
 //!
 //! The receiver that forced [`crate::RecvShape`] to exist. Every other
 //! converted receiver has one type argument or none, and `elem` served

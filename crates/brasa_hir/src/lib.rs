@@ -3,7 +3,7 @@
 //! Same container pattern as `brasa_ast` — per-kind [`brasa_arena::Store`]
 //! arenas, typed `Copy` IDs, and a span side table per category — but the
 //! node set is the small core left after AST→HIR lowering removes every
-//! piece of sugar (`docs/spec/00-vision.md`'s HIR row): `|>` becomes a
+//! piece of sugar (spec: 00 — Visión y alcance's HIR row): `|>` becomes a
 //! plain call, `?.`/`??` become `match` over `Option`, string
 //! interpolation becomes concatenation, and compound assignment becomes
 //! plain assignment. The checker, error-set inference, tree-walker, and

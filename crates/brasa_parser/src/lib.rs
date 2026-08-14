@@ -2,7 +2,7 @@
 //!
 //! Recursive descent for items and statements; Pratt (binding powers) for
 //! expressions, following the precedence table in
-//! `docs/spec/02-grammar.md`. Produces `brasa_ast` arenas plus
+//! spec: 02 — Gramática formal. Produces `brasa_ast` arenas plus
 //! diagnostics with recovery. Implemented in BRS-10/BRS-11.
 //!
 //! # Architecture
@@ -394,7 +394,7 @@ impl<'a> Parser<'a> {
 
     /// Reports one unknown escape sequence (`\<c>` outside the shared
     /// `\n \t \" \\ \#` escape set) at its exact span, per the ruling in
-    /// `docs/spec/02-grammar.md`'s ambiguity table: this is always an
+    /// spec: 02 — Gramática formal's ambiguity table: this is always an
     /// error, never a silent drop or pass-through, in both string and
     /// char literals. Shared by `expr.rs`'s string-literal decoding, which
     /// calls `brasa_token::unescape_string_text_checked`, and

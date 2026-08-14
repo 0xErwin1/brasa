@@ -1,6 +1,6 @@
 //! The instruction set.
 //!
-//! Word-code (`docs/spec/07-bytecode.md`, execution model): each
+//! Word-code (spec: 07 — Diseño del bytecode, execution model): each
 //! instruction is one enum value with inline operands, jump targets are
 //! absolute [`CodeIx`] values. Stack effects below read top-on-the-right
 //! (`a b -> c` pops `b` then `a`, pushes `c`).
@@ -8,7 +8,7 @@
 use crate::{BuiltinId, CodeIx, ConstId, EnumId, FuncId, GlobalIx, SlotIx, StructId};
 
 /// One VM instruction. Semantics are normative in
-/// `docs/spec/07-bytecode.md`; the doc comments here are summaries.
+/// spec: 07 — Diseño del bytecode; the doc comments here are summaries.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Op {
     // --- constants and slots -------------------------------------------
@@ -34,7 +34,7 @@ pub enum Op {
     ///
     /// A binding a closure captures and some scope rebinds lives in a
     /// cell instead of directly in the slot, so the capture and the
-    /// enclosing frame share one binding (`docs/spec/07-bytecode.md`,
+    /// enclosing frame share one binding (spec: 07 — Diseño del bytecode,
     /// closures). Re-executing a binding site makes a NEW cell, which
     /// is what keeps one loop iteration's binding distinct from the
     /// next one's.
@@ -215,7 +215,7 @@ pub enum Op {
 
     // --- errors --------------------------------------------------------
     /// `v ->`: raise `v` as an error signal; handler-table unwinding
-    /// begins (`docs/spec/07-bytecode.md`, throw/catch).
+    /// begins (spec: 07 — Diseño del bytecode, throw/catch).
     Throw,
     /// Peek the caught signal; jump when it is a panic (`_` arms never
     /// catch panics).

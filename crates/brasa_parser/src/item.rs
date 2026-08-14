@@ -245,7 +245,7 @@ impl<'a> Parser<'a> {
     }
 
     /// One name in a `throws` list. Uses the same production as a
-    /// `catch` arm type (`error_type` in `docs/spec/02-grammar.md`), so
+    /// `catch` arm type (`error_type` in spec: 02 — Gramática formal), so
     /// a stdlib-native error (`fs.NotFound`) or a type reached through
     /// an imported module (`utils.ParseError`) is spellable here — the
     /// two halves of the same error contract must accept the same

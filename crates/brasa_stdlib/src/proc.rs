@@ -1,4 +1,4 @@
-//! The `std::proc` member surface (`docs/spec/05-stdlib.md`, BRS-32).
+//! The `std::proc` member surface (spec: 05 — Stdlib de scripting, BRS-32).
 //!
 //! A free module like [`crate::fs`], and the one that needed both of
 //! the table language's newest pieces.
