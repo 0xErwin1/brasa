@@ -88,9 +88,13 @@ struct Frame {
     ret_base: usize,
 }
 
-pub(crate) struct Vm<'a> {
-    module: &'a Module,
-    globals: Vec<Option<Value>>,
+/// One task's execution state: the unit a future scheduler parks and
+/// resumes (spec: 08 — structured concurrency). The value stack, the
+/// frame stack, and the native root stack belong to a task; the heap,
+/// globals, streams, and caches stay on [`Vm`] because every task
+/// shares them.
+#[derive(Default)]
+struct Task {
     stack: Vec<Value>,
     frames: Vec<Frame>,
     /// Shadow root stack for values a native call holds only in Rust
@@ -101,6 +105,28 @@ pub(crate) struct Vm<'a> {
     /// whatever they hold has to be reachable from here or the
     /// collector would sweep it out from under them.
     native_roots: Vec<Value>,
+}
+
+impl Task {
+    /// Every value the collector must reach through this task: its
+    /// value stack and its native root stack (frames hold no values).
+    /// A safepoint that also has parked tasks chains each one's roots
+    /// through this same iterator — one loop extension, not a second
+    /// rooting scheme.
+    fn roots(&self) -> impl Iterator<Item = &Value> {
+        self.stack.iter().chain(self.native_roots.iter())
+    }
+}
+
+pub(crate) struct Vm<'a> {
+    module: &'a Module,
+    globals: Vec<Option<Value>>,
+    /// The running task, held inline so the dispatch loop reaches its
+    /// stack and frames at a fixed offset from `self` — exactly what
+    /// direct fields cost. A future scheduler keeps parked tasks in a
+    /// separate list and swaps them through here; the running task is
+    /// never behind an index or a box the fetch path would chase.
+    task: Task,
     pub(crate) heap: Heap,
     interner: Interner,
     /// Constants pre-materialized at load: string constants are
@@ -162,9 +188,7 @@ impl<'a> Vm<'a> {
         Vm {
             module,
             globals: vec![None; module.globals.len()],
-            stack: Vec::new(),
-            frames: Vec::new(),
-            native_roots: Vec::new(),
+            task: Task::default(),
             heap: Heap::new(gc_budget_bytes),
             interner,
             consts,
@@ -187,7 +211,7 @@ impl<'a> Vm<'a> {
         let result = (|| {
             self.enter_function(FuncId(0), 0, 0)?;
             self.execute_instrumented(1)?;
-            self.stack.clear();
+            self.task.stack.clear();
 
             if let Some(main) = self.module.entry {
                 if self.function(main).arity != 0 {
@@ -197,7 +221,7 @@ impl<'a> Vm<'a> {
                 }
                 self.enter_function(main, 0, 0)?;
                 self.execute_instrumented(1)?;
-                self.stack.clear();
+                self.task.stack.clear();
             }
 
             Ok(())
@@ -241,8 +265,8 @@ impl<'a> Vm<'a> {
         let mut results = Vec::with_capacity(self.module.tests.len());
         for test in &self.module.tests {
             let result = self.call_entry(test.func);
-            self.stack.clear();
-            self.frames.clear();
+            self.task.stack.clear();
+            self.task.frames.clear();
             results.push((test.name.clone(), self.finish(result)));
         }
 
@@ -257,7 +281,7 @@ impl<'a> Vm<'a> {
             self.execute(1)?;
             Ok(())
         })();
-        self.stack.clear();
+        self.task.stack.clear();
 
         self.finish(result)
     }
@@ -266,7 +290,7 @@ impl<'a> Vm<'a> {
     fn call_entry(&mut self, func: FuncId) -> Result<(), Signal> {
         self.enter_function(func, 0, 0)?;
         self.execute(1)?;
-        self.stack.clear();
+        self.task.stack.clear();
 
         Ok(())
     }
@@ -288,7 +312,7 @@ impl<'a> Vm<'a> {
     fn run_program(&mut self) -> Result<(), Signal> {
         self.enter_function(FuncId(0), 0, 0)?;
         self.execute(1)?;
-        self.stack.clear();
+        self.task.stack.clear();
 
         if let Some(main) = self.module.entry {
             if self.function(main).arity != 0 {
@@ -298,7 +322,7 @@ impl<'a> Vm<'a> {
             }
             self.enter_function(main, 0, 0)?;
             self.execute(1)?;
-            self.stack.clear();
+            self.task.stack.clear();
         }
 
         Ok(())
@@ -355,14 +379,20 @@ impl<'a> Vm<'a> {
     /// Active call depth for the guard, excluding the synthetic
     /// `<toplevel>` bottom frame — the walker never counts it.
     fn call_depth(&self) -> usize {
-        let toplevel = usize::from(self.frames.first().is_some_and(|f| f.func == FuncId(0)));
-        self.frames.len() - toplevel
+        let toplevel = usize::from(
+            self.task
+                .frames
+                .first()
+                .is_some_and(|f| f.func == FuncId(0)),
+        );
+        self.task.frames.len() - toplevel
     }
 
     /// Active function names, innermost first, excluding `<toplevel>` —
     /// the walker's panic-stacktrace snapshot.
     fn capture_trace(&self) -> Vec<String> {
-        self.frames
+        self.task
+            .frames
             .iter()
             .rev()
             .filter(|frame| frame.func != FuncId(0))
@@ -396,11 +426,12 @@ impl<'a> Vm<'a> {
 
         let function = self.function(func);
         let floor = base + function.locals as usize;
-        self.stack
-            .reserve(floor + function.max_stack as usize - self.stack.len());
-        self.stack.resize(floor, Value::Unit);
+        self.task
+            .stack
+            .reserve(floor + function.max_stack as usize - self.task.stack.len());
+        self.task.stack.resize(floor, Value::Unit);
 
-        self.frames.push(Frame {
+        self.task.frames.push(Frame {
             func,
             ip: 0,
             base,
@@ -412,10 +443,14 @@ impl<'a> Vm<'a> {
     /// Copies a closure's captured values into the capture slots
     /// (`base + arity ..`) of the just-entered frame.
     fn write_captures(&mut self, closure: &ClosureValue) {
-        let frame = self.frames.last().expect("captures need an active frame");
+        let frame = self
+            .task
+            .frames
+            .last()
+            .expect("captures need an active frame");
         let start = frame.base + self.function(closure.func).arity as usize;
         for (offset, value) in closure.captures.iter().enumerate() {
-            self.stack[start + offset] = value.clone();
+            self.task.stack[start + offset] = value.clone();
         }
     }
 
@@ -444,17 +479,13 @@ impl<'a> Vm<'a> {
         let mut current: Option<FuncId> = None;
         let mut code: &'a [Op] = &[];
 
-        while self.frames.len() >= min_frames {
+        while self.task.frames.len() >= min_frames {
             if self.heap.should_collect() {
-                self.heap.collect(
-                    self.stack
-                        .iter()
-                        .chain(self.globals.iter().flatten())
-                        .chain(self.native_roots.iter()),
-                );
+                self.heap
+                    .collect(self.task.roots().chain(self.globals.iter().flatten()));
             }
 
-            let frame = self.frames.last_mut().expect("loop condition holds");
+            let frame = self.task.frames.last_mut().expect("loop condition holds");
             let func = frame.func;
             let ip = frame.ip;
             frame.ip = ip + 1;
@@ -496,7 +527,7 @@ impl<'a> Vm<'a> {
     pub(crate) fn start_debug(&mut self) -> Result<(), Signal> {
         self.enter_function(FuncId(0), 0, 0)?;
         self.execute_instrumented(1)?;
-        self.stack.clear();
+        self.task.stack.clear();
 
         if let Some(main) = self.module.entry {
             if self.function(main).arity != 0 {
@@ -507,7 +538,7 @@ impl<'a> Vm<'a> {
             self.debug_ran_entry = true;
             self.enter_function(main, 0, 0)?;
             self.execute_instrumented(1)?;
-            self.stack.clear();
+            self.task.stack.clear();
         }
 
         Ok(())
@@ -517,7 +548,7 @@ impl<'a> Vm<'a> {
     /// this picks up exactly where the signal left off.
     pub(crate) fn resume_debug(&mut self) -> Result<(), Signal> {
         self.execute_instrumented(1)?;
-        self.stack.clear();
+        self.task.stack.clear();
 
         // The toplevel finished while paused inside it; `main` is still
         // owed, exactly as `start_debug` would have run it.
@@ -527,7 +558,7 @@ impl<'a> Vm<'a> {
             self.debug_ran_entry = true;
             self.enter_function(main, 0, 0)?;
             self.execute_instrumented(1)?;
-            self.stack.clear();
+            self.task.stack.clear();
         }
 
         Ok(())
@@ -538,12 +569,12 @@ impl<'a> Vm<'a> {
     }
 
     pub(crate) fn frame_depth(&self) -> usize {
-        self.frames.len()
+        self.task.frames.len()
     }
 
     /// The instruction the innermost frame is about to run.
     pub(crate) fn current_position(&self) -> Option<(FuncId, usize)> {
-        self.frames.last().map(|frame| (frame.func, frame.ip))
+        self.task.frames.last().map(|frame| (frame.func, frame.ip))
     }
 
     /// Every frame as `(function, ip, slots)`, outermost first.
@@ -553,12 +584,13 @@ impl<'a> Vm<'a> {
     /// neighbouring frame's value as a local would be worse than
     /// reporting nothing.
     pub(crate) fn frame_views(&self) -> Vec<(FuncId, usize, Vec<Option<Value>>)> {
-        self.frames
+        self.task
+            .frames
             .iter()
             .map(|frame| {
                 let locals = self.function(frame.func).locals as usize;
                 let slots = (0..locals)
-                    .map(|slot| self.stack.get(frame.base + slot).cloned())
+                    .map(|slot| self.task.stack.get(frame.base + slot).cloned())
                     .collect();
 
                 (frame.func, frame.ip, slots)
@@ -590,10 +622,7 @@ impl<'a> Vm<'a> {
     /// from a root to it (BRS-120).
     pub(crate) fn retention_of(&self, target: crate::GcRef) -> Option<Vec<crate::GcRef>> {
         self.heap.retention_path(
-            self.stack
-                .iter()
-                .chain(self.globals.iter().flatten())
-                .chain(self.native_roots.iter()),
+            self.task.roots().chain(self.globals.iter().flatten()),
             target,
         )
     }
@@ -727,19 +756,15 @@ impl<'a> Vm<'a> {
     /// comparison per instruction is affordable, and the samples stay
     /// time-based so the distribution is fair.
     pub(crate) fn execute_instrumented(&mut self, min_frames: usize) -> Result<(), Signal> {
-        while self.frames.len() >= min_frames {
+        while self.task.frames.len() >= min_frames {
             if self.heap.should_collect() {
                 // Collector time is measured apart from interpreted
                 // time: a script slow because of the collector and one
                 // slow because of its own loop want different fixes,
                 // and a single total hides which it is.
                 let started = std::time::Instant::now();
-                self.heap.collect(
-                    self.stack
-                        .iter()
-                        .chain(self.globals.iter().flatten())
-                        .chain(self.native_roots.iter()),
-                );
+                self.heap
+                    .collect(self.task.roots().chain(self.globals.iter().flatten()));
 
                 if let Some(profiler) = self.profile.as_mut() {
                     profiler.add_gc(started.elapsed());
@@ -747,22 +772,22 @@ impl<'a> Vm<'a> {
             }
 
             if self.profile.is_some() {
-                let stack: Vec<FuncId> = self.frames.iter().map(|frame| frame.func).collect();
+                let stack: Vec<FuncId> = self.task.frames.iter().map(|frame| frame.func).collect();
                 self.profile
                     .as_mut()
                     .expect("checked above")
                     .maybe_sample(|| stack.clone());
             }
 
-            let depth = self.frames.len();
-            let frame = self.frames.last().expect("loop condition holds");
+            let depth = self.task.frames.len();
+            let frame = self.task.frames.last().expect("loop condition holds");
             let (func, ip) = (frame.func, frame.ip);
 
             if self.debug_should_stop(func, ip, depth) {
                 return Err(Signal::Breakpoint);
             }
 
-            let frame = self.frames.last_mut().expect("loop condition holds");
+            let frame = self.task.frames.last_mut().expect("loop condition holds");
             frame.ip = ip + 1;
 
             let op = self.function(func).chunk.ops()[ip];
@@ -781,32 +806,32 @@ impl<'a> Vm<'a> {
         let catchable = matches!(signal, Signal::Error(_) | Signal::Panic(_));
 
         loop {
-            if self.frames.len() < min_frames {
+            if self.task.frames.len() < min_frames {
                 return Err(signal);
             }
 
-            let frame = self.frames.last().expect("bounded above min_frames");
+            let frame = self.task.frames.last().expect("bounded above min_frames");
             let function = self.function(frame.func);
             let fault = CodeIx((frame.ip - 1) as u32);
 
             if catchable && let Some(handler) = function.chunk.handler_for(fault) {
                 let floor = frame.base + function.locals as usize;
-                self.stack.truncate(floor + handler.depth as usize);
+                self.task.stack.truncate(floor + handler.depth as usize);
 
                 let caught = match signal {
                     Signal::Error(value) => Caught::Error(value),
                     Signal::Panic(panic) => Caught::Panic(panic),
                     _ => unreachable!("only catchable signals reach a handler"),
                 };
-                self.stack.push(Value::Caught(Rc::new(caught)));
+                self.task.stack.push(Value::Caught(Rc::new(caught)));
 
                 let target = handler.target.0 as usize;
-                self.frames.last_mut().expect("frame still active").ip = target;
+                self.task.frames.last_mut().expect("frame still active").ip = target;
                 return Ok(());
             }
 
-            let frame = self.frames.pop().expect("bounded above min_frames");
-            self.stack.truncate(frame.ret_base);
+            let frame = self.task.frames.pop().expect("bounded above min_frames");
+            self.task.stack.truncate(frame.ret_base);
         }
     }
 
@@ -824,8 +849,8 @@ impl<'a> Vm<'a> {
         values: &[Value],
         body: impl FnOnce(&mut Self) -> VmResult<R>,
     ) -> VmResult<R> {
-        let mark = self.native_roots.len();
-        self.native_roots.extend_from_slice(values);
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.extend_from_slice(values);
 
         let result = body(self);
         self.unroot(mark);
@@ -841,11 +866,11 @@ impl<'a> Vm<'a> {
     /// the run. The retained floor keeps the ordinary small traversals
     /// from reallocating on every call.
     fn unroot(&mut self, mark: usize) {
-        self.native_roots.truncate(mark);
+        self.task.native_roots.truncate(mark);
 
         if mark == 0 {
-            if self.native_roots.capacity() > NATIVE_ROOT_FLOOR {
-                self.native_roots.shrink_to(NATIVE_ROOT_FLOOR);
+            if self.task.native_roots.capacity() > NATIVE_ROOT_FLOOR {
+                self.task.native_roots.shrink_to(NATIVE_ROOT_FLOOR);
             }
             // The collector's allowance was measured while this stack
             // held the traversal's snapshot. That marking cost is gone
@@ -897,17 +922,17 @@ impl<'a> Vm<'a> {
         snapshot: Vec<Value>,
         mut step: impl FnMut(&mut Self, Value) -> VmResult<Option<Value>>,
     ) -> VmResult<Vec<Value>> {
-        let mark = self.native_roots.len();
-        self.native_roots.push(recv.clone());
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.push(recv.clone());
 
-        let base = self.native_roots.len();
-        self.native_roots.extend(snapshot);
-        let end = self.native_roots.len();
+        let base = self.task.native_roots.len();
+        self.task.native_roots.extend(snapshot);
+        let end = self.task.native_roots.len();
 
         for ix in base..end {
-            let item = self.native_roots[ix].clone();
+            let item = self.task.native_roots[ix].clone();
             match step(self, item) {
-                Ok(Some(kept)) => self.native_roots.push(kept),
+                Ok(Some(kept)) => self.task.native_roots.push(kept),
                 Ok(None) => {}
                 Err(signal) => {
                     self.unroot(mark);
@@ -916,7 +941,7 @@ impl<'a> Vm<'a> {
             }
         }
 
-        let kept = self.native_roots.split_off(end);
+        let kept = self.task.native_roots.split_off(end);
         self.unroot(mark);
 
         Ok(kept)
@@ -931,16 +956,16 @@ impl<'a> Vm<'a> {
         snapshot: Vec<Value>,
         mut step: impl FnMut(&mut Self, Value) -> VmResult<Step>,
     ) -> VmResult<Option<Value>> {
-        let mark = self.native_roots.len();
-        self.native_roots.push(recv.clone());
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.push(recv.clone());
 
-        let base = self.native_roots.len();
-        self.native_roots.extend(snapshot);
-        let end = self.native_roots.len();
+        let base = self.task.native_roots.len();
+        self.task.native_roots.extend(snapshot);
+        let end = self.task.native_roots.len();
 
         let mut found = None;
         for ix in base..end {
-            let item = self.native_roots[ix].clone();
+            let item = self.task.native_roots[ix].clone();
             match step(self, item) {
                 Ok(Step::Continue) => {}
                 Ok(Step::Stop(value)) => {
@@ -974,18 +999,19 @@ impl<'a> Vm<'a> {
         snapshot: Vec<(Value, Value)>,
         mut step: impl FnMut(&mut Self, Value, Value) -> VmResult<()>,
     ) -> VmResult<()> {
-        let mark = self.native_roots.len();
-        self.native_roots.push(recv.clone());
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.push(recv.clone());
 
-        let base = self.native_roots.len();
-        self.native_roots
+        let base = self.task.native_roots.len();
+        self.task
+            .native_roots
             .extend(snapshot.into_iter().flat_map(|(a, b)| [a, b]));
-        let end = self.native_roots.len();
+        let end = self.task.native_roots.len();
 
         for ix in (base..end).step_by(2) {
             let (left, right) = (
-                self.native_roots[ix].clone(),
-                self.native_roots[ix + 1].clone(),
+                self.task.native_roots[ix].clone(),
+                self.task.native_roots[ix + 1].clone(),
             );
             if let Err(signal) = step(self, left, right) {
                 self.unroot(mark);
@@ -1006,17 +1032,17 @@ impl<'a> Vm<'a> {
         snapshot: Vec<Value>,
         mut key_of: impl FnMut(&mut Self, &Value) -> VmResult,
     ) -> VmResult<Vec<(Value, Value)>> {
-        let mark = self.native_roots.len();
-        self.native_roots.push(recv.clone());
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.push(recv.clone());
 
-        let base = self.native_roots.len();
-        self.native_roots.extend(snapshot);
-        let end = self.native_roots.len();
+        let base = self.task.native_roots.len();
+        self.task.native_roots.extend(snapshot);
+        let end = self.task.native_roots.len();
 
         for ix in base..end {
-            let item = self.native_roots[ix].clone();
+            let item = self.task.native_roots[ix].clone();
             match key_of(self, &item) {
-                Ok(key) => self.native_roots.push(key),
+                Ok(key) => self.task.native_roots.push(key),
                 Err(signal) => {
                     self.unroot(mark);
                     return Err(signal);
@@ -1024,8 +1050,8 @@ impl<'a> Vm<'a> {
             }
         }
 
-        let keys = self.native_roots.split_off(end);
-        let items = self.native_roots.split_off(base);
+        let keys = self.task.native_roots.split_off(end);
+        let items = self.task.native_roots.split_off(base);
         self.unroot(mark);
 
         Ok(keys.into_iter().zip(items).collect())
@@ -1041,19 +1067,19 @@ impl<'a> Vm<'a> {
         init: Value,
         mut step: impl FnMut(&mut Self, Value, Value) -> VmResult,
     ) -> VmResult {
-        let mark = self.native_roots.len();
-        self.native_roots.push(init);
-        self.native_roots.push(recv.clone());
+        let mark = self.task.native_roots.len();
+        self.task.native_roots.push(init);
+        self.task.native_roots.push(recv.clone());
 
-        let base = self.native_roots.len();
-        self.native_roots.extend(snapshot);
-        let end = self.native_roots.len();
+        let base = self.task.native_roots.len();
+        self.task.native_roots.extend(snapshot);
+        let end = self.task.native_roots.len();
 
         for ix in base..end {
-            let item = self.native_roots[ix].clone();
-            let carried = self.native_roots[mark].clone();
+            let item = self.task.native_roots[ix].clone();
+            let carried = self.task.native_roots[mark].clone();
             match step(self, carried, item) {
-                Ok(next) => self.native_roots[mark] = next,
+                Ok(next) => self.task.native_roots[mark] = next,
                 Err(signal) => {
                     self.unroot(mark);
                     return Err(signal);
@@ -1061,7 +1087,7 @@ impl<'a> Vm<'a> {
             }
         }
 
-        let folded = self.native_roots[mark].clone();
+        let folded = self.task.native_roots[mark].clone();
         self.unroot(mark);
 
         Ok(folded)
@@ -1075,21 +1101,21 @@ impl<'a> Vm<'a> {
 
     #[inline(always)]
     fn push(&mut self, value: Value) {
-        self.stack.push(value);
+        self.task.stack.push(value);
     }
 
     #[inline(always)]
     fn pop(&mut self) -> Value {
-        self.stack.pop().expect("operand stack underflow")
+        self.task.stack.pop().expect("operand stack underflow")
     }
 
     fn pop_n(&mut self, n: usize) -> Vec<Value> {
-        self.stack.split_off(self.stack.len() - n)
+        self.task.stack.split_off(self.task.stack.len() - n)
     }
 
     #[inline(always)]
     fn peek(&self) -> &Value {
-        self.stack.last().expect("operand stack underflow")
+        self.task.stack.last().expect("operand stack underflow")
     }
 
     #[inline(always)]
@@ -1125,12 +1151,12 @@ impl<'a> Vm<'a> {
 
     #[inline(always)]
     fn jump(&mut self, target: CodeIx) {
-        self.frames.last_mut().expect("active frame").ip = target.0 as usize;
+        self.task.frames.last_mut().expect("active frame").ip = target.0 as usize;
     }
 
     #[inline(always)]
     fn frame_base(&self) -> usize {
-        self.frames.last().expect("active frame").base
+        self.task.frames.last().expect("active frame").base
     }
 
     /// The binding cell a frame slot holds.
@@ -1142,7 +1168,7 @@ impl<'a> Vm<'a> {
     /// fatal for the same reason an uninitialized global is.
     #[inline(always)]
     fn binding_ref(&self, slot: brasa_bytecode::SlotIx) -> Result<crate::heap::GcRef, Signal> {
-        match self.stack[self.frame_base() + slot.0 as usize] {
+        match self.task.stack[self.frame_base() + slot.0 as usize] {
             Value::Binding(r) => Ok(r),
             _ => Err(Self::fatal("brasa: slot does not hold a binding")),
         }
@@ -1173,19 +1199,19 @@ impl<'a> Vm<'a> {
                 self.push(top);
             }
             Op::LoadLocal(slot) => {
-                let value = self.stack[self.frame_base() + slot.0 as usize].clone();
+                let value = self.task.stack[self.frame_base() + slot.0 as usize].clone();
                 self.push(value);
             }
             Op::StoreLocal(slot) => {
                 let value = self.pop();
                 let base = self.frame_base();
-                self.stack[base + slot.0 as usize] = value;
+                self.task.stack[base + slot.0 as usize] = value;
             }
             Op::MakeBinding(slot) => {
                 let value = self.pop();
                 let binding = self.heap.alloc_binding(value);
                 let base = self.frame_base();
-                self.stack[base + slot.0 as usize] = binding;
+                self.task.stack[base + slot.0 as usize] = binding;
             }
             Op::LoadBinding(slot) => {
                 let value = self.binding_ref(slot)?;
@@ -1404,7 +1430,7 @@ impl<'a> Vm<'a> {
             }
 
             Op::Call { func, argc } => {
-                let base = self.stack.len() - argc as usize;
+                let base = self.task.stack.len() - argc as usize;
                 self.enter_function(func, base, base)?;
             }
             Op::CallValue { argc } => self.call_value_op(argc as usize)?,
@@ -1432,8 +1458,8 @@ impl<'a> Vm<'a> {
             }
             Op::Ret => {
                 let result = self.pop();
-                let frame = self.frames.pop().expect("ret needs an active frame");
-                self.stack.truncate(frame.ret_base);
+                let frame = self.task.frames.pop().expect("ret needs an active frame");
+                self.task.stack.truncate(frame.ret_base);
                 self.push(result);
             }
 
@@ -1784,9 +1810,9 @@ impl<'a> Vm<'a> {
     /// constraint method is bounded by the same call-depth guard as a
     /// direct call.
     fn call_method_dyn(&mut self, name: &str, argc: usize) -> Result<(), Signal> {
-        let base = self.stack.len() - argc;
+        let base = self.task.stack.len() - argc;
 
-        let Value::Struct(s) = self.stack[base] else {
+        let Value::Struct(s) = self.task.stack[base] else {
             let mut args = self.pop_n(argc);
             let recv = args.remove(0);
             let result = self.method_builtin(name, recv, args)?;
@@ -1807,7 +1833,7 @@ impl<'a> Vm<'a> {
         // A struct field holding a callable: it replaces the receiver
         // on the stack, which leaves exactly an indirect-call layout.
         if let Some(ix) = shape.fields.iter().position(|field| field == name) {
-            self.stack[base] = self.heap.struct_value(s).fields.borrow()[ix].clone();
+            self.task.stack[base] = self.heap.struct_value(s).fields.borrow()[ix].clone();
             return self.call_value_op(argc - 1);
         }
 
@@ -1818,7 +1844,7 @@ impl<'a> Vm<'a> {
             return Ok(());
         }
 
-        self.stack.truncate(base);
+        self.task.stack.truncate(base);
         Err(Self::fatal(format!("brasa: unknown member `{name}`")))
     }
 
@@ -1978,8 +2004,8 @@ impl<'a> Vm<'a> {
     /// `call_value argc`: the callee sits directly below the arguments
     /// and is replaced by the result on return.
     fn call_value_op(&mut self, argc: usize) -> Result<(), Signal> {
-        let callee_ix = self.stack.len() - argc - 1;
-        let callee = self.stack[callee_ix].clone();
+        let callee_ix = self.task.stack.len() - argc - 1;
+        let callee = self.task.stack[callee_ix].clone();
 
         match callee {
             Value::Func(func) => {
@@ -2014,7 +2040,7 @@ impl<'a> Vm<'a> {
                     )));
                 }
                 // The receiver becomes slot 0, below the arguments.
-                self.stack.insert(callee_ix + 1, bound.recv.clone());
+                self.task.stack.insert(callee_ix + 1, bound.recv.clone());
                 self.enter_function(bound.func, callee_ix + 1, callee_ix)
             }
             Value::BoundBuiltin(bound) => {
@@ -2113,18 +2139,18 @@ impl<'a> Vm<'a> {
         closure: Option<&ClosureValue>,
         args: Vec<Value>,
     ) -> VmResult {
-        let ret_base = self.stack.len();
-        self.stack.extend(args);
+        let ret_base = self.task.stack.len();
+        self.task.stack.extend(args);
 
         if let Err(signal) = self.enter_function(func, ret_base, ret_base) {
-            self.stack.truncate(ret_base);
+            self.task.stack.truncate(ret_base);
             return Err(signal);
         }
         if let Some(closure) = closure {
             self.write_captures(closure);
         }
 
-        self.execute(self.frames.len())?;
+        self.execute(self.task.frames.len())?;
         Ok(self.pop())
     }
 
