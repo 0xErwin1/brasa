@@ -34,8 +34,13 @@ pub const EXIT_NEVER_HIT: u8 = 3;
 
 #[derive(clap::Args)]
 pub struct DebugArgs {
-    /// Script to debug.
-    pub script: PathBuf,
+    /// Open the interactive debugger instead of answering one
+    /// question. `brasa debug tui <script>`.
+    #[command(subcommand)]
+    pub mode: Option<Mode>,
+
+    /// Script to debug. Omitted when a mode names its own.
+    pub script: Option<PathBuf>,
 
     /// Where to stop, as `file:line`. Repeatable.
     #[arg(long = "break", value_name = "FILE:LINE")]
@@ -53,6 +58,17 @@ pub struct DebugArgs {
     /// Machine-readable output — the contract for an agent.
     #[arg(long)]
     pub json: bool,
+}
+
+/// A mode of `brasa debug` that is not "answer one question".
+#[derive(clap::Subcommand)]
+pub enum Mode {
+    /// The interactive debugger: source, breakpoints, stepping,
+    /// frames, locals, output and the heap, without leaving it.
+    Tui {
+        /// Script to debug.
+        script: PathBuf,
+    },
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq)]
@@ -99,8 +115,17 @@ struct ReportLocal {
 }
 
 pub fn run(args: &DebugArgs) -> ExitCode {
+    if let Some(Mode::Tui { script }) = &args.mode {
+        return crate::debug_tui::run(script);
+    }
+
+    let Some(script) = &args.script else {
+        eprintln!("brasa: debug needs a script, or a mode such as `tui`");
+        return ExitCode::from(64);
+    };
+
     let mut sources = SourceMap::new();
-    let program = brasa_module::load(&args.script, &mut sources);
+    let program = brasa_module::load(script, &mut sources);
 
     let module = match crate::compile_for_debug(&program, &sources) {
         Ok(module) => module,

@@ -22,6 +22,8 @@
 //! re-entering the loop.
 
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use brasa_bytecode::{CodeIx, FuncId, Module};
 use brasa_source::{FileId, Span};
@@ -47,6 +49,13 @@ pub(crate) enum StepMode {
 pub(crate) struct DebugState {
     breakpoints: HashSet<(FuncId, usize)>,
     mode: StepMode,
+    /// Set from outside the run to stop it at the next instruction.
+    ///
+    /// Atomic and shared because the whole point is to be set while the
+    /// VM is inside its loop and not answering: a UI thread, a signal
+    /// handler. Without it a program between breakpoints cannot be
+    /// interrupted at all, and a long one makes the debugger look hung.
+    interrupt: Arc<AtomicBool>,
     /// Set immediately after a stop so the very next check does not fire
     /// again at the instruction we are resuming ON. Without it every
     /// resume would stop where it just stopped, forever.
@@ -58,6 +67,7 @@ impl DebugState {
         DebugState {
             breakpoints: HashSet::new(),
             mode: StepMode::Run,
+            interrupt: Arc::new(AtomicBool::new(false)),
             resuming: false,
         }
     }
@@ -73,6 +83,13 @@ impl DebugState {
     /// A breakpoint wins over the step mode: a user who set one wants
     /// it, and reaching it while stepping over is still reaching it.
     pub(crate) fn should_stop(&self, func: FuncId, ip: usize, depth: usize) -> bool {
+        // An interrupt outranks everything: it is a person asking the
+        // program to stop, and swapping it for "at the next breakpoint"
+        // would answer a different question.
+        if self.interrupt.swap(false, Ordering::Relaxed) {
+            return true;
+        }
+
         if self.breakpoints.contains(&(func, ip)) {
             return true;
         }
@@ -189,6 +206,17 @@ pub struct Session<'a> {
     vm: crate::vm::Vm<'a>,
     module: &'a Module,
     started: bool,
+    finished: bool,
+}
+
+/// Stops a running session at its next instruction.
+#[derive(Clone)]
+pub struct Interrupt(Arc<AtomicBool>);
+
+impl Interrupt {
+    pub fn request(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
 }
 
 impl<'a> Session<'a> {
@@ -207,6 +235,7 @@ impl<'a> Session<'a> {
             vm,
             module,
             started: false,
+            finished: false,
         }
     }
 
@@ -279,6 +308,27 @@ impl<'a> Session<'a> {
         all
     }
 
+    /// A handle that stops this session at the next instruction.
+    ///
+    /// Cloneable and thread-safe on purpose: it has to be usable while
+    /// the VM is running and therefore not answering.
+    pub fn interrupt(&self) -> Interrupt {
+        Interrupt(
+            self.vm
+                .debug
+                .as_ref()
+                .expect("a session always has debug state")
+                .interrupt
+                .clone(),
+        )
+    }
+
+    /// Whether the run has ended. A finished session answers about the
+    /// state the program left behind, but cannot be resumed.
+    pub fn finished(&self) -> bool {
+        self.finished
+    }
+
     /// Runs until a breakpoint or the end of the program.
     pub fn resume(&mut self) -> Stop {
         self.run_with(StepMode::Run)
@@ -321,7 +371,10 @@ impl<'a> Session<'a> {
                     span: self.span_of(func, ip),
                 }
             }
-            other => Stop::Finished(self.vm.finish_debug(other)),
+            other => {
+                self.finished = true;
+                Stop::Finished(self.vm.finish_debug(other))
+            }
         }
     }
 

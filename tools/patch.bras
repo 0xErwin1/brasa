@@ -1,0 +1,36 @@
+#!/usr/bin/env brasa
+# Literal search-and-replace in a file.
+#
+#   patch.bras <target> <search-file> <replace-file>
+#
+# The search and replacement come from files rather than from argv so
+# that neither the shell nor this script has to quote anything: a diff
+# hunk contains quotes, backslashes and newlines, and every one of them
+# is a chance to corrupt the edit.
+
+import std::env
+import std::fs
+import std::io
+
+def main()
+  let args = env.args()
+  if args.len() != 3
+    io.eprint("usage: patch.bras <target> <search-file> <replace-file>\n")
+    env.exit(64)
+  end
+
+  let target = args[0]
+  let search = fs.read(args[1])
+  let replace = fs.read(args[2])
+
+  let before = fs.read(target)
+  if !before.contains?(search)
+    io.eprint("patch: the search text is not in #{target}\n")
+    env.exit(65)
+  end
+
+  let after = before.replace(search, replace)
+  fs.write(target, after)
+
+  puts "patched #{target}"
+end

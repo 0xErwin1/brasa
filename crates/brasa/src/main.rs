@@ -9,6 +9,7 @@
 
 mod bundle;
 mod debug;
+mod debug_tui;
 mod fmt;
 
 use std::collections::HashMap;
@@ -84,9 +85,6 @@ enum Subcommand {
     /// frames or the locals, exit. `--json` is the contract for an
     /// agent; the plain form renders the same data.
     Debug(debug::DebugArgs),
-    /// Open the terminal UI: compilation report, diagnostics, and the
-    /// heap after the run (BRS-120).
-    Tui(TuiArgs),
     /// Profile a script: where the time goes (BRS-121).
     Profile(ProfileArgs),
     /// Serve the Debug Adapter Protocol over stdin/stdout (BRS-119).
@@ -100,12 +98,6 @@ enum Subcommand {
     /// showing the inferred type and error-set. Not meant to be run by
     /// hand — an editor starts it.
     Lsp,
-}
-
-#[derive(clap::Args)]
-struct TuiArgs {
-    /// Script to compile and inspect.
-    script: PathBuf,
 }
 
 #[derive(clap::Args)]
@@ -155,7 +147,6 @@ fn main() -> ExitCode {
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
         Some(Subcommand::Debug(args)) => return debug::run(args),
-        Some(Subcommand::Tui(args)) => return run_tui(args),
         Some(Subcommand::Profile(args)) => return run_profile(args),
         Some(Subcommand::Dap) => return run_dap(),
         Some(Subcommand::Lsp) => return run_lsp(),
@@ -183,52 +174,6 @@ fn compile_for_debug(
     match compile_program(program, sources, true, false, Dumps::default()) {
         Compiled::Module(result) => Ok(result.module),
         Compiled::Stopped(code) => Err(code),
-    }
-}
-
-/// Compiles a script, runs it if it compiled, and shows the result in
-/// the terminal UI.
-///
-/// Every phase's diagnostics are collected rather than stopping at the
-/// first dirty one: a reader looking at a list wants the whole list,
-/// which is the same trade the LSP makes and the opposite of a batch
-/// compile's.
-fn run_tui(args: &TuiArgs) -> ExitCode {
-    let mut sources = SourceMap::new();
-    let program = brasa_module::load(&args.script, &mut sources);
-
-    let (diagnostics, module) = analyze_for_tui(&program, &sources);
-
-    let mut report = brasa_tui::model::Report {
-        title: args.script.display().to_string(),
-        entries: diagnostics
-            .iter()
-            .map(|diagnostic| brasa_tui::model::Entry::from_diagnostic(&sources, diagnostic))
-            .collect(),
-        outcome: None,
-        heap: None,
-    };
-
-    if let Some(module) = module {
-        let mut out = Vec::new();
-        let (outcome, heap) = brasa_vm::run_observed(&module, &mut out, &[]);
-
-        report.outcome = Some(match outcome {
-            brasa_runtime::Outcome::Success => "ran cleanly".to_string(),
-            brasa_runtime::Outcome::Error { message } => format!("error: {message}"),
-            brasa_runtime::Outcome::Panic { message } => format!("panic: {message}"),
-            brasa_runtime::Outcome::Exit { code } => format!("exit {code}"),
-            brasa_runtime::Outcome::BrokenPipe => "output closed".to_string(),
-        });
-        report.heap = Some(heap.into());
-    }
-
-    match brasa_tui::show(report) {
-        Ok(()) => ExitCode::from(0),
-        Err(err) => {
-            eprintln!("brasa: {err}");
-            ExitCode::from(70)
-        }
     }
 }
 
@@ -386,7 +331,7 @@ enum Compiled {
 /// since `brasa fmt --check` is genuinely ours.
 fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
     const SUBCOMMANDS: &[&str] = &[
-        "fmt", "test", "bundle", "lsp", "dap", "debug", "profile", "tui", "help",
+        "fmt", "test", "bundle", "lsp", "dap", "debug", "profile", "help",
     ];
 
     let argv: Vec<String> = argv.collect();
