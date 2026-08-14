@@ -30,13 +30,31 @@ fn run_source(entry: &Path, args: &[&str]) -> Output {
     brasa(&argv)
 }
 
+/// Spawning a freshly written executable can hit ETXTBSY on Linux: a
+/// sibling test forking at the wrong moment briefly inherits the write
+/// fd of the file this thread just closed. Retry until the window
+/// passes rather than serializing the whole suite.
 fn run_tool(tool: &Path, args: &[&str]) -> Output {
-    Command::new(tool)
-        .args(args)
-        .env_remove("BRASA_PATH")
-        .stdin(Stdio::null())
-        .output()
-        .expect("failed to spawn the bundled tool")
+    let mut attempts = 0;
+
+    loop {
+        let spawned = Command::new(tool)
+            .args(args)
+            .env_remove("BRASA_PATH")
+            .stdin(Stdio::null())
+            .output();
+
+        match spawned {
+            Ok(output) => return output,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 =>
+            {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => panic!("failed to spawn the bundled tool: {error:?}"),
+        }
+    }
 }
 
 fn bundle(entry: &Path, output: &Path) -> Output {
