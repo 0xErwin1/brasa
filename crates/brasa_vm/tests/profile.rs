@@ -110,7 +110,14 @@ fn main_has_no_self_time_and_all_the_total_time() {
         .find(|f| f.name == "main")
         .expect("`main` is on every stack");
 
-    assert_eq!(main.self_samples, 0, "`main` calls; it does not compute");
+    // Not exactly zero: a sample can land while `main` runs a native
+    // call (`puts`), which executes in `main`'s own frame.
+    assert!(
+        main.self_samples * 10 <= profile.samples,
+        "`main` calls; it does not compute ({} self samples of {})",
+        main.self_samples,
+        profile.samples
+    );
     assert_eq!(
         main.total_samples, profile.samples,
         "`main` is on the stack for the whole run"
