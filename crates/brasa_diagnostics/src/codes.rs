@@ -123,8 +123,9 @@ pub const T_NOT_CALLABLE: &str = "T006";
 /// A member access naming no field or method on the receiver's type;
 /// the message names the receiver kind.
 pub const T_UNKNOWN_MEMBER: &str = "T007";
-/// `join` called on a `Vector` whose element type is not `string`.
-pub const T_JOIN_REQUIRES_STRING_VECTOR: &str = "T008";
+// "T008" (`join` requires `Vector<string>`) was retired when
+// `Vector.join` started accepting any element type; the number is
+// burned and must not be reassigned.
 /// Assignment to something that cannot be assigned: an immutable
 /// binding, `self`, or a non-assignable name.
 pub const T_CANNOT_ASSIGN: &str = "T009";
@@ -293,7 +294,6 @@ mod tests {
         super::T_WRONG_ARG_COUNT,
         super::T_NOT_CALLABLE,
         super::T_UNKNOWN_MEMBER,
-        super::T_JOIN_REQUIRES_STRING_VECTOR,
         super::T_CANNOT_ASSIGN,
         super::T_INVALID_ASSIGNMENT_TARGET,
         super::T_STRINGS_NOT_INDEXABLE,

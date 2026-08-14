@@ -1791,18 +1791,6 @@ impl<'a> Checker<'a> {
             return;
         }
 
-        if let Type::Vector(_) = recv
-            && name == "join"
-        {
-            self.error(err_at(
-                codes::T_JOIN_REQUIRES_STRING_VECTOR,
-                span,
-                format!("`join` requires `Vector<string>`, found `{shown}`"),
-                "element type is not `string`",
-            ));
-            return;
-        }
-
         let diagnostic = err_at(
             codes::T_UNKNOWN_MEMBER,
             span,
