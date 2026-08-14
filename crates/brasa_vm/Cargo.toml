@@ -8,6 +8,7 @@ edition.workspace = true
 
 [dependencies]
 brasa_bytecode = { workspace = true }
+brasa_source = { workspace = true }
 brasa_runtime = { workspace = true }
 brasa_stdlib = { workspace = true }
 regex = { workspace = true }

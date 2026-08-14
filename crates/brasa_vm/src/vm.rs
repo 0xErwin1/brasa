@@ -58,6 +58,12 @@ pub(crate) enum Signal {
     /// handler unwinding tests for `Error`/`Panic`, so a new variant
     /// passes every `catch` by construction.
     Exit(i32),
+    /// A debug session stopped the run (BRS-117). Not catchable, for the
+    /// same reason `Exit` is not: handler unwinding tests for
+    /// `Error`/`Panic` only, so this passes every `catch` by
+    /// construction — which is what lets a session pause with the frame
+    /// stack and the operand stack exactly as the program left them.
+    Breakpoint,
 }
 
 pub(crate) type VmResult<T = Value> = Result<T, Signal>;
@@ -121,6 +127,13 @@ pub(crate) struct Vm<'a> {
     /// startup, reset deterministically by `rand.seed`
     /// (`brasa_runtime::rand_glue`).
     pub(crate) rng: brasa_runtime::rand_glue::Rng,
+    /// Present only while a debug session is driving this VM (BRS-117).
+    /// `None` on every ordinary run, and the field the dispatch loop
+    /// never looks at — see [`Vm::execute_debug`].
+    pub(crate) debug: Option<crate::debug::DebugState>,
+    /// Whether a debugged run has already entered `main`, so a resume
+    /// that finishes `<toplevel>` does not run it twice.
+    debug_ran_entry: bool,
 }
 
 impl<'a> Vm<'a> {
@@ -160,6 +173,8 @@ impl<'a> Vm<'a> {
             script_args: args.to_vec(),
             env_overlay: std::collections::HashMap::new(),
             rng: brasa_runtime::rand_glue::Rng::from_entropy(),
+            debug: None,
+            debug_ran_entry: false,
         }
     }
 
@@ -253,6 +268,14 @@ impl<'a> Vm<'a> {
     fn finish(&mut self, result: Result<(), Signal>) -> Outcome {
         match result {
             Ok(()) => Outcome::Success,
+            // A session that is still paused never reaches here: the
+            // signal is answered as a `Stop`, and only a run that ended
+            // is finished. Reaching this means a debug loop escaped its
+            // session, which is a bug in the substrate, not a run
+            // outcome.
+            Err(Signal::Breakpoint) => Outcome::Panic {
+                message: "brasa: debug pause escaped its session".to_string(),
+            },
             Err(Signal::Error(value)) => {
                 let tag = self.nominal_tag(&value);
                 let rendered = self
@@ -403,6 +426,244 @@ impl<'a> Vm<'a> {
             }
 
             if let Err(signal) = self.step(code[ip]) {
+                self.unwind(signal, min_frames)?;
+            }
+        }
+        Ok(())
+    }
+
+    // --- debug substrate (BRS-117) -------------------------------------
+
+    /// Whether the debug loop should stop before `(func, ip)`.
+    ///
+    /// Only ever called from [`Vm::execute_debug`].
+    fn debug_should_stop(&mut self, func: FuncId, ip: usize, depth: usize) -> bool {
+        let Some(state) = self.debug.as_mut() else {
+            return false;
+        };
+
+        // The instruction we are resuming ON is the one we just stopped
+        // at. Checking it again would stop forever.
+        if state.take_resuming() {
+            return false;
+        }
+
+        state.should_stop(func, ip, depth)
+    }
+
+    /// Enters the debug loop for the first time: `<toplevel>`, then
+    /// `main` if the module has one — the same order [`Vm::run_program`]
+    /// uses, so a debugged run is the run the user would get.
+    pub(crate) fn start_debug(&mut self) -> Result<(), Signal> {
+        self.enter_function(FuncId(0), 0, 0)?;
+        self.execute_debug(1)?;
+        self.stack.clear();
+
+        if let Some(main) = self.module.entry {
+            if self.function(main).arity != 0 {
+                return Err(Signal::Fatal(
+                    "brasa: `main` must take no parameters".to_string(),
+                ));
+            }
+            self.debug_ran_entry = true;
+            self.enter_function(main, 0, 0)?;
+            self.execute_debug(1)?;
+            self.stack.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Re-enters the loop after a pause. The frames are untouched, so
+    /// this picks up exactly where the signal left off.
+    pub(crate) fn resume_debug(&mut self) -> Result<(), Signal> {
+        self.execute_debug(1)?;
+        self.stack.clear();
+
+        // The toplevel finished while paused inside it; `main` is still
+        // owed, exactly as `start_debug` would have run it.
+        if let Some(main) = self.module.entry
+            && !self.debug_ran_entry
+        {
+            self.debug_ran_entry = true;
+            self.enter_function(main, 0, 0)?;
+            self.execute_debug(1)?;
+            self.stack.clear();
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn finish_debug(&mut self, result: Result<(), Signal>) -> Outcome {
+        self.finish(result)
+    }
+
+    pub(crate) fn frame_depth(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// The instruction the innermost frame is about to run.
+    pub(crate) fn current_position(&self) -> Option<(FuncId, usize)> {
+        self.frames.last().map(|frame| (frame.func, frame.ip))
+    }
+
+    /// Every frame as `(function, ip, slots)`, outermost first.
+    ///
+    /// A slot beyond what the stack actually holds reads as `None`: a
+    /// frame pauses part-way through its own prologue, and reporting a
+    /// neighbouring frame's value as a local would be worse than
+    /// reporting nothing.
+    pub(crate) fn frame_views(&self) -> Vec<(FuncId, usize, Vec<Option<Value>>)> {
+        self.frames
+            .iter()
+            .map(|frame| {
+                let locals = self.function(frame.func).locals as usize;
+                let slots = (0..locals)
+                    .map(|slot| self.stack.get(frame.base + slot).cloned())
+                    .collect();
+
+                (frame.func, frame.ip, slots)
+            })
+            .collect()
+    }
+
+    /// One value rendered one level deep (`crate::debug::ValueView`).
+    pub(crate) fn value_view(&self, value: &Value) -> crate::debug::ValueView {
+        crate::debug::ValueView {
+            summary: self.debug_summary(value),
+            children: self.debug_children(value),
+        }
+    }
+
+    /// A one-line rendering that never runs user code.
+    ///
+    /// Deliberately NOT `Vm::display`: that dispatches to a struct's own
+    /// `toString`, and a debugger must not execute the program to
+    /// describe it. Running a method while paused could have side
+    /// effects, could throw with nowhere to unwind to, and would report
+    /// what the program says about a value rather than what the value
+    /// is — which is the one thing a debugger is for.
+    fn debug_summary(&self, value: &Value) -> String {
+        match value {
+            Value::Int(v) => v.to_string(),
+            Value::Float(v) => format!("{v:?}"),
+            Value::Bool(v) => v.to_string(),
+            Value::Char(v) => format!("{v:?}"),
+            Value::Unit => "unit".to_string(),
+            Value::Str(s) => format!("{:?}", &**s),
+            Value::Range { lo, hi, inclusive } => {
+                let dots = if *inclusive { "..=" } else { ".." };
+                format!("{lo}{dots}{hi}")
+            }
+            Value::Tuple(items) => format!("tuple of {}", items.len()),
+            Value::Vector(r) => format!("Vector of {}", self.heap.vector(*r).borrow().len()),
+            Value::Map(r) => format!("Map of {}", self.heap.map(*r).borrow().len()),
+            Value::Set(r) => format!("Set of {}", self.heap.set(*r).borrow().len()),
+            Value::Option(None) => "None".to_string(),
+            Value::Option(Some(_)) => "Some(…)".to_string(),
+            Value::Struct(r) => {
+                let value = self.heap.struct_value(*r);
+                self.module.structs[value.shape.0 as usize].name.clone()
+            }
+            Value::Enum(e) => format!("enum variant {}", e.variant),
+            Value::Func(f) => format!("fn {}", self.function(*f).name),
+            Value::Closure(_) => "closure".to_string(),
+            Value::BoundMethod(_) => "bound method".to_string(),
+            Value::BoundBuiltin(_) => "bound builtin".to_string(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    /// One level of children, summarised. Never recurses: a cyclic
+    /// value would not terminate and a large one would cost more than
+    /// the question is worth.
+    fn debug_children(&self, value: &Value) -> Vec<(String, String)> {
+        match value {
+            Value::Vector(r) => self
+                .heap
+                .vector(*r)
+                .borrow()
+                .iter()
+                .enumerate()
+                .map(|(ix, item)| (ix.to_string(), self.debug_summary(item)))
+                .collect(),
+            Value::Tuple(items) => items
+                .iter()
+                .enumerate()
+                .map(|(ix, item)| (ix.to_string(), self.debug_summary(item)))
+                .collect(),
+            Value::Map(r) => self
+                .heap
+                .map(*r)
+                .borrow()
+                .entries()
+                .iter()
+                .map(|(key, val)| (self.debug_summary(key), self.debug_summary(val)))
+                .collect(),
+            Value::Set(r) => self
+                .heap
+                .set(*r)
+                .borrow()
+                .iter()
+                .enumerate()
+                .map(|(ix, item)| (ix.to_string(), self.debug_summary(item)))
+                .collect(),
+            Value::Option(Some(inner)) => vec![("Some".to_string(), self.debug_summary(inner))],
+            Value::Struct(r) => {
+                let value = self.heap.struct_value(*r);
+                let shape = &self.module.structs[value.shape.0 as usize];
+
+                shape
+                    .fields
+                    .iter()
+                    .zip(value.fields.borrow().iter())
+                    .map(|(name, field)| (name.clone(), self.debug_summary(field)))
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// [`Vm::execute`]'s twin, used only while a debug session is
+    /// attached (BRS-117).
+    ///
+    /// It is a SEPARATE loop on purpose. The ticket's requirement is
+    /// that a breakpoint cost nothing when none is set, and the
+    /// original plan was to patch a trap instruction into the chunk so
+    /// the one shared loop stayed byte-identical. That does not work
+    /// here: the VM runs on a spawned thread for its stack size, so
+    /// `Module` must be `Sync`, and interior mutability on the code
+    /// would take that away.
+    ///
+    /// Splitting the loop makes the guarantee structural instead of
+    /// argued — `execute` above is untouched, so there is nothing to
+    /// re-measure — and it makes the patching unnecessary, since a cold
+    /// loop can afford an ordinary lookup. No new opcode, no saved-op
+    /// table, and no unpatch-step-repatch dance on resume.
+    fn execute_debug(&mut self, min_frames: usize) -> Result<(), Signal> {
+        while self.frames.len() >= min_frames {
+            if self.heap.should_collect() {
+                self.heap.collect(
+                    self.stack
+                        .iter()
+                        .chain(self.globals.iter().flatten())
+                        .chain(self.native_roots.iter()),
+                );
+            }
+
+            let depth = self.frames.len();
+            let frame = self.frames.last().expect("loop condition holds");
+            let (func, ip) = (frame.func, frame.ip);
+
+            if self.debug_should_stop(func, ip, depth) {
+                return Err(Signal::Breakpoint);
+            }
+
+            let frame = self.frames.last_mut().expect("loop condition holds");
+            frame.ip = ip + 1;
+
+            let op = self.function(func).chunk.ops()[ip];
+            if let Err(signal) = self.step(op) {
                 self.unwind(signal, min_frames)?;
             }
         }

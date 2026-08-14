@@ -33,6 +33,8 @@ mod value;
 mod vm;
 
 pub use brasa_runtime::{Outcome, Streams};
+pub mod debug;
+
 pub use heap::{DEFAULT_GC_BUDGET_BYTES, GcRef};
 pub use value::Value;
 
