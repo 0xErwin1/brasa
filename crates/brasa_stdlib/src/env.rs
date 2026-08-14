@@ -66,41 +66,6 @@ mod tests {
         assert_eq!(EnvMember::from_name("home"), None);
     }
 
-    /// A receiver-less table cannot mention the receiver's element
-    /// type; `lower` would panic at the first call site rather than
-    /// here (`crate::fs` carries the same guard).
-    #[test]
-    fn no_row_mentions_the_receiver_element_type() {
-        fn mentions_elem(desc: &crate::TyDesc) -> bool {
-            match desc {
-                crate::TyDesc::Elem => true,
-                crate::TyDesc::Vector(inner) | crate::TyDesc::Option(inner) => mentions_elem(inner),
-                crate::TyDesc::Map(key, value) => mentions_elem(key) || mentions_elem(value),
-                crate::TyDesc::Tuple(items) => items.iter().any(mentions_elem),
-                crate::TyDesc::Fn(params, ret) => {
-                    params.iter().any(mentions_elem) || mentions_elem(ret)
-                }
-                _ => false,
-            }
-        }
-
-        for decl in ENV_MEMBERS {
-            let types = decl
-                .required
-                .iter()
-                .chain(decl.optional)
-                .chain(std::iter::once(&decl.ret));
-
-            for desc in types {
-                assert!(
-                    !mentions_elem(desc),
-                    "`env.{}` mentions `elem`, but a free module has no receiver",
-                    decl.name
-                );
-            }
-        }
-    }
-
     /// The filesystem pair is the whole of this module's error
     /// contribution. A third thrower appearing here would put a `catch`
     /// obligation on scripts that only read a variable.

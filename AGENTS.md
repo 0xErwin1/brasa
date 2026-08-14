@@ -76,17 +76,22 @@ There is no separate interpreter crate. The stdlib is native builtins:
 resolves signatures and `brasa_vm::builtins` implements them. BRS-96 is
 collapsing the surface those three used to declare separately into one
 table per module in `brasa_stdlib`; `Vector` (a receiver type, via
-`method_table!`) and the free modules `std::fs`, `std::json`, `std::io`
-and `std::env` (via `module_table!`, which also carries each member's
-error contribution) are converted, every other module still declares its
-signature, its errors and its implementation by hand. Converted free
-modules are listed in `brasa_stdlib::FREE_MODULES`, which is what the
-checker's lookup and the bytecode registry's cross-check walk, so
+`method_table!`) and the free modules `std::fs`, `std::json`, `std::io`,
+`std::env` and `std::proc` (via `module_table!`, which also carries each
+member's error contribution) are converted; `math`, `time` and `rand`
+still declare their signature, their errors and their implementation by
+hand. Converted free modules are listed in
+`brasa_stdlib::FREE_MODULES`, which is what the checker's lookup, the
+bytecode registry's cross-check and the table guards walk, so
 converting the next one does not mean editing them. The two shapes are
 deliberately separate: a
 free module has no receiver element type and no argument-dependent
 result, and a receiver method has neither optional trailing parameters
-nor an error list. Ids stay hand-minted in `brasa_bytecode` and are
+nor an error list. A parameter may be a rule rather than a type
+(`ParamDesc::Command`, the argv-or-split-string a `proc` runner takes);
+a result never is, so `TyDesc` always lowers to exactly one type. The
+stdlib records (`Output`, `Response`, `Args`, `Walk`) fit neither
+table shape and stay hand-written in `brasa_typeck::check`. Ids stay hand-minted in `brasa_bytecode` and are
 frozen by `crates/brasa_bytecode/tests/builtin_ids.rs`.
 `brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
 behaviour oracle it used to be is now the conformance corpus at

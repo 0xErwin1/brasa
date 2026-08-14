@@ -13,7 +13,7 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
-use brasa_stdlib::{EnvMember, FsMember, IoMember, JsonMember, VectorMember};
+use brasa_stdlib::{EnvMember, FsMember, IoMember, JsonMember, ProcMember, VectorMember};
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -28,13 +28,12 @@ const STRING_PARSE_ERROR: &str = "string.ParseError";
 /// (mirrors `brasa_resolver::STRING_REGEX_ERROR`).
 const STRING_REGEX_ERROR: &str = "string.RegexError";
 
-/// The canonical qualified name of the native `proc` non-zero-exit
-/// error (mirrors `brasa_resolver::PROC_NON_ZERO_EXIT`).
-const PROC_NON_ZERO_EXIT: &str = "proc.NonZeroExit";
-
-/// The canonical qualified name of the native `proc` spawn error
-/// (mirrors `brasa_resolver::PROC_SPAWN_ERROR`).
-const PROC_SPAWN_ERROR: &str = "proc.SpawnError";
+/// The two native `proc` error names, taken from the declaration the
+/// checker and the error-set pass read (BRS-96) rather than spelled
+/// again here. They used to be a hand-written mirror of the resolver's,
+/// which the VM cannot depend on without learning about the checker;
+/// `brasa_stdlib` has no dependencies, so both sides can share it.
+use brasa_stdlib::proc::{NON_ZERO_EXIT as PROC_NON_ZERO_EXIT, SPAWN_ERROR as PROC_SPAWN_ERROR};
 
 /// The canonical qualified name of the native `http` request error
 /// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
@@ -111,34 +110,38 @@ impl Vm<'_> {
         }
     }
 
-    /// The `std::proc` runners, ported from the walker's `proc_call`
-    /// (BRS-32, `docs/spec/05-stdlib.md`): `run`/`tryRun` take an argv
+    /// The `std::proc` runners, dispatched through the declared member
+    /// enum (`brasa_stdlib::proc`, BRS-96): `run`/`tryRun` take an argv
     /// vector or a whitespace-split string, `shell` runs via
     /// `/bin/sh -c`; every runner accepts an optional trailing stdin
     /// string. `run`/`shell` throw `proc.NonZeroExit` on a non-zero
     /// exit; every runner throws `proc.SpawnError` when the child
     /// cannot start.
+    ///
+    /// Strictness is now asked positively — which members report a
+    /// non-zero exit — rather than as "not `tryRun`". The negative form
+    /// answered for members it had never been shown: a tolerant runner
+    /// added beside `tryRun` would have inherited the strict throw
+    /// without anyone editing this line.
     fn proc_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        if name == "tryRunAll" {
+        let Some(member) = ProcMember::from_name(name) else {
+            return Err(unknown_module_member(ProcMember::MODULE, name));
+        };
+
+        if member == ProcMember::TryRunAll {
             return self.proc_try_run_all(args);
         }
 
-        if !matches!(name, "run" | "tryRun" | "shell") {
-            return Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `proc`"
-            )));
-        }
-
-        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `proc.{name}`"));
+        let invalid = || invalid_module_args(ProcMember::MODULE, name);
         let (cmd, stdin) = match args.as_slice() {
             [cmd] => (cmd, None),
             [cmd, Value::Str(text)] => (cmd, Some(text.clone())),
             _ => return Err(invalid()),
         };
 
-        let (argv, shown) = match (name, cmd) {
-            ("shell", Value::Str(line)) => (shell_argv(line), line.to_string()),
-            ("shell", _) => return Err(invalid()),
+        let (argv, shown) = match (member, cmd) {
+            (ProcMember::Shell, Value::Str(line)) => (shell_argv(line), line.to_string()),
+            (ProcMember::Shell, _) => return Err(invalid()),
             (_, Value::Str(line)) => {
                 let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
                 let shown = argv.join(" ");
@@ -162,7 +165,8 @@ impl Vm<'_> {
         let output = run_command(&argv, stdin.as_deref(), &self.env_overlay)
             .map_err(|message| native_error(PROC_SPAWN_ERROR, message))?;
 
-        if name != "tryRun" && output.code != 0 {
+        let strict = matches!(member, ProcMember::Run | ProcMember::Shell);
+        if strict && output.code != 0 {
             let message = non_zero_exit_message(&shown, &output);
             return Err(native_error(PROC_NON_ZERO_EXIT, message));
         }

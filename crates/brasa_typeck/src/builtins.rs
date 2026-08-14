@@ -7,13 +7,13 @@
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
 //!
-//! The `Vector<T>` receiver and the `std::fs`, `std::json`, `std::io`
-//! and `std::env` modules no longer live here: each is declared once in
-//! `brasa_stdlib` and lowered below (BRS-96). The remaining receivers
-//! and modules still carry their signatures — and, for the modules,
-//! their error contributions — in this file.
+//! The `Vector<T>` receiver and the `std::fs`, `std::json`, `std::io`,
+//! `std::env` and `std::proc` modules no longer live here: each is
+//! declared once in `brasa_stdlib` and lowered below (BRS-96). The
+//! remaining receivers and modules still carry their signatures — and,
+//! for the modules, their error contributions — in this file.
 
-use brasa_stdlib::{RetDesc, TyDesc, VectorMember};
+use brasa_stdlib::{ParamDesc, RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -143,6 +143,7 @@ fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
         TyDesc::Unknown => Type::Unknown,
         TyDesc::Walk => Type::Walk,
         TyDesc::Json => Type::Json,
+        TyDesc::ProcOutput => Type::ProcOutput,
         TyDesc::Elem => elem
             .expect("a receiver-less declaration cannot mention the receiver's element type")
             .clone(),
@@ -300,9 +301,7 @@ pub struct ModuleSig {
 /// `throws` column (`brasa_stdlib`, BRS-96); the modules below still
 /// declare their contribution here.
 pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
-    use brasa_resolver::{
-        CLI_USAGE_ERROR, HTTP_REQUEST_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
-    };
+    use brasa_resolver::{CLI_USAGE_ERROR, HTTP_REQUEST_ERROR};
 
     if brasa_stdlib::is_free_module(module) {
         return match brasa_stdlib::free_member(module, name) {
@@ -312,11 +311,6 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
     }
 
     match (module, name) {
-        // BRS-32: the runners raise `NonZeroExit` on a non-zero exit and
-        // `SpawnError` when the child cannot start. The tolerant forms
-        // keep only the second — a non-zero exit is their result.
-        ("proc", "run" | "shell") => &[PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR],
-        ("proc", "tryRun" | "tryRunAll") => &[PROC_SPAWN_ERROR],
         // BRS-113: a non-2xx status is an answer, so only a request that
         // never produced a response throws.
         ("http", "get" | "post") => &[HTTP_REQUEST_ERROR],
@@ -349,21 +343,6 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
     }
 
     match (module, name) {
-        // Every runner takes an optional trailing stdin string and
-        // returns `Output`.
-        ("proc", "run" | "tryRun") => Some(msig(
-            vec![ModuleParam::Command],
-            vec![ModuleParam::Ty(Type::String)],
-            Type::ProcOutput,
-        )),
-        // The commands are argv arrays only: the whitespace-split
-        // string sugar exists for a literal command an author typed,
-        // and a batch is built from data.
-        ("proc", "tryRunAll") => Some(msig(
-            vec![ModuleParam::Ty(Type::vector(Type::vector(Type::String)))],
-            vec![ModuleParam::Ty(Type::Int)],
-            Type::vector(Type::ProcOutput),
-        )),
         ("cli", "parse") => Some(msig(
             vec![
                 ModuleParam::Ty(Type::vector(Type::String)),
@@ -389,11 +368,6 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
             vec![ModuleParam::Ty(Type::Int)],
             Type::HttpResponse,
-        )),
-        ("proc", "shell") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![ModuleParam::Ty(Type::String)],
-            Type::ProcOutput,
         )),
         // `std::math` (BRS-35): the float members. `abs`/`min`/`max`
         // are polymorphic over `int`/`float` and are special-cased in
@@ -432,10 +406,13 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
 fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
     let decl = brasa_stdlib::free_member(module, name)?;
 
-    let params = |descs: &'static [TyDesc]| {
+    let params = |descs: &'static [ParamDesc]| {
         descs
             .iter()
-            .map(|desc| ModuleParam::Ty(lower(desc, None)))
+            .map(|desc| match desc {
+                ParamDesc::Ty(ty) => ModuleParam::Ty(lower(ty, None)),
+                ParamDesc::Command => ModuleParam::Command,
+            })
             .collect()
     };
 
@@ -917,6 +894,14 @@ mod stdlib_declaration_tests {
             brasa_stdlib::json::PARSE_ERROR,
             brasa_resolver::JSON_PARSE_ERROR
         );
+        assert_eq!(
+            brasa_stdlib::proc::NON_ZERO_EXIT,
+            brasa_resolver::PROC_NON_ZERO_EXIT
+        );
+        assert_eq!(
+            brasa_stdlib::proc::SPAWN_ERROR,
+            brasa_resolver::PROC_SPAWN_ERROR
+        );
     }
 
     /// And the general form of the same rule, which is what keeps a
@@ -955,6 +940,43 @@ mod stdlib_declaration_tests {
                 "`env.{name}` contributes an error, but only the filesystem members throw"
             );
         }
+    }
+
+    /// The command rule survives the table, which is the whole reason
+    /// it is a parameter rule rather than a type: `run` and `tryRun`
+    /// must still reach the checker's two-candidate acceptance test and
+    /// its bespoke wording, not a single expected type.
+    #[test]
+    fn the_proc_runners_keep_the_command_rule_through_the_table() {
+        for name in ["run", "tryRun"] {
+            let sig = module_member("proc", name).expect("the runner exists");
+
+            assert!(
+                matches!(sig.required.as_slice(), [ModuleParam::Command]),
+                "`proc.{name}` lost the command rule"
+            );
+            assert!(matches!(
+                sig.optional.as_slice(),
+                [ModuleParam::Ty(Type::String)]
+            ));
+            assert_eq!(sig.ret, Type::ProcOutput);
+        }
+
+        // `shell` takes a command LINE and `tryRunAll` takes argv
+        // arrays; a command rule on either would widen what they accept.
+        let shell = module_member("proc", "shell").expect("shell exists");
+        assert!(matches!(
+            shell.required.as_slice(),
+            [ModuleParam::Ty(Type::String)]
+        ));
+
+        let all = module_member("proc", "tryRunAll").expect("tryRunAll exists");
+        assert!(
+            matches!(all.required.as_slice(), [ModuleParam::Ty(ty)] if
+                *ty == Type::vector(Type::vector(Type::String))),
+            "`proc.tryRunAll` takes argv arrays only"
+        );
+        assert_eq!(all.ret, Type::vector(Type::ProcOutput));
     }
 
     /// The one signature on the `env` surface that needed a type the

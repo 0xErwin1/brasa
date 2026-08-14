@@ -82,7 +82,6 @@ crate::module_table! {
 #[cfg(test)]
 mod tests {
     use super::{ALL_ERRORS, CWD_ERRORS, FS_MEMBERS, FsMember};
-    use crate::TyDesc;
 
     /// `decl` indexes the table by the variant's position, so a row and
     /// its variant must stay in the same order. A table whose rows and
@@ -109,36 +108,6 @@ mod tests {
     #[test]
     fn unknown_names_do_not_resolve() {
         assert_eq!(FsMember::from_name("definitelyNotAMember"), None);
-    }
-
-    /// A free module has no receiver, so a row that mentioned the
-    /// receiver's element type would have nothing to lower against and
-    /// would only be discovered when a user called that member.
-    #[test]
-    fn no_row_mentions_the_receiver_element_type() {
-        fn mentions_elem(desc: &TyDesc) -> bool {
-            match desc {
-                TyDesc::Elem => true,
-                TyDesc::Vector(inner) | TyDesc::Option(inner) => mentions_elem(inner),
-                TyDesc::Tuple(items) => items.iter().any(mentions_elem),
-                TyDesc::Fn(params, ret) => params.iter().any(mentions_elem) || mentions_elem(ret),
-                _ => false,
-            }
-        }
-
-        for decl in FS_MEMBERS {
-            let types = decl
-                .required
-                .iter()
-                .chain(decl.optional)
-                .chain(std::iter::once(&decl.ret));
-
-            assert!(
-                !types.into_iter().any(mentions_elem),
-                "`fs.{}` mentions `elem`, but a free module has no receiver",
-                decl.name
-            );
-        }
     }
 
     /// Every declared error is one of this module's own, and the two
