@@ -40,6 +40,13 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # the opposite case — it IS a schema, and the derive is what keeps it
 # honest.
 serde = { version = "1", features = ["derive"] }
+# The terminal UI (BRS-120, BRS-90). Confined to `brasa_tui`, which
+# nothing in the compiler depends on — a dependency the language's own
+# pipeline never sees. ratatui is the maintained successor to tui-rs and
+# brings its own `TestBackend`, so the views render into a buffer a test
+# can assert on: a TUI here is not the untestable shell it usually is.
+ratatui = "0.30"
+crossterm = "0.29"
 lsp-server = "0.10"
 lsp-types = "0.97"
 
@@ -54,6 +61,7 @@ brasa_hir = { path = "crates/brasa_hir" }
 brasa_module = { path = "crates/brasa_module" }
 brasa_lsp = { path = "crates/brasa_lsp" }
 brasa_dap = { path = "crates/brasa_dap" }
+brasa_tui = { path = "crates/brasa_tui" }
 brasa_resolver = { path = "crates/brasa_resolver" }
 brasa_typeck = { path = "crates/brasa_typeck" }
 brasa_errorset = { path = "crates/brasa_errorset" }

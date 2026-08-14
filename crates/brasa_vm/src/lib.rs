@@ -88,6 +88,47 @@ pub struct RunStats {
 /// [`run_with_streams`] wires them elsewhere. `args` are the script's
 /// trailing CLI arguments, served by `env.args()`
 /// (spec: 05 — Stdlib de scripting, BRS-32).
+/// Runs `module` and reports the heap it left behind (BRS-120).
+///
+/// The ordinary loop, not the instrumented one: a heap census is taken
+/// after the fact, so observing it costs the run nothing.
+pub fn run_observed<W: Write + Send>(
+    module: &Module,
+    out: &mut W,
+    args: &[String],
+) -> (Outcome, debug::HeapView) {
+    let mut err = std::io::stderr();
+    let mut input = BufReader::new(std::io::stdin());
+
+    let streams = Streams {
+        out,
+        err: &mut err,
+        input: &mut input,
+    };
+
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("brasa-vm".to_string())
+            .stack_size(VM_STACK_SIZE)
+            .spawn_scoped(scope, move || {
+                let mut vm = vm::Vm::new(
+                    module,
+                    streams,
+                    DEFAULT_MAX_CALL_DEPTH,
+                    DEFAULT_GC_BUDGET_BYTES,
+                    args,
+                );
+                let outcome = vm.run();
+                let heap = vm.heap_view();
+
+                (outcome, heap)
+            })
+            .expect("failed to spawn the VM thread");
+
+        handle.join().expect("the VM thread panicked")
+    })
+}
+
 /// Runs `module` under the sampling profiler (BRS-121).
 ///
 /// Uses the instrumented loop, so an ordinary `run` is unaffected —

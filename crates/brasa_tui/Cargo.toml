@@ -1,0 +1,14 @@
+[package]
+name = "brasa_tui"
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+brasa_bytecode = { workspace = true }
+brasa_diagnostics = { workspace = true }
+brasa_source = { workspace = true }
+brasa_vm = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
