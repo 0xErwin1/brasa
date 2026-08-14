@@ -301,6 +301,31 @@ mod tests {
         }
     }
 
+    /// The same cover for the records, whose registry names are bare
+    /// and receiver-taking like a method's — `status` and `paths` are
+    /// reached through a receiver exactly as `push` is, and the VM
+    /// dispatches on the receiver's runtime kind.
+    ///
+    /// Walks `RECORDS` for the same reason the free-module cover walks
+    /// `FREE_MODULES`: a record added later is covered without editing
+    /// this file.
+    #[test]
+    fn every_declared_record_member_holds_a_receiver_id() {
+        for (record, members) in brasa_stdlib::RECORDS {
+            for decl in *members {
+                let id = builtin_id(decl.name).unwrap_or_else(|| {
+                    panic!("`{record}.{}` is declared but has no id", decl.name)
+                });
+
+                assert!(
+                    builtin_def(id).is_some_and(|def| def.has_receiver),
+                    "`{record}.{}` is reached through a receiver, so its entry must take one",
+                    decl.name
+                );
+            }
+        }
+    }
+
     /// The other direction: an id minted under a converted module's
     /// prefix that no row declares would be a member the checker cannot
     /// type and the VM cannot reach.

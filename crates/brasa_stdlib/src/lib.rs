@@ -49,14 +49,31 @@
 //! language ([`TyDesc`] and [`ty!`]), which is where the real
 //! duplication would have been.
 //!
-//! # What a table does not declare
+//! # The third shape: records
 //!
 //! The stdlib's records — `Output`, `Response`, `Args`, `Walk` — are
-//! receivers with no element type, no optional parameters and no error
-//! list, so they fit neither shape. Their members stay hand-written in
-//! `brasa_typeck::check`, where all four sit as consecutive blocks;
-//! converting one module's record at a time would do a quarter of that
-//! job in the place with the least visibility of it.
+//! receivers, but not the kind [`method_table!`] describes. They have
+//! no element type (so no row can be generic over one), no optional
+//! parameters, and no error list, and their members split into two
+//! kinds the other shapes do not have: a field, read without a call,
+//! and a method, called.
+//!
+//! | | receiver method | free module member | record member |
+//! |---|---|---|---|
+//! | receiver | one generic type | none | one concrete type |
+//! | result | can depend on an argument | always a fixed type | always a fixed type |
+//! | parameters | all required types | optional tail, may be a rule | none, or all required types |
+//! | errors raised | none | part of the contract | none |
+//!
+//! [`record_table!`] is that third shape. It is worth its own macro
+//! rather than a widened `method_table!` for the same reason the first
+//! two stayed apart: every column the two would have to share is one
+//! the other can never fill.
+//!
+//! A record declares only its own members. The universal derived
+//! `toString` is layered on by the checker for every type, so a row
+//! spelling it would be a second answer to a question already
+//! answered — [`RECORDS`] is guarded against exactly that.
 
 /// A type in a declaration, written in the table's small type language
 /// and lowered to the checker's `Type` by `brasa_typeck`.
@@ -220,6 +237,39 @@ macro_rules! ty {
     ([fn($($param:tt),*) -> $ret:tt]) => {
         $crate::TyDesc::Fn(&[$($crate::ty!($param)),*], &$crate::ty!($ret))
     };
+}
+
+/// How a record member is reached.
+///
+/// The distinction is the surface's, not an implementation detail:
+/// `output.stdout` is a read and `response.header("x")` is a call, and
+/// writing either the other way is an error the checker reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordKind {
+    /// Read without a call: `output.stdout`.
+    Field,
+    /// Called with these parameters: `response.header("x")`.
+    ///
+    /// A record method exists where a field would have to promise
+    /// something it cannot — `header` is case-insensitive and total, so
+    /// it takes the name being looked up.
+    Method(&'static [TyDesc]),
+}
+
+/// One declared member of a stdlib record (`Output`, `Response`,
+/// `Args`, `Walk`): the surface name, how it is reached, and its type.
+///
+/// There is no `throws` column because no record member throws: a
+/// record is a value the runtime already built, and reading it cannot
+/// fail. A member that could would not belong on one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordDecl {
+    /// The surface name, which is also the `brasa_bytecode` registry
+    /// name — records use bare names, shared across receiver kinds, the
+    /// way receiver methods do.
+    pub name: &'static str,
+    pub kind: RecordKind,
+    pub ret: TyDesc,
 }
 
 /// One parameter of a free module member, as a [`ParamDesc`].
@@ -409,18 +459,95 @@ macro_rules! module_table {
     };
 }
 
+/// Declares one stdlib record's member surface.
+///
+/// Like the other two table macros it expands to the member enum the VM
+/// matches exhaustively and to the declaration table the checker reads.
+/// A row is a field when it has no parameter list and a method when it
+/// has one, which is the same distinction the surface draws:
+///
+/// ```ignore
+/// brasa_stdlib::record_table! {
+///     /// The `Response` record's members.
+///     ResponseMember => RESPONSE_MEMBERS, record "Response" {
+///         Status "status"          -> int;
+///         Body   "body"            -> string;
+///         Header "header" (string) -> [Option<string>];
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! record_table {
+    (@kind) => { $crate::RecordKind::Field };
+    (@kind $($param:tt),*) => {
+        $crate::RecordKind::Method(&[$($crate::ty!($param)),*])
+    };
+    (
+        $(#[$table_meta:meta])*
+        $member:ident => $table:ident, record $record:literal {
+            $(
+                $(#[$row_meta:meta])*
+                $variant:ident $name:literal $( ( $($param:tt),* ) )? -> $ret:tt ;
+            )*
+        }
+    ) => {
+        $(#[$table_meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum $member {
+            $(
+                $(#[$row_meta])*
+                $variant,
+            )*
+        }
+
+        impl $member {
+            /// The record's surface name, as the checker displays it.
+            pub const RECORD: &'static str = $record;
+
+            /// The member a surface name selects, or `None` when the
+            /// name is not part of this record's surface.
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            /// This member's declaration.
+            pub const fn decl(self) -> &'static $crate::RecordDecl {
+                &$table[self as usize]
+            }
+        }
+
+        $(#[$table_meta])*
+        pub const $table: &[$crate::RecordDecl] = &[
+            $(
+                $crate::RecordDecl {
+                    name: $name,
+                    kind: $crate::record_table!(@kind $($($param),*)?),
+                    ret: $crate::ty!($ret),
+                },
+            )*
+        ];
+    };
+}
+
+pub mod cli;
 pub mod env;
 pub mod fs;
+pub mod http;
 pub mod io;
 pub mod json;
 pub mod proc;
 pub mod vector;
 
+pub use cli::{ARGS_MEMBERS, ArgsMember};
 pub use env::{ENV_MEMBERS, EnvMember};
-pub use fs::{FS_MEMBERS, FsMember};
+pub use fs::{FS_MEMBERS, FsMember, WALK_MEMBERS, WalkMember};
+pub use http::{RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
 pub use json::{JSON_MEMBERS, JsonMember};
-pub use proc::{PROC_MEMBERS, ProcMember};
+pub use proc::{OUTPUT_MEMBERS, OutputMember, PROC_MEMBERS, ProcMember};
 pub use vector::{VECTOR_METHODS, VectorMember};
 
 /// Every free module that has been converted to a table, by module
@@ -457,9 +584,23 @@ pub fn is_free_module(module: &str) -> bool {
     FREE_MODULES.iter().any(|(m, _)| *m == module)
 }
 
+/// Every stdlib record, by the name the checker displays.
+///
+/// The layers that cover all four at once walk this rather than naming
+/// each — the bytecode registry's cross-check and the table guards —
+/// for the same reason [`FREE_MODULES`] exists. The checker maps its
+/// own `Type` to one of these tables, since it is the only layer that
+/// knows what a `Type` is.
+pub const RECORDS: &[(&str, &[RecordDecl])] = &[
+    (OutputMember::RECORD, OUTPUT_MEMBERS),
+    (ResponseMember::RECORD, RESPONSE_MEMBERS),
+    (ArgsMember::RECORD, ARGS_MEMBERS),
+    (WalkMember::RECORD, WALK_MEMBERS),
+];
+
 #[cfg(test)]
 mod tests {
-    use super::{FREE_MODULES, ParamDesc, TyDesc};
+    use super::{FREE_MODULES, ParamDesc, RECORDS, RecordKind, TyDesc};
 
     /// Whether a declared type reaches [`TyDesc::Elem`] anywhere.
     ///
@@ -515,6 +656,70 @@ mod tests {
                 assert!(
                     !mentions_elem(&decl.ret),
                     "`{module}.{}` returns `elem`, but a free module has no receiver",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// A record has no receiver element type either, and unlike a free
+    /// module it is a receiver — so the mistake is available to make
+    /// and worth refusing.
+    #[test]
+    fn no_record_row_mentions_the_receiver_element_type() {
+        for (record, members) in RECORDS {
+            for decl in *members {
+                if let RecordKind::Method(params) = decl.kind {
+                    for param in params {
+                        assert!(
+                            !mentions_elem(param),
+                            "`{record}.{}` takes `elem`, but a record has no element type",
+                            decl.name
+                        );
+                    }
+                }
+
+                assert!(
+                    !mentions_elem(&decl.ret),
+                    "`{record}.{}` returns `elem`, but a record has no element type",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// No record declares `toString`. The checker layers the universal
+    /// derived one onto every type, so a row spelling it would be a
+    /// second answer to a question already answered — and whichever
+    /// answer the lookup happened to reach first would win silently.
+    #[test]
+    fn no_record_redeclares_the_universal_to_string() {
+        for (record, members) in RECORDS {
+            for decl in *members {
+                assert_ne!(
+                    decl.name, "toString",
+                    "`{record}` redeclares the universal derived toString"
+                );
+            }
+        }
+    }
+
+    /// Within one record a name means one thing. Names ARE shared
+    /// across records the way they are across receiver kinds (both
+    /// `Output` and `Response` would answer a `body`-shaped read), so
+    /// this is deliberately per-record rather than global.
+    #[test]
+    fn record_member_names_are_unique_within_their_record() {
+        for (record, members) in RECORDS {
+            for (ix, decl) in members.iter().enumerate() {
+                let first = members
+                    .iter()
+                    .position(|other| other.name == decl.name)
+                    .expect("the row finds itself");
+
+                assert_eq!(
+                    first, ix,
+                    "`{record}` declares `{}` twice; the second row is unreachable",
                     decl.name
                 );
             }

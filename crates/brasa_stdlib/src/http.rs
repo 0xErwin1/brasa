@@ -1,0 +1,67 @@
+//! The `std::http` record surface (`docs/spec/05-stdlib.md`, BRS-113).
+//!
+//! Only the record so far. `http.get` and `http.post` still declare
+//! their signatures and their `http.RequestError` contribution by hand
+//! in `brasa_typeck::builtins`; this file exists because the record is
+//! convertible on its own — a record shares nothing with the module
+//! members that yield it, so waiting for the module would be waiting
+//! for an unrelated decision.
+
+crate::record_table! {
+    /// The `Response` record: the two parts of an answer that always
+    /// exist, plus the lookup for the part that may not.
+    ResponseMember => RESPONSE_MEMBERS, record "Response" {
+        /// A non-2xx status is an answer, not an error — which is why
+        /// this is a field a caller reads rather than something the
+        /// request already raised about.
+        Status "status"          -> int;
+        Body   "body"            -> string;
+
+        /// A method rather than a field, because the lookup takes the
+        /// name being looked up. It is case-insensitive, since HTTP
+        /// header names are, and total: an absent header is `None`, so
+        /// a caller writes `?? fallback` instead of guarding.
+        Header "header" (string) -> [Option<string>];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RESPONSE_MEMBERS, ResponseMember};
+    use crate::RecordKind;
+
+    /// `decl` indexes the table by the variant's position, so a row and
+    /// its variant must stay in the same order.
+    #[test]
+    fn every_member_resolves_to_its_own_declaration() {
+        for decl in RESPONSE_MEMBERS {
+            let member = ResponseMember::from_name(decl.name)
+                .unwrap_or_else(|| panic!("`{}` resolves", decl.name));
+
+            assert_eq!(member.decl().name, decl.name);
+        }
+    }
+
+    #[test]
+    fn unknown_names_do_not_resolve() {
+        assert_eq!(ResponseMember::from_name("headers"), None);
+    }
+
+    /// The one member that takes an argument is the one whose answer
+    /// depends on it. Turning `header` into a field would mean picking
+    /// a header at declaration time, and turning `status` into a method
+    /// would make every reader write empty parentheses.
+    #[test]
+    fn only_the_header_lookup_is_a_method() {
+        for decl in RESPONSE_MEMBERS {
+            let is_method = matches!(decl.kind, RecordKind::Method(_));
+
+            assert_eq!(
+                is_method,
+                decl.name == "header",
+                "`Response.{}` disagrees with the field/method split",
+                decl.name
+            );
+        }
+    }
+}

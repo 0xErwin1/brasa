@@ -90,8 +90,12 @@ result, and a receiver method has neither optional trailing parameters
 nor an error list. A parameter may be a rule rather than a type
 (`ParamDesc::Command`, the argv-or-split-string a `proc` runner takes);
 a result never is, so `TyDesc` always lowers to exactly one type. The
-stdlib records (`Output`, `Response`, `Args`, `Walk`) fit neither
-table shape and stay hand-written in `brasa_typeck::check`. Ids stay hand-minted in `brasa_bytecode` and are
+stdlib records (`Output`, `Response`, `Args`, `Walk`) are the third
+shape, `record_table!`: a concrete receiver with no element type, no
+optional parameters and no error list, whose members are either a
+field or a method. They are listed in `brasa_stdlib::RECORDS`; the
+checker owns the map from its own `Type` to a record's table, since
+`brasa_stdlib` does not know what a `Type` is. Ids stay hand-minted in `brasa_bytecode` and are
 frozen by `crates/brasa_bytecode/tests/builtin_ids.rs`.
 `brasa_interp`, the M1 tree-walker, was deleted in BRS-108; the
 behaviour oracle it used to be is now the conformance corpus at

@@ -79,6 +79,17 @@ crate::module_table! {
     }
 }
 
+crate::record_table! {
+    /// The `Walk` record `fs.tryWalk` yields (BRS-66): what the
+    /// traversal read, and what it could not. The second list is why
+    /// the tolerant form exists — `fs.walk` raises instead of
+    /// returning the paths it had to skip.
+    WalkMember => WALK_MEMBERS, record "Walk" {
+        Paths      "paths"      -> [Vector<string>];
+        Unreadable "unreadable" -> [Vector<string>];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ALL_ERRORS, CWD_ERRORS, FS_MEMBERS, FsMember};

@@ -16,12 +16,8 @@
 //! built from data, where a string that happens to contain a space
 //! would be a silent re-parse rather than a convenience.
 //!
-//! The `Output` record's own members — `stdout`, `stderr`, `code` —
-//! stay hand-written in `brasa_typeck::check`, exactly as `fs`'s `Walk`
-//! did when that module converted. A record receiver has no element
-//! type and no error list, so it fits neither table shape; the four
-//! records (`Output`, `Response`, `Args`, `Walk`) are one job, not a
-//! quarter of one done here.
+//! The `Output` record every runner yields is declared here too, in
+//! the third table shape ([`crate::record_table!`]).
 
 /// `proc.NonZeroExit`: the child ran and exited non-zero. The tolerant
 /// runners do not raise it — a non-zero exit is their result.
@@ -57,6 +53,17 @@ crate::module_table! {
         /// Argv arrays only, and an optional concurrency limit.
         TryRunAll "tryRunAll" ([Vector<[Vector<string>]>]) ?(int)
             -> [Vector<procOutput>] throws TOLERANT_ERRORS;
+    }
+}
+
+crate::record_table! {
+    /// The `Output` record: a finished child process, all three fields
+    /// already captured. Nothing here is a method, because nothing
+    /// about reading a captured value needs an argument.
+    OutputMember => OUTPUT_MEMBERS, record "Output" {
+        Stdout "stdout" -> string;
+        Stderr "stderr" -> string;
+        Code   "code"   -> int;
     }
 }
 

@@ -1663,60 +1663,14 @@ impl<'a> Checker<'a> {
         if let Type::Generic { owner, index } = recv {
             return self.lookup_generic_member(*owner, *index, recv, name);
         }
-        // The `Output` record's closed field set
-        // (`docs/spec/05-stdlib.md`, BRS-32); everything else on it is
-        // the universal `toString` or missing.
-        if let Type::ProcOutput = recv {
-            match name {
-                "stdout" | "stderr" => return Member::Value(Type::String),
-                "code" => return Member::Value(Type::Int),
-                _ => {}
-            }
-        }
-
-        // The `Response` record: two fields plus `header`, which is a
-        // method because header lookup is case-insensitive and total
-        // (BRS-113).
-        if let Type::HttpResponse = recv {
-            match name {
-                "status" => return Member::Value(Type::Int),
-                "body" => return Member::Value(Type::String),
-                "header" => {
-                    return Member::Sig(builtins::MethodSig {
-                        params: vec![Type::String],
-                        ret: builtins::RetRule::Fixed(Type::option(Type::String)),
-                    });
-                }
-                _ => {}
-            }
-        }
-
-        // The `Args` record: one field and two total lookups (BRS-112).
-        if let Type::CliArgs = recv {
-            match name {
-                "rest" => return Member::Value(Type::vector(Type::String)),
-                "flag" => {
-                    return Member::Sig(builtins::MethodSig {
-                        params: vec![Type::String],
-                        ret: builtins::RetRule::Fixed(Type::Bool),
-                    });
-                }
-                "option" => {
-                    return Member::Sig(builtins::MethodSig {
-                        params: vec![Type::String],
-                        ret: builtins::RetRule::Fixed(Type::option(Type::String)),
-                    });
-                }
-                _ => {}
-            }
-        }
-
-        // `Walk` is the same shape of native record: two fields and the
-        // universal `toString`, nothing else (BRS-66).
-        if let Type::Walk = recv
-            && matches!(name, "paths" | "unreadable")
-        {
-            return Member::Value(Type::vector(Type::String));
+        // The stdlib records — `Output`, `Response`, `Args`, `Walk` —
+        // whose closed member sets are declared once in `brasa_stdlib`
+        // (BRS-96). Anything not declared there is the universal
+        // `toString` or missing.
+        match builtins::record_member(recv, name) {
+            Some(builtins::RecordMemberSig::Field(ty)) => return Member::Value(ty),
+            Some(builtins::RecordMemberSig::Method(sig)) => return Member::Sig(sig),
+            None => {}
         }
 
         if let Some(sig) = builtins::method(recv, name) {

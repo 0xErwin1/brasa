@@ -13,7 +13,7 @@
 //! remaining receivers and modules still carry their signatures — and,
 //! for the modules, their error contributions — in this file.
 
-use brasa_stdlib::{ParamDesc, RetDesc, TyDesc, VectorMember};
+use brasa_stdlib::{ParamDesc, RecordKind, RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -158,6 +158,53 @@ fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
             lower(ret, elem),
         ),
     }
+}
+
+/// What a record member is, once its declaration is lowered: a field
+/// the caller reads or a method the caller calls.
+///
+/// The two are separate because the surface separates them —
+/// `output.stdout` is a read and `response.header("x")` is a call — and
+/// the checker reports writing either the other way.
+pub enum RecordMemberSig {
+    Field(Type),
+    Method(MethodSig),
+}
+
+/// The declaration table for a record type, or `None` when the receiver
+/// is not one of the stdlib records.
+///
+/// This is the one place a `Type` is matched against a record, because
+/// `brasa_stdlib` does not know what a `Type` is — it names its records
+/// and the checker owns which of its own types each name denotes.
+fn record_table(recv: &Type) -> Option<&'static [brasa_stdlib::RecordDecl]> {
+    match recv {
+        Type::ProcOutput => Some(brasa_stdlib::OUTPUT_MEMBERS),
+        Type::HttpResponse => Some(brasa_stdlib::RESPONSE_MEMBERS),
+        Type::CliArgs => Some(brasa_stdlib::ARGS_MEMBERS),
+        Type::Walk => Some(brasa_stdlib::WALK_MEMBERS),
+        _ => None,
+    }
+}
+
+/// Looks up `name` on one of the stdlib records, derived from its
+/// declaration (`brasa_stdlib`, BRS-96).
+///
+/// `None` covers both "not a record" and "not a member of this one";
+/// the caller layers the universal `toString` and the unknown-member
+/// error on top either way, exactly as it did when the four records
+/// were four hand-written blocks.
+pub fn record_member(recv: &Type, name: &str) -> Option<RecordMemberSig> {
+    let table = record_table(recv)?;
+    let decl = table.iter().find(|decl| decl.name == name)?;
+
+    Some(match decl.kind {
+        RecordKind::Field => RecordMemberSig::Field(lower(&decl.ret, None)),
+        RecordKind::Method(params) => RecordMemberSig::Method(MethodSig {
+            params: params.iter().map(|param| lower(param, None)).collect(),
+            ret: RetRule::Fixed(lower(&decl.ret, None)),
+        }),
+    })
 }
 
 /// The `Vector<T>` methods, derived from their declarations
@@ -939,6 +986,66 @@ mod stdlib_declaration_tests {
                 module_throws("env", name).is_empty(),
                 "`env.{name}` contributes an error, but only the filesystem members throw"
             );
+        }
+    }
+
+    /// Every record member the tables declare resolves on its own
+    /// record's type, as the right kind. Written against `RECORDS` so a
+    /// record converted later is covered, and asserting the kind
+    /// because that is what the four hand-written blocks encoded in
+    /// their choice of `Member::Value` versus `Member::Sig`.
+    #[test]
+    fn every_declared_record_member_resolves_on_its_own_type() {
+        use brasa_stdlib::RecordKind;
+
+        let type_of = |record: &str| match record {
+            "Output" => Type::ProcOutput,
+            "Response" => Type::HttpResponse,
+            "Args" => Type::CliArgs,
+            "Walk" => Type::Walk,
+            other => panic!("`{other}` has no checker type; add it to `record_table`"),
+        };
+
+        for (record, members) in brasa_stdlib::RECORDS {
+            let recv = type_of(record);
+
+            for decl in *members {
+                let found = record_member(&recv, decl.name)
+                    .unwrap_or_else(|| panic!("`{record}.{}` resolves", decl.name));
+
+                match (decl.kind, found) {
+                    (RecordKind::Field, RecordMemberSig::Field(_)) => {}
+                    (RecordKind::Method(_), RecordMemberSig::Method(_)) => {}
+                    _ => panic!("`{record}.{}` resolved as the wrong kind", decl.name),
+                }
+            }
+
+            assert!(
+                record_member(&recv, "definitelyNotAMember").is_none(),
+                "`{record}` answered for a name it does not declare"
+            );
+        }
+    }
+
+    /// A record's members belong to that record. `Output.stdout` on a
+    /// `Walk` was impossible when each record had its own block and
+    /// must stay impossible now that one function serves all four.
+    #[test]
+    fn a_record_does_not_answer_for_another_records_member() {
+        assert!(record_member(&Type::Walk, "stdout").is_none());
+        assert!(record_member(&Type::ProcOutput, "paths").is_none());
+        assert!(record_member(&Type::CliArgs, "status").is_none());
+        assert!(record_member(&Type::HttpResponse, "flag").is_none());
+    }
+
+    /// A type that is not a record answers for nothing, which is what
+    /// leaves the ordinary method lookup and the unknown-member error
+    /// downstream of this one.
+    #[test]
+    fn a_non_record_receiver_is_not_a_record() {
+        for recv in [Type::Int, Type::String, Type::vector(Type::Int), Type::Json] {
+            assert!(record_member(&recv, "stdout").is_none());
+            assert!(record_member(&recv, "toString").is_none());
         }
     }
 

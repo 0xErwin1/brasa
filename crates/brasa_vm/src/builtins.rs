@@ -13,7 +13,10 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
-use brasa_stdlib::{EnvMember, FsMember, IoMember, JsonMember, ProcMember, VectorMember};
+use brasa_stdlib::{
+    ArgsMember, EnvMember, FsMember, IoMember, JsonMember, OutputMember, ProcMember,
+    ResponseMember, VectorMember, WalkMember,
+};
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -305,11 +308,15 @@ impl Vm<'_> {
     /// user did not pass, which is the only reading that does not need
     /// a second error channel.
     fn args_builtin(&mut self, parsed: &ArgsValue, name: &str, args: &[Value]) -> VmResult {
-        match (name, args) {
-            ("flag", [Value::Str(wanted)]) => Ok(Value::Bool(
+        let Some(member) = ArgsMember::from_name(name) else {
+            return Err(builtin_error(name));
+        };
+
+        match (member, args) {
+            (ArgsMember::Flag, [Value::Str(wanted)]) => Ok(Value::Bool(
                 parsed.flags.iter().any(|flag| flag.as_str() == &**wanted),
             )),
-            ("option", [Value::Str(wanted)]) => {
+            (ArgsMember::Option, [Value::Str(wanted)]) => {
                 let found = parsed
                     .options
                     .iter()
@@ -318,7 +325,7 @@ impl Vm<'_> {
 
                 Ok(Value::Option(found.map(Rc::new)))
             }
-            ("rest", []) => {
+            (ArgsMember::Rest, []) => {
                 let items = parsed
                     .rest
                     .iter()
@@ -1601,12 +1608,17 @@ impl Vm<'_> {
 
 /// The `Output` record's field accessors (BRS-32,
 /// `docs/spec/05-stdlib.md`): receiver-only builtins that yield the
-/// field value, matching the walker's `proc_output_builtin`.
+/// field value, dispatched through the declared member enum
+/// (`brasa_stdlib::proc`, BRS-96).
 fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmResult {
-    match (name, args) {
-        ("stdout", []) => Ok(Value::Str(output.stdout.clone())),
-        ("stderr", []) => Ok(Value::Str(output.stderr.clone())),
-        ("code", []) => Ok(Value::Int(output.code)),
+    let Some(member) = OutputMember::from_name(name) else {
+        return Err(builtin_error(name));
+    };
+
+    match (member, args) {
+        (OutputMember::Stdout, []) => Ok(Value::Str(output.stdout.clone())),
+        (OutputMember::Stderr, []) => Ok(Value::Str(output.stderr.clone())),
+        (OutputMember::Code, []) => Ok(Value::Int(output.code)),
         _ => Err(builtin_error(name)),
     }
 }
@@ -1618,10 +1630,14 @@ fn proc_output_builtin(output: &OutputValue, name: &str, args: &[Value]) -> VmRe
 /// total because a header that is absent is an ordinary answer — the
 /// caller writes `?? fallback` rather than guarding.
 fn response_builtin(response: &ResponseValue, name: &str, args: &[Value]) -> VmResult {
-    match (name, args) {
-        ("status", []) => Ok(Value::Int(response.status)),
-        ("body", []) => Ok(Value::Str(response.body.clone())),
-        ("header", [Value::Str(wanted)]) => {
+    let Some(member) = ResponseMember::from_name(name) else {
+        return Err(builtin_error(name));
+    };
+
+    match (member, args) {
+        (ResponseMember::Status, []) => Ok(Value::Int(response.status)),
+        (ResponseMember::Body, []) => Ok(Value::Str(response.body.clone())),
+        (ResponseMember::Header, [Value::Str(wanted)]) => {
             let wanted = wanted.to_lowercase();
             let found = response
                 .headers
@@ -1638,9 +1654,13 @@ fn response_builtin(response: &ResponseValue, name: &str, args: &[Value]) -> VmR
 /// The `Walk` record's field accessors (BRS-66), the same shape as
 /// `proc_output_builtin`.
 fn walk_builtin(walk: &WalkValue, name: &str, args: &[Value]) -> VmResult {
-    match (name, args) {
-        ("paths", []) => Ok(walk.paths.clone()),
-        ("unreadable", []) => Ok(walk.unreadable.clone()),
+    let Some(member) = WalkMember::from_name(name) else {
+        return Err(builtin_error(name));
+    };
+
+    match (member, args) {
+        (WalkMember::Paths, []) => Ok(walk.paths.clone()),
+        (WalkMember::Unreadable, []) => Ok(walk.unreadable.clone()),
         _ => Err(builtin_error(name)),
     }
 }
