@@ -13,7 +13,7 @@ use brasa_runtime::proc_env::{
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
-use brasa_stdlib::{FsMember, IoMember, JsonMember, VectorMember};
+use brasa_stdlib::{EnvMember, FsMember, IoMember, JsonMember, VectorMember};
 
 use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
@@ -385,15 +385,30 @@ impl Vm<'_> {
         Ok(self.heap.alloc_vector(outputs))
     }
 
-    /// The `std::env` members, ported from the walker's `env_call`
-    /// (BRS-32, `docs/spec/05-stdlib.md`): the process environment
+    /// The `std::env` members, dispatched through the declared member
+    /// enum (`brasa_stdlib::env`, BRS-96): the process environment
     /// merged with the `env.set` overlay.
+    ///
+    /// Matching the enum rather than the name is what makes the
+    /// arity-mismatch answer cover the whole surface. The name-keyed
+    /// version listed the six members it applied to by hand and left
+    /// `exit` out, so a mis-arity `env.exit` reported an unknown member
+    /// instead of a bad argument list. The checker rejects both before
+    /// the VM sees them, so no run reached either string; it is fixed
+    /// rather than preserved because a hand-maintained list of "every
+    /// member except the ones I forgot" is not a behaviour.
     fn env_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
+        let Some(member) = EnvMember::from_name(name) else {
+            return Err(unknown_module_member(EnvMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(EnvMember::MODULE, name);
+
+        match (member, args.as_slice()) {
             // A chosen exit is not an error: it unwinds past every
             // handler and the CLI prints nothing
             // (`docs/spec/05-stdlib.md`).
-            ("exit", [Value::Int(code)]) => {
+            (EnvMember::Exit, [Value::Int(code)]) => {
                 let code = *code;
                 if !(0..=255).contains(&code) {
                     return Err(self.panic(
@@ -403,7 +418,7 @@ impl Vm<'_> {
                 }
                 Err(Signal::Exit(code as i32))
             }
-            ("get", [Value::Str(key)]) => {
+            (EnvMember::Get, [Value::Str(key)]) => {
                 let value = self
                     .env_overlay
                     .get(key.as_ref())
@@ -414,7 +429,7 @@ impl Vm<'_> {
                     None => Value::NONE,
                 })
             }
-            ("set", [Value::Str(key), Value::Str(value)]) => {
+            (EnvMember::Set, [Value::Str(key), Value::Str(value)]) => {
                 if !valid_env_name(key) {
                     return Err(Signal::Fatal(format!(
                         "brasa: invalid environment variable name {:?} in `env.set`",
@@ -424,7 +439,7 @@ impl Vm<'_> {
                 self.env_overlay.insert(key.to_string(), value.to_string());
                 Ok(Value::Unit)
             }
-            ("vars", []) => {
+            (EnvMember::Vars, []) => {
                 let entries = merged_env(&self.env_overlay)
                     .into_iter()
                     .map(|(key, value)| (Value::str(key), Value::str(value)))
@@ -433,18 +448,13 @@ impl Vm<'_> {
                     .heap
                     .alloc_map(OrderedMap::from_distinct_entries(entries)))
             }
-            ("args", []) => {
+            (EnvMember::Args, []) => {
                 let args = self.script_args.iter().map(Value::str).collect();
                 Ok(self.heap.alloc_vector(args))
             }
-            ("cwd", []) => fs_str(fs_glue::cwd()),
-            ("cd", [Value::Str(path)]) => fs_unit(fs_glue::cd(path)),
-            ("get" | "set" | "vars" | "args" | "cwd" | "cd", _) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `env.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `env`"
-            ))),
+            (EnvMember::Cwd, []) => fs_str(fs_glue::cwd()),
+            (EnvMember::Cd, [Value::Str(path)]) => fs_unit(fs_glue::cd(path)),
+            _ => Err(invalid()),
         }
     }
 

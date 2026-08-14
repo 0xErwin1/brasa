@@ -27,6 +27,8 @@ pub const ALL_ERRORS: &[&str] = &[NOT_FOUND, DENIED, IO_ERROR];
 
 /// An unreadable current directory is the only way `fs.abs` fails: it
 /// resolves against the cwd and never looks at the path itself.
+/// `env.cwd` borrows this for the same reason — it reads that
+/// directory and nothing else (`crate::env`).
 pub const CWD_ERRORS: &[&str] = &[IO_ERROR];
 
 crate::module_table! {

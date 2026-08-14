@@ -7,10 +7,11 @@
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
 //!
-//! The `Vector<T>` and `std::fs` surfaces no longer live here: each is
-//! declared once in `brasa_stdlib` and lowered below (BRS-96). The
-//! remaining receivers and modules still carry their signatures — and,
-//! for the modules, their error contributions — in this file.
+//! The `Vector<T>` receiver and the `std::fs`, `std::json`, `std::io`
+//! and `std::env` modules no longer live here: each is declared once in
+//! `brasa_stdlib` and lowered below (BRS-96). The remaining receivers
+//! and modules still carry their signatures — and, for the modules,
+//! their error contributions — in this file.
 
 use brasa_stdlib::{RetDesc, TyDesc, VectorMember};
 
@@ -147,6 +148,9 @@ fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
             .clone(),
         TyDesc::Vector(inner) => Type::vector(lower(inner, elem)),
         TyDesc::Option(inner) => Type::option(lower(inner, elem)),
+        TyDesc::Map(key, value) => {
+            Type::Map(Box::new(lower(key, elem)), Box::new(lower(value, elem)))
+        }
         TyDesc::Tuple(items) => Type::Tuple(items.iter().map(|item| lower(item, elem)).collect()),
         TyDesc::Fn(params, ret) => Type::func(
             params.iter().map(|param| lower(param, elem)).collect(),
@@ -297,7 +301,7 @@ pub struct ModuleSig {
 /// declare their contribution here.
 pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
     use brasa_resolver::{
-        CLI_USAGE_ERROR, FS_IO_ERROR, HTTP_REQUEST_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
+        CLI_USAGE_ERROR, HTTP_REQUEST_ERROR, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR,
     };
 
     if brasa_stdlib::is_free_module(module) {
@@ -319,13 +323,8 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
         // BRS-112: `help` renders a declaration and cannot fail; only
         // `parse` sees a command line.
         ("cli", "parse") => &[CLI_USAGE_ERROR],
-        // BRS-33: changing directory fails exactly the way touching any
-        // other path does, so it borrows the `fs` list.
-        ("env", "cd") => brasa_stdlib::fs::ALL_ERRORS,
-        // An unreadable current directory is the only way this fails.
-        ("env", "cwd") => &[FS_IO_ERROR],
         // No `math`, `time` or `rand` member throws (BRS-35); `fs`,
-        // `json` and `io` answered from their tables above.
+        // `json`, `io` and `env` answered from their tables above.
         _ => &[],
     }
 }
@@ -333,8 +332,8 @@ pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
 /// Looks up `module.name` for the std modules whose signatures have
 /// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
 /// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
-/// BRS-35: `math`, `time`, and `rand`). `fs`, `json` and `io` are
-/// answered from their declaration tables by [`free_member`].
+/// BRS-35: `math`, `time`, and `rand`). `fs`, `json`, `io` and `env`
+/// are answered from their declaration tables by [`free_member`].
 /// Polymorphic members
 /// ([`module_member_special`]) and constants ([`module_constant`])
 /// resolve outside this fixed-type table.
@@ -395,29 +394,6 @@ pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
             vec![ModuleParam::Ty(Type::String)],
             vec![ModuleParam::Ty(Type::String)],
             Type::ProcOutput,
-        )),
-        ("env", "get") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::option(Type::String),
-        )),
-        ("env", "set") => Some(msig(
-            vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::Unit,
-        )),
-        ("env", "vars") => Some(msig(
-            vec![],
-            vec![],
-            Type::Map(Box::new(Type::String), Box::new(Type::String)),
-        )),
-        ("env", "args") => Some(msig(vec![], vec![], Type::vector(Type::String))),
-        ("env", "cwd") => Some(msig(vec![], vec![], Type::String)),
-        ("env", "exit") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
-        ("env", "cd") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![],
-            Type::Unit,
         )),
         // `std::math` (BRS-35): the float members. `abs`/`min`/`max`
         // are polymorphic over `int`/`float` and are special-cased in
@@ -961,6 +937,38 @@ mod stdlib_declaration_tests {
                 }
             }
         }
+    }
+
+    /// `env` is the first table whose `throws` column names another
+    /// module's errors, so the borrow is pinned end to end rather than
+    /// only at the declaration: what the error-set pass reads for
+    /// `env.cd` must still be the `fs` list itself, not a copy that can
+    /// drift from it.
+    #[test]
+    fn env_borrows_the_fs_error_lists_through_its_table() {
+        assert_eq!(module_throws("env", "cd"), brasa_stdlib::fs::ALL_ERRORS);
+        assert_eq!(module_throws("env", "cwd"), brasa_stdlib::fs::CWD_ERRORS);
+
+        for name in ["get", "set", "vars", "args", "exit"] {
+            assert!(
+                module_throws("env", name).is_empty(),
+                "`env.{name}` contributes an error, but only the filesystem members throw"
+            );
+        }
+    }
+
+    /// The one signature on the `env` surface that needed a type the
+    /// table language did not have (`[Map<string, string>]`).
+    #[test]
+    fn env_vars_lowers_the_declared_map_type() {
+        let vars = module_member("env", "vars").expect("vars exists");
+
+        assert!(vars.required.is_empty());
+        assert!(vars.optional.is_empty());
+        assert_eq!(
+            vars.ret,
+            Type::Map(Box::new(Type::String), Box::new(Type::String))
+        );
     }
 
     /// The `json` and `io` contributions, pinned the way the `fs` ones

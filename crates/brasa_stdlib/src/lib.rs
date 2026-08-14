@@ -71,6 +71,7 @@ pub enum TyDesc {
     Json,
     Vector(&'static TyDesc),
     Option(&'static TyDesc),
+    Map(&'static TyDesc, &'static TyDesc),
     Tuple(&'static [TyDesc]),
     Fn(&'static [TyDesc], &'static TyDesc),
 }
@@ -137,7 +138,8 @@ pub struct ModuleDecl {
 /// grammar trivial: named types are bare words (`int`, `string`,
 /// `bool`, `unit`, `unknown`, `walk`, `json`), the receiver's element type is
 /// `elem`, and every composite type is bracketed — `[Vector<elem>]`,
-/// `[Option<elem>]`, `[Tuple<elem, unknown>]`, `[fn(elem) -> bool]`.
+/// `[Option<elem>]`, `[Map<string, string>]`, `[Tuple<elem, unknown>]`,
+/// `[fn(elem) -> bool]`.
 #[macro_export]
 macro_rules! ty {
     (int) => {
@@ -169,6 +171,9 @@ macro_rules! ty {
     };
     ([Option<$inner:tt>]) => {
         $crate::TyDesc::Option(&$crate::ty!($inner))
+    };
+    ([Map<$key:tt, $value:tt>]) => {
+        $crate::TyDesc::Map(&$crate::ty!($key), &$crate::ty!($value))
     };
     ([Tuple<$($item:tt),+>]) => {
         $crate::TyDesc::Tuple(&[$($crate::ty!($item)),+])
@@ -337,11 +342,13 @@ macro_rules! module_table {
     };
 }
 
+pub mod env;
 pub mod fs;
 pub mod io;
 pub mod json;
 pub mod vector;
 
+pub use env::{ENV_MEMBERS, EnvMember};
 pub use fs::{FS_MEMBERS, FsMember};
 pub use io::{IO_MEMBERS, IoMember};
 pub use json::{JSON_MEMBERS, JsonMember};
@@ -354,12 +361,12 @@ pub use vector::{VECTOR_METHODS, VectorMember};
 /// module, so converting the next one does not mean editing them.
 ///
 /// A module absent here is not undeclared, only still hand-written in
-/// each layer; `proc`, `env`, `math`, `time` and `rand` are the ones
-/// left.
+/// each layer; `proc`, `math`, `time` and `rand` are the ones left.
 pub const FREE_MODULES: &[(&str, &[ModuleDecl])] = &[
     (FsMember::MODULE, FS_MEMBERS),
     (JsonMember::MODULE, JSON_MEMBERS),
     (IoMember::MODULE, IO_MEMBERS),
+    (EnvMember::MODULE, ENV_MEMBERS),
 ];
 
 /// The declaration of `module.name`, or `None` when the module has no

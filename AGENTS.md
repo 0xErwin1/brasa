@@ -76,9 +76,9 @@ There is no separate interpreter crate. The stdlib is native builtins:
 resolves signatures and `brasa_vm::builtins` implements them. BRS-96 is
 collapsing the surface those three used to declare separately into one
 table per module in `brasa_stdlib`; `Vector` (a receiver type, via
-`method_table!`) and the free modules `std::fs`, `std::json` and
-`std::io` (via `module_table!`, which also carries each member's error
-contribution) are converted, every other module still declares its
+`method_table!`) and the free modules `std::fs`, `std::json`, `std::io`
+and `std::env` (via `module_table!`, which also carries each member's
+error contribution) are converted, every other module still declares its
 signature, its errors and its implementation by hand. Converted free
 modules are listed in `brasa_stdlib::FREE_MODULES`, which is what the
 checker's lookup and the bytecode registry's cross-check walk, so
