@@ -72,6 +72,26 @@ fn render_set(hir: &Hir, set: &ErrorSet) -> String {
     rendered
 }
 
+/// An inferred set written the way a `throws` clause is written, for
+/// showing it back to the person who did not write one (BRS-92).
+///
+/// Distinct from [`render_set`], which is a dump format: this has to
+/// read as something a user could paste into their own signature, so it
+/// uses the language's syntax rather than braces. An open set has no
+/// such spelling — it means the inference could not see far enough —
+/// and says so instead of pretending to a list.
+pub fn render_throws_clause(hir: &Hir, set: &ErrorSet) -> String {
+    if set.open {
+        return "throws <not fully inferred>".to_string();
+    }
+    if set.tags.is_empty() {
+        return "throws never".to_string();
+    }
+
+    let tags: Vec<String> = set.tags.iter().map(|tag| tag_name(hir, tag)).collect();
+    format!("throws {}", tags.join(" | "))
+}
+
 /// The user-facing name of a tag; shared with the checks' messages.
 pub(crate) fn tag_name(hir: &Hir, tag: &ErrorTag) -> String {
     match tag {

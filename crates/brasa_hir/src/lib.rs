@@ -145,6 +145,11 @@ impl Hir {
         self.item_spans[id.index() as usize]
     }
 
+    /// Every item node in allocation order; see [`Hir::exprs`].
+    pub fn items(&self) -> impl Iterator<Item = (ItemId, &Item)> {
+        self.items.iter()
+    }
+
     pub fn alloc_pattern(&mut self, pattern: Pattern, span: Span) -> PatternId {
         let id = self.patterns.alloc(pattern);
         self.pattern_spans.push(span);

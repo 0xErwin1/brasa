@@ -92,12 +92,19 @@ source ─→ Lexer ─→ Parser ─→ HIR (lowering) ─→ Resolver ─→ T
    reference oracle until BRS-108 replaced it with a conformance corpus.
 5. **M4** — scripting stdlib (strings, fs, process, JSON, regex, glob).
 6. **M5** — formatter, editor support, minimal LSP. `brasa fmt`
-   (BRS-91) and the tree-sitter grammar with `.bras` editor
-   registration (BRS-93) shipped. The LSP's prerequisite is answered
+   (BRS-91), the tree-sitter grammar with `.bras` editor registration
+   (BRS-93) and the minimal LSP itself (BRS-92, `brasa lsp`) shipped.
+   The LSP serves diagnostics as you type and hover showing the
+   inferred type and error-set — the two things the compiler already
+   knew and had no way to say. Its prerequisite was answered first
    (BRS-114): the analysis phases produce usable types, locals and
    error-sets over the incomplete tree an editor holds, and the whole
    pipeline runs in 1.4ms over the largest bundled script — so a query
-   system for incrementality is a non-goal, not a deferral. Debugging
+   system for incrementality is a non-goal, not a deferral, and the
+   server re-analyses from the entry file on every request. Hover's
+   error-set is per FUNCTION, because that is the granularity the
+   inference has: a set is keyed by definition, so an arbitrary
+   subexpression has none to show. Debugging
    tooling joins this milestone behind the LSP: a VM debug substrate
    (BRS-117) with breakpoints, stepping and frame inspection, then a
    non-interactive `brasa debug` (BRS-118), a DAP adapter (BRS-119),

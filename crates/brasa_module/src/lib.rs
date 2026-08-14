@@ -89,7 +89,47 @@ impl Program {
 /// diagnostic instead of a host stack overflow.
 const MAX_IMPORT_DEPTH: usize = 128;
 
-/// Loads `entry` and everything it imports.
+/// Source text an editor holds that the file on disk does not have yet.
+///
+/// The loader reads from disk, which is right for every batch caller:
+/// what `brasa run` compiles is what is saved. An editor is the one
+/// caller for which that is wrong — the interesting buffer is almost
+/// always the unsaved one — so it supplies the text it holds, keyed by
+/// canonical path, and the loader prefers it over the file.
+///
+/// An overlaid path answers whether or not disk has it, because an
+/// editor legitimately holds a file that has never been saved. What an
+/// overlay cannot do is change where imports LOOK: the search path is
+/// computed from the entry's real location, and resolution, the cycle
+/// check and the identity of a file reached twice all still work in
+/// canonical paths. So an overlay decides what a file says, never which
+/// file a name means.
+#[derive(Debug, Default, Clone)]
+pub struct Overlay {
+    files: HashMap<PathBuf, String>,
+}
+
+impl Overlay {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces what `path` contains, for this load only.
+    pub fn insert(&mut self, path: PathBuf, source: String) {
+        self.files.insert(canonicalize(&path), source);
+    }
+
+    /// Drops `path`'s override, so the file on disk answers again.
+    pub fn remove(&mut self, path: &Path) {
+        self.files.remove(&canonicalize(path));
+    }
+
+    fn get(&self, path: &Path) -> Option<&String> {
+        self.files.get(path)
+    }
+}
+
+/// Loads `entry` and everything it imports, from disk.
 ///
 /// `entry` is expected to be readable — the caller checked it, and its
 /// own read failure is the caller's to report. Every failure *inside*
@@ -97,6 +137,33 @@ const MAX_IMPORT_DEPTH: usize = 128;
 /// imported file) lands in [`Program::diagnostics`] and still produces a
 /// module list, so one run reports every problem it can see.
 pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
+    load_inner(entry, sources, &Overlay::default(), false)
+}
+
+/// [`load`], for an editor: unsaved buffers layered over the files, and
+/// a file that did not parse lowered anyway.
+///
+/// The two go together because they are the same requirement seen
+/// twice. An editor asks about source that is unsaved AND incomplete,
+/// and a loader that answered about only one of those would still be
+/// silent for the file the user is actually typing in. Batch callers
+/// want neither, which is why [`load`] is the one the CLI uses.
+///
+/// What comes back is partial by construction: a file with a parse
+/// error contributes whatever the parser salvaged, so its import list
+/// may be short and its items may be fewer than the source suggests.
+/// Every phase after this tolerates that (BRS-114), and the
+/// diagnostics say what was wrong.
+pub fn load_partial(entry: &Path, sources: &mut SourceMap, overlay: &Overlay) -> Program {
+    load_inner(entry, sources, overlay, true)
+}
+
+fn load_inner(
+    entry: &Path,
+    sources: &mut SourceMap,
+    overlay: &Overlay,
+    tolerate_parse_errors: bool,
+) -> Program {
     let canonical = canonicalize(entry);
 
     let mut loader = Loader {
@@ -107,6 +174,8 @@ pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
         loaded: HashMap::new(),
         stack: Vec::new(),
         diagnostics: Vec::new(),
+        overlay,
+        tolerate_parse_errors,
     };
 
     let entry_ix = loader
@@ -228,6 +297,12 @@ struct Loader<'a> {
     /// on it is a cycle.
     stack: Vec<PathBuf>,
     diagnostics: Vec<Diagnostic>,
+    /// What an editor holds that disk does not. Empty for every batch
+    /// caller.
+    overlay: &'a Overlay,
+    /// Whether a file that failed to parse still contributes what the
+    /// parser salvaged. False for every batch caller.
+    tolerate_parse_errors: bool,
 }
 
 impl Loader<'_> {
@@ -273,7 +348,15 @@ impl Loader<'_> {
             return Some(ix);
         }
 
-        let source = match std::fs::read_to_string(path) {
+        // The buffer wins over the file when there is one. Disk is not
+        // consulted at all then — an unsaved file may not be on it, and
+        // a stale read would be worse than no read.
+        let read = match self.overlay.get(path) {
+            Some(source) => Ok(source.clone()),
+            None => std::fs::read_to_string(path),
+        };
+
+        let source = match read {
             Ok(source) => source,
             Err(err) => {
                 // The entry file's own read failure belongs to the
@@ -298,8 +381,17 @@ impl Loader<'_> {
         self.diagnostics.extend(parsed.diagnostics);
 
         // A file that did not parse has no trustworthy import list and
-        // no trustworthy items; lowering it would only cascade.
-        if parse_failed {
+        // no trustworthy items; for a batch compile, lowering it would
+        // only cascade, so the file is dropped.
+        //
+        // An editor needs the opposite, and needs it in the case that
+        // is almost always true: a file being typed has a parse error
+        // most of the time, and dropping it here would blank out every
+        // type and every hover for the whole file. The parser recovers
+        // and produces what it could salvage, and BRS-114 established
+        // that the later phases handle exactly that, so the tolerant
+        // caller lowers it anyway.
+        if parse_failed && !self.tolerate_parse_errors {
             return None;
         }
 

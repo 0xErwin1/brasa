@@ -69,7 +69,8 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 | `brasa_runtime` | Execution glue the backend does not own: stdlib's contact with the OS, ordered collections, `Outcome` |
 | `brasa_vm` | The dispatch loop, the heap and the collector |
 | `brasa_fmt` | Formatter: prints the AST, recovers leaf spelling and comments from the source |
-| `brasa` | CLI binary (clap): runs a script, `brasa fmt`, or `brasa test` |
+| `brasa_lsp` | Language server (BRS-92): diagnostics + hover with inferred types and error-sets |
+| `brasa` | CLI binary (clap): runs a script, `brasa fmt`, `brasa test`, or `brasa lsp` |
 
 There is no separate interpreter crate. The stdlib is native builtins:
 `brasa_bytecode::builtin` mints the ids, `brasa_typeck::builtins`
@@ -138,6 +139,15 @@ behaviour oracle it used to be is now the conformance corpus at
   AST→HIR lowering, exactly once. Later phases handle core HIR only.
 - The stdlib is native Rust builtins. No `.bras` files on the startup path.
 - Diagnostics: phases return structured errors; only the CLI renders them.
+- Two callers, two tolerances. Batch compilation GATES: `brasa_module::load`
+  drops a file that did not parse, and the CLI stops at the first phase that
+  reported. The editor does the opposite — `brasa_module::load_partial` lowers
+  what the parser salvaged and `brasa_lsp::analysis` runs every phase — because
+  the file under a cursor is broken most of the time and its sound parts are
+  still worth answering about. BRS-114 is what settled that the phases tolerate
+  this; `crates/brasa/tests/partial.rs` and `crates/brasa_module/tests/partial.rs`
+  defend it. Do not make the editor path gate, and do not make the batch path
+  tolerate.
 
 ## Language conventions (Brasa code, `.bras` files and examples)
 

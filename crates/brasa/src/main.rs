@@ -77,6 +77,12 @@ enum Subcommand {
     Test(TestArgs),
     /// Pack a script and everything it imports into one executable.
     Bundle(bundle::BundleArgs),
+    /// Run the language server over stdin/stdout (BRS-92).
+    ///
+    /// Speaks LSP to an editor: diagnostics as you type, and hover
+    /// showing the inferred type and error-set. Not meant to be run by
+    /// hand — an editor starts it.
+    Lsp,
 }
 
 #[derive(clap::Args)]
@@ -110,6 +116,7 @@ fn main() -> ExitCode {
         Some(Subcommand::Fmt(args)) => return fmt::run(args),
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
+        Some(Subcommand::Lsp) => return run_lsp(),
         None => {}
     }
 
@@ -120,6 +127,21 @@ fn main() -> ExitCode {
     };
 
     run_script(&cli, &script)
+}
+
+/// Serves the language server until the editor disconnects.
+///
+/// A transport failure is exit 70 like any other host failure the CLI
+/// cannot continue past; there is no diagnostic to render, because the
+/// channel a diagnostic would travel on is the thing that broke.
+fn run_lsp() -> ExitCode {
+    match brasa_lsp::run() {
+        Ok(()) => ExitCode::from(0),
+        Err(err) => {
+            eprintln!("brasa: language server stopped: {err}");
+            ExitCode::from(70)
+        }
+    }
 }
 
 /// What the flags asked for, so the pipeline can stop where they say.
@@ -149,7 +171,7 @@ enum Compiled {
 /// this CLI has an opinion about. A subcommand keeps the whole line,
 /// since `brasa fmt --check` is genuinely ours.
 fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
-    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "help"];
+    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "help"];
 
     let argv: Vec<String> = argv.collect();
 
