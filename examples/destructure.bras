@@ -1,0 +1,30 @@
+# Destructuring `let`: the same patterns `match`, `for`, and lambda
+# parameters bind through, in the most common binding position.
+
+def minMax(nums: Vector<int>): (int, int)
+  let mut lo = nums[0]
+  let mut hi = nums[0]
+  for n in nums
+    if n < lo
+      lo = n
+    end
+    if n > hi
+      hi = n
+    end
+  end
+  (lo, hi)
+end
+
+let (lo, hi) = minMax([3, 1, 4, 1, 5, 9, 2, 6])
+puts "lo=#{lo} hi=#{hi}"
+
+# Nesting and `_` work exactly as they do in a `match` arm.
+let ((x, y), label) = ((3, 4), "point")
+puts "#{label}: #{x},#{y}"
+
+let (_, second) = (10, 20)
+puts second
+
+# An annotation still applies to the whole right side.
+let (name, stars): (string, int) = ("brasa", 1)
+puts "#{name} #{stars}"

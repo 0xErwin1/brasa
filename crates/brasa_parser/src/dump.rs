@@ -186,6 +186,9 @@ fn dump_top_let(ast: &Ast, top_let: &TopLet, depth: usize, out: &mut String) {
         depth,
         &format!("{pub_prefix}Let {mut_prefix}{}", top_let.let_stmt.name),
     );
+    if let Some(pattern) = top_let.let_stmt.pattern {
+        dump_pattern(ast, pattern, depth + 1, out);
+    }
     dump_expr(ast, top_let.let_stmt.value, depth + 1, out);
 }
 
@@ -200,6 +203,9 @@ fn dump_stmt(ast: &Ast, id: StmtId, depth: usize, out: &mut String) {
         Stmt::Let(let_stmt) => {
             let mut_prefix = if let_stmt.mutable { "mut " } else { "" };
             line(out, depth, &format!("Let {mut_prefix}{}", let_stmt.name));
+            if let Some(pattern) = let_stmt.pattern {
+                dump_pattern(ast, pattern, depth + 1, out);
+            }
             dump_expr(ast, let_stmt.value, depth + 1, out);
         }
         Stmt::Assign { target, op, value } => {

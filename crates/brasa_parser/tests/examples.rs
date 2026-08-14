@@ -51,6 +51,7 @@ macro_rules! example_tests {
 }
 
 example_tests! {
+    example_destructure => "destructure.bras",
     example_errors => "errors.bras",
     example_fib => "fib.bras",
     example_fizzbuzz => "fizzbuzz.bras",

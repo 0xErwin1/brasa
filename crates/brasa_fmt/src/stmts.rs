@@ -169,7 +169,12 @@ impl<'a> Printer<'a> {
             .ty
             .map_or(String::new(), |ty| format!(": {}", self.ty(ty)));
 
-        let head = format!("{head}let {mutable}{}{ty} = ", let_stmt.name);
+        let binding = match let_stmt.pattern {
+            Some(pattern) => self.pattern(pattern),
+            None => let_stmt.name.clone(),
+        };
+
+        let head = format!("{head}let {mutable}{binding}{ty} = ");
         let value = self.expr(let_stmt.value, head.chars().count(), level);
         format!("{head}{value}")
     }

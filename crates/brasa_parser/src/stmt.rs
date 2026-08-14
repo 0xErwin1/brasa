@@ -112,7 +112,20 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_let_stmt_inner(&mut self) -> LetStmt {
         self.bump(); // 'let'
         let mutable = self.eat(TokenKind::Mut).is_some();
-        let name = self.expect_ident_text("a variable name");
+
+        let (name, pattern, mutable) = if self.at_let_pattern() {
+            if mutable {
+                // `mut` is rejected but the pattern is still parsed, so
+                // one mistake reports once instead of cascading into
+                // "expected '='" behind it.
+                self.error_expected(
+                    "a variable name after 'mut' (destructured bindings are immutable)",
+                );
+            }
+            (String::new(), Some(self.parse_pattern()), false)
+        } else {
+            (self.expect_ident_text("a variable name"), None, mutable)
+        };
 
         let ty = if self.eat(TokenKind::Colon).is_some() {
             Some(self.parse_type())
@@ -126,8 +139,25 @@ impl<'a> Parser<'a> {
         LetStmt {
             mutable,
             name,
+            pattern,
             ty,
             value,
+        }
+    }
+
+    /// Whether the cursor sits on a `let` binding that destructures
+    /// (BRS-128). A plain `IDENT` stays the named-binding path even
+    /// though it is also a pattern — the two mean the same thing and the
+    /// name is what every later phase wants. Literals are excluded on
+    /// purpose: `let 5 = e` binds nothing and keeps the plain "expected
+    /// a variable name" error.
+    fn at_let_pattern(&mut self) -> bool {
+        match self.kind() {
+            TokenKind::LParen | TokenKind::Underscore | TokenKind::TypeIdent => true,
+            TokenKind::Ident => {
+                self.peek_kind(1) == TokenKind::Dot && self.peek_kind(2) == TokenKind::TypeIdent
+            }
+            _ => false,
         }
     }
 

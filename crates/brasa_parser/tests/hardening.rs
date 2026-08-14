@@ -264,6 +264,20 @@ fn double_mut_yields_one_diagnostic_not_a_cascade() {
     insta::assert_debug_snapshot!(messages(&result));
 }
 
+// BRS-128: `mut` takes a single name — destructured bindings are
+// immutable. The pattern is still consumed, so the one mistake reports
+// once instead of cascading into "expected '='".
+#[test]
+fn mut_with_a_let_pattern_reports_once_and_recovers() {
+    let result = parse("let mut (a, b) = p\n");
+    insta::assert_debug_snapshot!(messages(&result));
+}
+
+#[test]
+fn let_destructuring_parses_clean() {
+    assert_clean("let (a, b) = p\nlet ((a, b), c) = q\nlet (x, y): (int, int) = r\n");
+}
+
 #[test]
 fn reserved_word_as_param_name_yields_bounded_diagnostics() {
     let result = parse("def f(let: int)\nend\n");

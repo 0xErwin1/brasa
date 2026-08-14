@@ -1,0 +1,18 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T017] Error: this `let` pattern does not match every value: `(None, _)` is not covered
+   ╭─[ a_let_pattern_must_match_every_value.bras:3:3 ]
+   │
+ 3 │   let (Some(a), b) = pair
+   │   ───────────┬───────────  
+   │              ╰───────────── a `let` has no other arms to try; bind the value by name and `match` on it
+───╯
+[T018] Error: tuple pattern does not match type `int`
+   ╭─[ a_let_pattern_must_match_every_value.bras:8:5 ]
+   │
+ 8 │ let (x, y) = scalar
+   │     ───┬──  
+   │        ╰──── the scrutinee is not a tuple
+───╯

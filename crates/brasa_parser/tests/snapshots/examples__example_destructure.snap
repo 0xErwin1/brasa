@@ -1,0 +1,110 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+FuncDef minMax(nums)
+  Let mut lo
+    Index
+      Ident(nums)
+      Int(0)
+  Let mut hi
+    Index
+      Ident(nums)
+      Int(0)
+  For
+    Binding(n)
+    Ident(nums)
+    If
+      cond
+        Binary(<)
+          Ident(n)
+          Ident(lo)
+      then
+        Assign =
+          Ident(lo)
+          Ident(n)
+    If
+      cond
+        Binary(>)
+          Ident(n)
+          Ident(hi)
+      then
+        Assign =
+          Ident(hi)
+          Ident(n)
+  TupleLit
+    Ident(lo)
+    Ident(hi)
+Let 
+  Tuple
+    Binding(lo)
+    Binding(hi)
+  Call
+    Ident(minMax)
+    VectorLit
+      Int(3)
+      Int(1)
+      Int(4)
+      Int(1)
+      Int(5)
+      Int(9)
+      Int(2)
+      Int(6)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "lo="
+    Interp
+      Ident(lo)
+    Text(raw=false) " hi="
+    Interp
+      Ident(hi)
+Let 
+  Tuple
+    Tuple
+      Binding(x)
+      Binding(y)
+    Binding(label)
+  TupleLit
+    TupleLit
+      Int(3)
+      Int(4)
+    StringLit
+      Text(raw=false) "point"
+Call
+  Ident(puts)
+  StringLit
+    Interp
+      Ident(label)
+    Text(raw=false) ": "
+    Interp
+      Ident(x)
+    Text(raw=false) ","
+    Interp
+      Ident(y)
+Let 
+  Tuple
+    Wildcard
+    Binding(second)
+  TupleLit
+    Int(10)
+    Int(20)
+Call
+  Ident(puts)
+  Ident(second)
+Let 
+  Tuple
+    Binding(name)
+    Binding(stars)
+  TupleLit
+    StringLit
+      Text(raw=false) "brasa"
+    Int(1)
+Call
+  Ident(puts)
+  StringLit
+    Interp
+      Ident(name)
+    Text(raw=false) " "
+    Interp
+      Ident(stars)

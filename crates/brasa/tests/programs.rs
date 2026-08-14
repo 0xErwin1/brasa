@@ -249,6 +249,17 @@ dbflux is warm
 }
 
 #[test]
+fn example_destructure() {
+    let expected = "\
+lo=1 hi=9
+point: 3,4
+20
+brasa 1
+";
+    assert_example("destructure.bras", expected);
+}
+
+#[test]
 fn example_strings() {
     let expected = "\
 Hello, Brasa World

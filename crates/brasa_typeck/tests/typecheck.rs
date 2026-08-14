@@ -403,6 +403,23 @@ let wrong = structs.map(|(a, b)| a)
 "#
 );
 
+// A `let` pattern has to match every value its right side can take —
+// a `let` has no other arms to add — so a refutable one reports in
+// `let` terms and points at binding and matching (BRS-128). A tuple
+// pattern against a non-tuple stays the ordinary pattern error.
+typecheck_error_test!(
+    a_let_pattern_must_match_every_value,
+    r#"
+def first(pair: (Option<int>, int)): int
+  let (Some(a), b) = pair
+  a + b
+end
+
+let scalar = 5
+let (x, y) = scalar
+"#
+);
+
 // `Comparable` is structural like any other interface: a type with a
 // conforming `cmp` satisfies it. Primitives are answered natively
 // because they have no `cmp` to find, not because non-primitives are

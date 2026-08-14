@@ -51,6 +51,11 @@ pub enum SugarOrigin {
     /// lowers to has one arm the user did not write, so a "cover the
     /// missing cases" diagnostic would ask for something impossible.
     LambdaParam,
+    /// A destructuring `let (a, b) = expr` (BRS-128). Like a lambda
+    /// parameter, the match it lowers to has no other arms to add, so a
+    /// refutable pattern reports "bind and `match`" instead of "cover
+    /// the missing cases".
+    LetPattern,
 }
 
 /// The output of lowering one parsed file: the HIR arenas, the top-level
@@ -122,7 +127,13 @@ impl Lowerer {
             next_temp: self.next_temp,
         };
 
-        let roots = roots.iter().map(|&root| cx.lower_item(root)).collect();
+        let roots = {
+            let mut out = Vec::new();
+            for &root in roots {
+                cx.lower_item(root, &mut out);
+            }
+            out
+        };
 
         self.hir = cx.hir;
         self.sugar_origins = cx.sugar_origins;
@@ -161,7 +172,10 @@ impl LowerCtx<'_> {
 
     // Items ---------------------------------------------------------
 
-    fn lower_item(&mut self, id: ast::ItemId) -> ItemId {
+    /// Lowers one AST item, pushing one or more HIR items: a top-level
+    /// destructuring `let` becomes several `TopLet`s (see
+    /// [`Self::lower_top_let_pattern`]), everything else is one-to-one.
+    fn lower_item(&mut self, id: ast::ItemId, out: &mut Vec<ItemId>) {
         let span = self.ast.span_of_item(id);
 
         let item = match self.ast.item(id) {
@@ -198,23 +212,29 @@ impl LowerCtx<'_> {
                     .map(|m| self.lower_iface_member(m))
                     .collect(),
             }),
-            ast::Item::TopLet(top_let) => Item::TopLet(TopLet {
-                is_pub: top_let.is_pub,
-                let_stmt: self.lower_let_stmt(&top_let.let_stmt),
-            }),
+            ast::Item::TopLet(top_let) => match top_let.let_stmt.pattern {
+                Some(pattern) => {
+                    self.lower_top_let_pattern(top_let, pattern, span, out);
+                    return;
+                }
+                None => Item::TopLet(TopLet {
+                    is_pub: top_let.is_pub,
+                    let_stmt: self.lower_let_stmt(&top_let.let_stmt),
+                }),
+            },
             ast::Item::TestDef(def) => Item::TestDef(TestDef {
                 name: def.name.clone(),
                 name_span: def.name_span,
                 body: self.lower_block(&def.body),
             }),
             ast::Item::Stmt(stmt) => {
-                let mut out = Vec::new();
-                self.lower_stmt(*stmt, &mut out);
-                Item::Stmt(out)
+                let mut stmts = Vec::new();
+                self.lower_stmt(*stmt, &mut stmts);
+                Item::Stmt(stmts)
             }
         };
 
-        self.hir.alloc_item(item, span)
+        out.push(self.hir.alloc_item(item, span));
     }
 
     fn lower_func(&mut self, func: &ast::FuncDef) -> FuncDef {
@@ -301,7 +321,13 @@ impl LowerCtx<'_> {
         let span = self.ast.span_of_stmt(id);
 
         let stmt = match self.ast.stmt(id) {
-            ast::Stmt::Let(let_stmt) => Stmt::Let(self.lower_let_stmt(let_stmt)),
+            ast::Stmt::Let(let_stmt) => match let_stmt.pattern {
+                Some(pattern) => {
+                    self.lower_let_pattern(let_stmt, pattern, span, out);
+                    return;
+                }
+                None => Stmt::Let(self.lower_let_stmt(let_stmt)),
+            },
             ast::Stmt::Assign { target, op, value } => {
                 self.lower_assign(*target, *op, *value, span, out);
                 return;
@@ -336,6 +362,173 @@ impl LowerCtx<'_> {
             name: let_stmt.name.clone(),
             ty: let_stmt.ty.map(|ty| self.lower_type_expr(ty)),
             value: self.lower_expr(let_stmt.value),
+        }
+    }
+
+    /// Desugars `let (a, b) = e` (BRS-128): the value is bound once to a
+    /// fresh temp, then every name the pattern binds becomes its own
+    /// immutable `let` whose value is a single-arm `match` on the temp.
+    ///
+    /// Binding through a pattern is the same work `match` already does —
+    /// the route lambda parameters took in BRS-48 (see
+    /// [`Self::lower_lambda`]) — so the resolver, the checker, and the
+    /// backend never learn a second binding form. A pattern that binds
+    /// no name still produces one effect-position `match`, so its shape
+    /// and refutability are checked all the same.
+    fn lower_let_pattern(
+        &mut self,
+        let_stmt: &ast::LetStmt,
+        pattern: ast::PatternId,
+        span: Span,
+        out: &mut Block,
+    ) {
+        let temp = self.fresh_temp();
+
+        let temp_let = Stmt::Let(LetStmt {
+            mutable: false,
+            name: temp.clone(),
+            ty: let_stmt.ty.map(|ty| self.lower_type_expr(ty)),
+            value: self.lower_expr(let_stmt.value),
+        });
+        out.push(self.hir.alloc_stmt(temp_let, span));
+
+        for (name, matched) in self.let_pattern_matches(&temp, pattern, span) {
+            let stmt = match name {
+                Some(name) => Stmt::Let(LetStmt {
+                    mutable: false,
+                    name,
+                    ty: None,
+                    value: matched,
+                }),
+                None => Stmt::Expr(matched),
+            };
+            out.push(self.hir.alloc_stmt(stmt, span));
+        }
+    }
+
+    /// The top-level face of [`Self::lower_let_pattern`]: the temp and
+    /// each bound name become their own `TopLet` items, so globals,
+    /// visibility, and the module scope keep their one-name-per-item
+    /// shape. The hidden temp is never `pub` — the pattern's names are
+    /// the declaration. A pattern binding no name pushes its checking
+    /// `match` as a plain statement item instead.
+    fn lower_top_let_pattern(
+        &mut self,
+        top_let: &ast::TopLet,
+        pattern: ast::PatternId,
+        span: Span,
+        out: &mut Vec<ItemId>,
+    ) {
+        let temp = self.fresh_temp();
+
+        let temp_item = Item::TopLet(TopLet {
+            is_pub: false,
+            let_stmt: LetStmt {
+                mutable: false,
+                name: temp.clone(),
+                ty: top_let.let_stmt.ty.map(|ty| self.lower_type_expr(ty)),
+                value: self.lower_expr(top_let.let_stmt.value),
+            },
+        });
+        out.push(self.hir.alloc_item(temp_item, span));
+
+        for (name, matched) in self.let_pattern_matches(&temp, pattern, span) {
+            let item = match name {
+                Some(name) => Item::TopLet(TopLet {
+                    is_pub: top_let.is_pub,
+                    let_stmt: LetStmt {
+                        mutable: false,
+                        name,
+                        ty: None,
+                        value: matched,
+                    },
+                }),
+                None => {
+                    let stmt = self.hir.alloc_stmt(Stmt::Expr(matched), span);
+                    Item::Stmt(vec![stmt])
+                }
+            };
+            out.push(self.hir.alloc_item(item, span));
+        }
+    }
+
+    /// One `(bound name, match expression)` pair per name the pattern
+    /// binds, in source order — or a single nameless pair when it binds
+    /// nothing. The pattern is re-lowered per pair so every `match` owns
+    /// fresh HIR nodes; the side tables later phases key by node ID
+    /// cannot share them.
+    fn let_pattern_matches(
+        &mut self,
+        temp: &str,
+        pattern: ast::PatternId,
+        span: Span,
+    ) -> Vec<(Option<String>, ExprId)> {
+        let mut names = Vec::new();
+        self.pattern_binding_names(pattern, &mut names);
+
+        if names.is_empty() {
+            let matched = self.let_pattern_match(temp, pattern, None, span);
+            return vec![(None, matched)];
+        }
+
+        names
+            .into_iter()
+            .map(|name| {
+                let matched = self.let_pattern_match(temp, pattern, Some(&name), span);
+                (Some(name), matched)
+            })
+            .collect()
+    }
+
+    /// `match $temp { pattern => name }` (or `=> unit` for a nameless
+    /// check), tagged [`SugarOrigin::LetPattern`] so a refutable pattern
+    /// reports in `let` terms.
+    fn let_pattern_match(
+        &mut self,
+        temp: &str,
+        pattern: ast::PatternId,
+        name: Option<&str>,
+        span: Span,
+    ) -> ExprId {
+        let scrutinee = self.hir.alloc_expr(Expr::Ident(temp.to_string()), span);
+        let pattern = self.lower_pattern(pattern);
+
+        let body = match name {
+            Some(name) => self.hir.alloc_expr(Expr::Ident(name.to_string()), span),
+            None => self.hir.alloc_expr(Expr::Unit, span),
+        };
+
+        let matched = self.hir.alloc_expr(
+            Expr::Match {
+                scrutinee,
+                arms: vec![MatchArm {
+                    pattern,
+                    guard: None,
+                    body: ArmBody::Expr(body),
+                }],
+            },
+            span,
+        );
+        self.sugar_origins.insert(matched, SugarOrigin::LetPattern);
+
+        matched
+    }
+
+    /// Every name the pattern binds, in source order.
+    fn pattern_binding_names(&self, id: ast::PatternId, names: &mut Vec<String>) {
+        match self.ast.pattern(id) {
+            ast::Pattern::Binding(name) => names.push(name.clone()),
+            ast::Pattern::Ctor { args, .. } => {
+                for &arg in args {
+                    self.pattern_binding_names(arg, names);
+                }
+            }
+            ast::Pattern::Tuple(elements) => {
+                for &element in elements {
+                    self.pattern_binding_names(element, names);
+                }
+            }
+            ast::Pattern::Wildcard | ast::Pattern::Literal(_) => {}
         }
     }
 

@@ -5,7 +5,12 @@ use crate::{Block, ExprId, PatternId, TypeExprId};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetStmt {
     pub mutable: bool,
+    /// Empty when the binding destructures through `pattern`, mirroring
+    /// [`crate::LambdaParam`].
     pub name: String,
+    /// A destructuring `let (a, b) = expr` (BRS-128). Present only for
+    /// non-`mut` lets; `mut` takes a single name.
+    pub pattern: Option<PatternId>,
     pub ty: Option<TypeExprId>,
     pub value: ExprId,
 }

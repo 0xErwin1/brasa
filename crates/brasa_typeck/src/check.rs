@@ -2649,11 +2649,14 @@ impl<'a> Checker<'a> {
     ) -> Type {
         let scrutinee_ty = self.check_expr(scrutinee, None);
 
-        // A destructuring lambda parameter lowers to a match but is not
-        // an operator over an `Option`, so it takes the ordinary path;
-        // only its exhaustiveness wording differs.
+        // A destructuring lambda parameter or `let` lowers to a match
+        // but is not an operator over an `Option`, so it takes the
+        // ordinary path; only its exhaustiveness wording differs.
         if let Some(origin) = self.sugar_origins.get(&id).copied()
-            && origin != SugarOrigin::LambdaParam
+            && !matches!(
+                origin,
+                SugarOrigin::LambdaParam | SugarOrigin::LetPattern
+            )
         {
             return self.check_sugar_match(scrutinee, &scrutinee_ty, origin, arms, expected, used);
         }
@@ -2806,10 +2809,10 @@ impl<'a> Checker<'a> {
                 )
                 .with_note("`??` supplies a fallback for when an `Option` is `None`".to_string()),
             ),
-            // A destructuring lambda parameter never reaches here: it
-            // takes the ordinary match path, which has no `Option`
-            // requirement to violate.
-            SugarOrigin::LambdaParam => {}
+            // A destructuring lambda parameter or `let` never reaches
+            // here: both take the ordinary match path, which has no
+            // `Option` requirement to violate.
+            SugarOrigin::LambdaParam | SugarOrigin::LetPattern => {}
         }
 
         let mut result = Type::Unknown;
@@ -2885,22 +2888,23 @@ impl<'a> Checker<'a> {
 
         let span = self.hir.span_of_expr(id);
 
-        // A lambda parameter has no arms to add, so the ordinary advice
-        // would ask for something impossible: the pattern itself has to
-        // match every value the parameter can take.
-        let from_lambda_param =
-            self.sugar_origins.get(&id).copied() == Some(SugarOrigin::LambdaParam);
-
-        let (message, label) = if from_lambda_param {
-            (
+        // A lambda parameter or a destructuring `let` has no arms to
+        // add, so the ordinary advice would ask for something
+        // impossible: the pattern itself has to match every value the
+        // scrutinee can take.
+        let (message, label) = match self.sugar_origins.get(&id).copied() {
+            Some(SugarOrigin::LambdaParam) => (
                 format!("this lambda parameter does not match every value: {listed} not covered"),
                 "bind the parameter by name and `match` on it instead",
-            )
-        } else {
-            (
+            ),
+            Some(SugarOrigin::LetPattern) => (
+                format!("this `let` pattern does not match every value: {listed} not covered"),
+                "a `let` has no other arms to try; bind the value by name and `match` on it",
+            ),
+            _ => (
                 format!("non-exhaustive match: {listed} not covered"),
                 "add arms for the missing cases or a `_` arm",
-            )
+            ),
         };
 
         self.error(err_at(codes::T_NON_EXHAUSTIVE_MATCH, span, message, label));

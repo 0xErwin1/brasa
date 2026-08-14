@@ -805,6 +805,68 @@ puts(lefts.zip(rights).map(|((a, b), (c, d))| a + b + c + d))
     );
 }
 
+/// A `let` binds through the same patterns `match`, `for`, and lambda
+/// parameters already use (BRS-128): the last binding position that
+/// still demanded a name. It desugars to single-arm `match`es over a
+/// hidden temp, so the runtime path is the one `match` already had.
+///
+/// The cases pin the scope decisions: nesting, `_` components, a type
+/// annotation, statement and top-level position, a single-variant
+/// constructor (irrefutable, so it is accepted), and evaluation of the
+/// right side exactly once and before any name binds — `let (a, b) =
+/// (b, a)` reads the outer names.
+#[test]
+fn let_destructures_through_irrefutable_patterns() {
+    assert_success(
+        r##"
+enum Boxed
+  Wrap(value: int)
+end
+
+let pair = (1, "a")
+let (n, s) = pair
+puts("#{n}#{s}")
+
+let ((a, b), c) = ((1, 2), 3)
+puts(a + b + c)
+
+let (_, second) = (10, 20)
+puts(second)
+
+let (x, y): (int, string) = (7, "z")
+puts("#{x}#{y}")
+
+let Wrap(inner) = Wrap(9)
+puts(inner)
+
+def swap(p: (int, int)): (int, int)
+  let (lo, hi) = p
+  (hi, lo)
+end
+puts(swap((1, 2)))
+
+def once(): (int, int)
+  puts("evaluated")
+  (1, 2)
+end
+
+def shadow(): int
+  let a = 100
+  let b = 200
+  if true
+    let (a, b) = (b, a)
+    puts(a - b)
+  end
+  a - b
+end
+let (l, r) = once()
+puts(l + r)
+puts(shadow())
+"##,
+        "1a\n6\n20\n7z\n9\n(2, 1)\nevaluated\n3\n100\n-100\n",
+    );
+}
+
 /// `toFixed` exists so a report column can promise its own shape. The
 /// property under test is that the decimal count comes from the CALL
 /// and not from the value: every row below is the same width, which the
