@@ -1,10 +1,31 @@
-//! The `std::cli` record surface (`docs/spec/05-stdlib.md`, BRS-112).
-//!
-//! Only the record so far, for the same reason as [`crate::http`]:
-//! `cli.parse` and `cli.help` still declare their signatures and
-//! `cli.parse`'s `cli.UsageError` contribution by hand in
-//! `brasa_typeck::builtins`, but the record they produce does not
-//! depend on that.
+//! The `std::cli` surface (`docs/spec/05-stdlib.md`, BRS-112): the two
+//! module members and the `Args` record `parse` yields.
+
+/// `cli.UsageError`: the command line did not match the declaration.
+/// Raised by `parse` only — `help` renders the declaration and never
+/// sees a command line.
+pub const USAGE_ERROR: &str = "cli.UsageError";
+
+/// The one error `cli.parse` raises.
+pub const PARSE_ERRORS: &[&str] = &[USAGE_ERROR];
+
+crate::module_table! {
+    /// Every `std::cli` member, in surface order.
+    ///
+    /// Both take the same declaration, written as a vector of
+    /// `[kind, name, short, help]` rows — a nested string vector rather
+    /// than a record, because a script builds it as a literal and
+    /// nothing reads it back.
+    CliMember => CLI_MEMBERS, module "cli" {
+        Parse "parse" ([Vector<string>], [Vector<[Vector<string>]>]) -> args
+            throws PARSE_ERRORS;
+
+        /// Renders the declaration for `--help`. It cannot fail: a
+        /// malformed declaration is the author's bug and is fatal, not
+        /// a usage error to report to whoever ran the script.
+        Help  "help"  (string, [Vector<[Vector<string>]>])           -> string;
+    }
+}
 
 crate::record_table! {
     /// The `Args` record: a parsed command line. Both lookups are

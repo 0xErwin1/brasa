@@ -73,27 +73,39 @@ One crate per responsibility under `crates/` (pattern borrowed from Ignis):
 
 There is no separate interpreter crate. The stdlib is native builtins:
 `brasa_bytecode::builtin` mints the ids, `brasa_typeck::builtins`
-resolves signatures and `brasa_vm::builtins` implements them. BRS-96 is
-collapsing the surface those three used to declare separately into one
-table per module in `brasa_stdlib`; `Vector` (a receiver type, via
-`method_table!`) and the free modules `std::fs`, `std::json`, `std::io`,
-`std::env` and `std::proc` (via `module_table!`, which also carries each
-member's error contribution) are converted; `math`, `time` and `rand`
-still declare their signature, their errors and their implementation by
-hand. Converted free modules are listed in
-`brasa_stdlib::FREE_MODULES`, which is what the checker's lookup, the
-bytecode registry's cross-check and the table guards walk, so
-converting the next one does not mean editing them. The two shapes are
-deliberately separate: a
-free module has no receiver element type and no argument-dependent
-result, and a receiver method has neither optional trailing parameters
-nor an error list. A parameter may be a rule rather than a type
+resolves signatures and `brasa_vm::builtins` implements them. BRS-96
+collapsed the surface those three used to declare separately into one
+table per module in `brasa_stdlib`, and it is **complete**: every free
+module (`fs`, `json`, `io`, `env`, `proc`, `http`, `cli`, `math`,
+`time`, `rand`) is declared there, as is `Vector` and all four records.
+No stdlib module signature or error contribution is hand-written in
+`brasa_typeck` any more.
+
+There are three table shapes, deliberately separate because almost
+nothing about their columns overlaps:
+
+| Macro | For | Registry |
+|-------|-----|----------|
+| `method_table!` | a generic receiver (`Vector<T>`), whose rows may name the element type as `elem` | `brasa_stdlib::VECTOR_METHODS` |
+| `module_table!` | a free module, with optional trailing parameters and a `throws` column | `brasa_stdlib::FREE_MODULES` |
+| `record_table!` | a record (`Output`, `Response`, `Args`, `Walk`): a concrete receiver, no element type, no optionals, no errors | `brasa_stdlib::RECORDS` |
+
+The layers that cover a whole surface at once — the checker's lookup,
+the bytecode registry's cross-check, the table guards — walk those
+registries rather than naming modules, so adding a module means joining
+one list.
+
+Three things are deliberately NOT data. A parameter may be a rule
 (`ParamDesc::Command`, the argv-or-split-string a `proc` runner takes);
-a result never is, so `TyDesc` always lowers to exactly one type. The
-stdlib records (`Output`, `Response`, `Args`, `Walk`) are the third
-shape, `record_table!`: a concrete receiver with no element type, no
-optional parameters and no error list, whose members are either a
-field or a method. They are listed in `brasa_stdlib::RECORDS`; the
+a result never is, so `TyDesc` always lowers to exactly one type. A
+member may be read rather than called (`ModuleKind::Constant` for
+`math.pi`, `RecordKind::Field` for `output.stdout`) — the surface's own
+distinction. And `ModuleKind::Custom`/`RetDesc::Custom` hand a
+signature to the checker, which is correct only when it is not
+expressible as data at all (`math.abs` answers in the kind it was
+given; `rand.choice` is generic over an element a free module cannot
+name). A delegated module member must state its reason in the table,
+and a guard pins the delegated set so it cannot grow quietly. The
 checker owns the map from its own `Type` to a record's table, since
 `brasa_stdlib` does not know what a `Type` is. Ids stay hand-minted in `brasa_bytecode` and are
 frozen by `crates/brasa_bytecode/tests/builtin_ids.rs`.

@@ -7,13 +7,14 @@
 //! throw `string.ParseError` on failure (BRS-41); the error
 //! contribution is the error-set pass's concern, not this table's.
 //!
-//! The `Vector<T>` receiver and the `std::fs`, `std::json`, `std::io`,
-//! `std::env` and `std::proc` modules no longer live here: each is
-//! declared once in `brasa_stdlib` and lowered below (BRS-96). The
-//! remaining receivers and modules still carry their signatures — and,
-//! for the modules, their error contributions — in this file.
+//! No stdlib MODULE lives here any more: every free module and every
+//! record is declared once in `brasa_stdlib` and lowered below
+//! (BRS-96), error contributions included. What remains is the builtin
+//! methods of the language's own types — string, int, float, the
+//! containers, `Json` — plus the signatures the tables deliberately
+//! delegate here because they are not expressible as data.
 
-use brasa_stdlib::{ParamDesc, RecordKind, RetDesc, TyDesc, VectorMember};
+use brasa_stdlib::{ModuleKind, ParamDesc, RecordKind, RetDesc, TyDesc, VectorMember};
 
 use crate::types::Type;
 
@@ -137,13 +138,17 @@ fn string_method(name: &str) -> Option<MethodSig> {
 fn lower(desc: &TyDesc, elem: Option<&Type>) -> Type {
     match desc {
         TyDesc::Int => Type::Int,
+        TyDesc::Float => Type::Float,
         TyDesc::String => Type::String,
         TyDesc::Bool => Type::Bool,
         TyDesc::Unit => Type::Unit,
+        TyDesc::Range => Type::Range,
         TyDesc::Unknown => Type::Unknown,
         TyDesc::Walk => Type::Walk,
         TyDesc::Json => Type::Json,
         TyDesc::ProcOutput => Type::ProcOutput,
+        TyDesc::HttpResponse => Type::HttpResponse,
+        TyDesc::CliArgs => Type::CliArgs,
         TyDesc::Elem => elem
             .expect("a receiver-less declaration cannot mention the receiver's element type")
             .clone(),
@@ -341,117 +346,50 @@ pub struct ModuleSig {
 /// That is not hypothetical — `cli.parse` shipped that way for exactly
 /// one commit.
 ///
-/// Covers polymorphic members and constants too, which is why it is a
-/// function rather than a field on [`ModuleSig`].
+/// Covers delegated members and constants too, which is why it is a
+/// function rather than a field on [`ModuleSig`] — those two have no
+/// `ModuleSig` to carry it.
 ///
-/// The converted free modules answer from their declaration table's
-/// `throws` column (`brasa_stdlib`, BRS-96); the modules below still
-/// declare their contribution here.
+/// Every free module answers from its declaration table's `throws`
+/// column now (`brasa_stdlib`, BRS-96), so a name this does not know
+/// is a name no module declares.
 pub fn module_throws(module: &str, name: &str) -> &'static [&'static str] {
-    use brasa_resolver::{CLI_USAGE_ERROR, HTTP_REQUEST_ERROR};
-
-    if brasa_stdlib::is_free_module(module) {
-        return match brasa_stdlib::free_member(module, name) {
-            Some(decl) => decl.throws,
-            None => &[],
-        };
-    }
-
-    match (module, name) {
-        // BRS-113: a non-2xx status is an answer, so only a request that
-        // never produced a response throws.
-        ("http", "get" | "post") => &[HTTP_REQUEST_ERROR],
-        // BRS-112: `help` renders a declaration and cannot fail; only
-        // `parse` sees a command line.
-        ("cli", "parse") => &[CLI_USAGE_ERROR],
-        // No `math`, `time` or `rand` member throws (BRS-35); `fs`,
-        // `json`, `io` and `env` answered from their tables above.
-        _ => &[],
+    match brasa_stdlib::free_member(module, name) {
+        Some(decl) => decl.throws,
+        None => &[],
     }
 }
 
-/// Looks up `module.name` for the std modules whose signatures have
-/// closed (`docs/spec/05-stdlib.md` — BRS-32: `proc` and `env`;
-/// BRS-33: `fs` plus `env.cwd`/`env.cd`; BRS-34: `json` and `io`;
-/// BRS-35: `math`, `time`, and `rand`). `fs`, `json`, `io` and `env`
-/// are answered from their declaration tables by [`free_member`].
-/// Polymorphic members
-/// ([`module_member_special`]) and constants ([`module_constant`])
-/// resolve outside this fixed-type table.
+/// Looks up the signature of `module.name`, for every std module —
+/// all of them are declared in `brasa_stdlib` now (BRS-96).
+///
+/// The two members this does NOT answer for are the two the
+/// declaration says it should not: a constant is read rather than
+/// called ([`module_constant`]) and a delegated member's signature is
+/// the checker's own ([`module_member_special`]).
 pub fn module_member(module: &str, name: &str) -> Option<ModuleSig> {
-    let msig = |required: Vec<ModuleParam>, optional: Vec<ModuleParam>, ret: Type| ModuleSig {
+    free_member(module, name)
+}
+
+/// The members of a free module, derived from their declarations
+/// (`brasa_stdlib`, BRS-96).
+///
+/// Answers for [`ModuleKind::Call`] rows only. A constant is not called
+/// and a delegated member has no signature to derive, so both are
+/// `None` here and reached through [`module_constant`] and
+/// [`module_member_special`] instead — the same three-way split the
+/// declaration draws.
+fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
+    let decl = brasa_stdlib::free_member(module, name)?;
+
+    let ModuleKind::Call {
         required,
         optional,
         ret,
+    } = decl.kind
+    else {
+        return None;
     };
-
-    if brasa_stdlib::is_free_module(module) {
-        return free_member(module, name);
-    }
-
-    match (module, name) {
-        ("cli", "parse") => Some(msig(
-            vec![
-                ModuleParam::Ty(Type::vector(Type::String)),
-                ModuleParam::Ty(Type::vector(Type::vector(Type::String))),
-            ],
-            vec![],
-            Type::CliArgs,
-        )),
-        ("cli", "help") => Some(msig(
-            vec![
-                ModuleParam::Ty(Type::String),
-                ModuleParam::Ty(Type::vector(Type::vector(Type::String))),
-            ],
-            vec![],
-            Type::String,
-        )),
-        ("http", "get") => Some(msig(
-            vec![ModuleParam::Ty(Type::String)],
-            vec![ModuleParam::Ty(Type::Int)],
-            Type::HttpResponse,
-        )),
-        ("http", "post") => Some(msig(
-            vec![ModuleParam::Ty(Type::String), ModuleParam::Ty(Type::String)],
-            vec![ModuleParam::Ty(Type::Int)],
-            Type::HttpResponse,
-        )),
-        // `std::math` (BRS-35): the float members. `abs`/`min`/`max`
-        // are polymorphic over `int`/`float` and are special-cased in
-        // the checker; the constants live in [`module_constant`].
-        ("math", "sqrt" | "floor" | "ceil" | "round") => Some(msig(
-            vec![ModuleParam::Ty(Type::Float)],
-            vec![],
-            Type::Float,
-        )),
-        ("math", "pow") => Some(msig(
-            vec![ModuleParam::Ty(Type::Float), ModuleParam::Ty(Type::Float)],
-            vec![],
-            Type::Float,
-        )),
-        // `std::time` (BRS-35): epoch timestamps plus sleep and basic
-        // ISO-8601 formatting.
-        ("time", "now") => Some(msig(vec![], vec![], Type::Float)),
-        ("time", "nowMillis") => Some(msig(vec![], vec![], Type::Int)),
-        ("time", "sleep") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
-        ("time", "iso") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::String)),
-        // `std::rand` (BRS-35): the deterministic PRNG surface.
-        // `choice`/`shuffle` are generic over the vector element and
-        // are special-cased in the checker.
-        ("rand", "seed") => Some(msig(vec![ModuleParam::Ty(Type::Int)], vec![], Type::Unit)),
-        ("rand", "int") => Some(msig(vec![ModuleParam::Ty(Type::Range)], vec![], Type::Int)),
-        ("rand", "float") => Some(msig(vec![], vec![], Type::Float)),
-        _ => None,
-    }
-}
-
-/// The members of a converted free module, derived from their
-/// declarations (`brasa_stdlib`, BRS-96). Every parameter is an
-/// ordinary typed one: no member of these modules accepts the
-/// alternative-shaped [`ModuleParam::Command`] argument `std::proc`'s
-/// runners take, which is part of why `proc` is not converted.
-fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
-    let decl = brasa_stdlib::free_member(module, name)?;
 
     let params = |descs: &'static [ParamDesc]| {
         descs
@@ -464,40 +402,47 @@ fn free_member(module: &str, name: &str) -> Option<ModuleSig> {
     };
 
     Some(ModuleSig {
-        required: params(decl.required),
-        optional: params(decl.optional),
-        ret: lower(&decl.ret, None),
+        required: params(required),
+        optional: params(optional),
+        ret: lower(&ret, None),
     })
 }
 
-/// Looks up a plain-value module member (`math.pi`): the constants of
-/// the closed std modules (`docs/spec/05-stdlib.md`, BRS-35).
+/// Looks up a plain-value module member (`math.pi`): the members
+/// declared [`ModuleKind::Constant`], read without a call
+/// (`docs/spec/05-stdlib.md`, BRS-35).
 pub fn module_constant(module: &str, name: &str) -> Option<Type> {
-    match (module, name) {
-        ("math", "pi" | "e") => Some(Type::Float),
+    match brasa_stdlib::free_member(module, name)?.kind {
+        ModuleKind::Constant(ty) => Some(lower(&ty, None)),
         _ => None,
     }
 }
 
-/// The module members whose signatures the checker resolves outside
-/// [`module_member`]'s fixed-type table: `math.abs`/`min`/`max` are
+/// Whether this member's signature is the checker's own rather than the
+/// table's ([`ModuleKind::Custom`]): `math.abs`/`min`/`max` are
 /// polymorphic over `int`/`float`, and `rand.choice`/`shuffle` are
 /// generic over the vector element (BRS-35).
+///
+/// The table still says these members exist; only the signature is
+/// delegated, so this cannot drift out of agreement with the surface
+/// the way a second hand-written list could.
 pub fn module_member_special(module: &str, name: &str) -> bool {
     matches!(
-        (module, name),
-        ("math", "abs" | "min" | "max") | ("rand", "choice" | "shuffle")
+        brasa_stdlib::free_member(module, name).map(|decl| decl.kind),
+        Some(ModuleKind::Custom(_))
     )
 }
 
 /// Whether `module` is a std module whose member signatures have
 /// closed: an unknown member on a closed module is an error, while
-/// open modules stay `Unknown`-typed until they close during M4.
+/// open modules stay `Unknown`-typed until they close.
+///
+/// Having a declaration table IS being closed, which is why this asks
+/// `brasa_stdlib` rather than carrying a list. The two were the same
+/// ten names by the end of BRS-96, and a hand-kept list would have been
+/// free to disagree with the tables the moment a module was added.
 pub fn module_closed(module: &str) -> bool {
-    matches!(
-        module,
-        "proc" | "env" | "fs" | "json" | "io" | "math" | "time" | "rand" | "http" | "cli"
-    )
+    brasa_stdlib::is_free_module(module)
 }
 
 #[cfg(test)]
@@ -1047,6 +992,63 @@ mod stdlib_declaration_tests {
             assert!(record_member(&recv, "stdout").is_none());
             assert!(record_member(&recv, "toString").is_none());
         }
+    }
+
+    /// The three row forms stay three answers, end to end. This is the
+    /// property the split exists for: a constant must NOT come back
+    /// from the signature lookup, or `math.pi` would typecheck as a
+    /// call; a delegated member must not either, or the checker's own
+    /// rule would be shadowed by a signature the table cannot state.
+    #[test]
+    fn each_row_form_is_answered_by_exactly_one_lookup() {
+        for (module, members) in brasa_stdlib::FREE_MODULES {
+            for decl in *members {
+                let name = decl.name;
+                let called = module_member(module, name).is_some();
+                let constant = module_constant(module, name).is_some();
+                let delegated = module_member_special(module, name);
+
+                let answers = [called, constant, delegated];
+                assert_eq!(
+                    answers.iter().filter(|answered| **answered).count(),
+                    1,
+                    "`{module}.{name}` is answered by {} lookups, not exactly one",
+                    answers.iter().filter(|answered| **answered).count()
+                );
+
+                match decl.kind {
+                    brasa_stdlib::ModuleKind::Call { .. } => assert!(called),
+                    brasa_stdlib::ModuleKind::Constant(_) => assert!(constant),
+                    brasa_stdlib::ModuleKind::Custom(_) => assert!(delegated),
+                }
+            }
+        }
+    }
+
+    /// The constants, lowered through the table rather than named in
+    /// the checker. Both are floats: `math.pi` as an int would be a
+    /// value no one should be able to use as one.
+    #[test]
+    fn the_math_constants_come_from_the_declaration() {
+        assert_eq!(module_constant("math", "pi"), Some(Type::Float));
+        assert_eq!(module_constant("math", "e"), Some(Type::Float));
+
+        assert_eq!(module_constant("math", "sqrt"), None);
+        assert_eq!(module_constant("time", "now"), None);
+    }
+
+    /// `module_closed` now means "has a declaration table", so every
+    /// module the language ships answers yes and nothing else does.
+    /// A module that is open would leave unknown members `Unknown`
+    /// instead of reporting them.
+    #[test]
+    fn every_declared_module_is_closed() {
+        for (module, _) in brasa_stdlib::FREE_MODULES {
+            assert!(module_closed(module), "`{module}` has a table but is open");
+        }
+
+        assert!(!module_closed("re"));
+        assert!(!module_closed("definitelyNotAModule"));
     }
 
     /// The command rule survives the table, which is the whole reason

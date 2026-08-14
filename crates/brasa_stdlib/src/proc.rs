@@ -96,10 +96,16 @@ mod tests {
     #[test]
     fn only_the_argv_runners_take_the_command_rule() {
         for decl in PROC_MEMBERS {
-            let takes_command = decl
-                .required
+            let crate::ModuleKind::Call {
+                required, optional, ..
+            } = decl.kind
+            else {
+                panic!("`proc.{}` is not a plain call", decl.name)
+            };
+
+            let takes_command = required
                 .iter()
-                .chain(decl.optional)
+                .chain(optional)
                 .any(|param| matches!(param, ParamDesc::Command));
 
             assert_eq!(

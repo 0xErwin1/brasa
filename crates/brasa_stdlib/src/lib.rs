@@ -28,47 +28,38 @@
 //! removes duplication inside the compiler, not between the compiler
 //! and the spec.
 //!
-//! # Two table shapes
+//! # Three table shapes
 //!
-//! A receiver type ([`method_table!`], `Vector<T>`) and a free module
-//! ([`module_table!`], `std::fs`) do NOT share a shape, because almost
-//! nothing about their columns overlaps:
-//!
-//! | | receiver method | free module member |
-//! |---|---|---|
-//! | receiver | yes, and its element type is a type ([`TyDesc::Elem`]) | none |
-//! | result | can depend on an argument ([`RetDesc`]) | always a fixed type |
-//! | trailing parameters | all required | last ones may be optional |
-//! | parameters | always a type | may be a rule ([`ParamDesc::Command`]) |
-//! | errors raised | none on the converted surface | part of the contract ([`ModuleDecl::throws`]) |
-//! | registry name | the bare name, shared across receivers | `module.name`, unique |
-//!
-//! One shape covering both would carry an `Elem` case free modules can
-//! never use and an optional/`throws` column receivers never fill —
-//! columns no test could reach. What the two DO share is the type
-//! language ([`TyDesc`] and [`ty!`]), which is where the real
-//! duplication would have been.
-//!
-//! # The third shape: records
-//!
-//! The stdlib's records — `Output`, `Response`, `Args`, `Walk` — are
-//! receivers, but not the kind [`method_table!`] describes. They have
-//! no element type (so no row can be generic over one), no optional
-//! parameters, and no error list, and their members split into two
-//! kinds the other shapes do not have: a field, read without a call,
-//! and a method, called.
+//! A receiver type ([`method_table!`], `Vector<T>`), a free module
+//! ([`module_table!`], `std::fs`) and a record ([`record_table!`],
+//! `Output`) do NOT share a shape, because almost nothing about their
+//! columns overlaps:
 //!
 //! | | receiver method | free module member | record member |
 //! |---|---|---|---|
-//! | receiver | one generic type | none | one concrete type |
-//! | result | can depend on an argument | always a fixed type | always a fixed type |
-//! | parameters | all required types | optional tail, may be a rule | none, or all required types |
-//! | errors raised | none | part of the contract | none |
+//! | receiver | one generic type, whose element type is a type ([`TyDesc::Elem`]) | none | one concrete type |
+//! | result | can depend on an argument ([`RetDesc`]) | a fixed type, or the checker's ([`ModuleKind::Custom`]) | always a fixed type |
+//! | parameters | all required types | optional tail, and may be a rule ([`ParamDesc::Command`]) | none, or all required types |
+//! | reached by | always a call | a call, or a read ([`ModuleKind::Constant`]) | a call, or a read ([`RecordKind::Field`]) |
+//! | errors raised | none | part of the contract ([`ModuleDecl::throws`]) | none |
+//! | registry name | the bare name, shared across receivers | `module.name`, unique | the bare name, shared |
 //!
-//! [`record_table!`] is that third shape. It is worth its own macro
-//! rather than a widened `method_table!` for the same reason the first
-//! two stayed apart: every column the two would have to share is one
-//! the other can never fill.
+//! One shape covering all three would carry an `Elem` case free modules
+//! can never use, an optional/`throws` column receivers never fill, and
+//! a `Constant` case a method cannot be — columns no test could reach.
+//! What they DO share is the type language ([`TyDesc`] and [`ty!`]),
+//! which is where the real duplication would have been.
+//!
+//! # What is deliberately not data
+//!
+//! Two escape hatches exist, and both are narrow on purpose.
+//! [`RetDesc::Custom`] and [`ModuleKind::Custom`] hand a member's
+//! signature to the checker, which is right only when the signature is
+//! not expressible here at all: `Vector.sort` exists only for orderable
+//! elements, `math.abs` must answer in the kind it was given,
+//! `rand.choice` is generic over an element a free module has no
+//! receiver to name. A module member states its reason in the table,
+//! and a guard keeps the delegated set from growing quietly.
 //!
 //! A record declares only its own members. The universal derived
 //! `toString` is layered on by the checker for every type, so a row
@@ -83,9 +74,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TyDesc {
     Int,
+    Float,
     String,
     Bool,
     Unit,
+    /// A range value, which `rand.int` draws from.
+    Range,
     /// The checker's `Unknown`: unifies with everything, used where a
     /// member's type is decided by the call site rather than the table.
     Unknown,
@@ -98,6 +92,10 @@ pub enum TyDesc {
     Json,
     /// The `Output` record every `std::proc` runner yields (BRS-32).
     ProcOutput,
+    /// The `Response` record `http.get`/`http.post` yield (BRS-113).
+    HttpResponse,
+    /// The `Args` record `cli.parse` yields (BRS-112).
+    CliArgs,
     Vector(&'static TyDesc),
     Option(&'static TyDesc),
     Map(&'static TyDesc, &'static TyDesc),
@@ -150,17 +148,60 @@ pub struct ModuleDecl {
     /// under the qualified `module.name` instead, since a free member's
     /// bare name is not unique across modules (`fs.read`, `io.readAll`).
     pub name: &'static str,
-    /// The parameters every call must pass.
-    pub required: &'static [ParamDesc],
-    /// Trailing parameters a call may omit, in order.
-    pub optional: &'static [ParamDesc],
-    /// The result, which is always one type — unlike a parameter, which
-    /// may be a rule ([`ParamDesc`]).
-    pub ret: TyDesc,
+    pub kind: ModuleKind,
     /// The stdlib-native errors this member raises, by canonical
     /// qualified name (`fs.NotFound`) — the member's contribution to
     /// its caller's inferred error-set.
+    ///
+    /// Outside [`ModuleKind::Call`] this is always empty: a constant is
+    /// a value that is simply there, and no delegated member throws
+    /// today. It stays on the outside so that stops being true by
+    /// someone writing it down.
     pub throws: &'static [&'static str],
+}
+
+/// What a free module member is.
+///
+/// The three are variants rather than columns because each carries
+/// what the others cannot: a constant has no parameters to declare, a
+/// delegated member has no signature to declare at all, and only a call
+/// has an optional tail. As columns, two thirds of every row would be
+/// fields no test could reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleKind {
+    /// The common case: called as `fs.read(path)`.
+    Call {
+        /// The parameters every call must pass.
+        required: &'static [ParamDesc],
+        /// Trailing parameters a call may omit, in order.
+        optional: &'static [ParamDesc],
+        /// The result, which is always one type — unlike a parameter,
+        /// which may be a rule ([`ParamDesc`]).
+        ret: TyDesc,
+    },
+    /// Read without a call: `math.pi`. Writing `math.pi()` is a call on
+    /// a plain value, and the checker says so rather than reporting an
+    /// unknown member.
+    ///
+    /// The same field/method distinction [`RecordKind`] draws, for the
+    /// same reason: it is the surface's, not an implementation detail.
+    Constant(TyDesc),
+    /// The escape hatch: the checker owns the whole signature, because
+    /// it is not expressible as data. `math.abs`/`min`/`max` are
+    /// polymorphic over `int` and `float` and must answer in the kind
+    /// they were given; `rand.choice`/`shuffle` are generic over the
+    /// element of the vector they are passed.
+    ///
+    /// The table still declares that the member EXISTS, so no layer can
+    /// disagree about the surface; only the signature is delegated.
+    /// This is [`RetDesc::Custom`]'s counterpart for free modules, and
+    /// it is deliberately the last resort — a member that merely has an
+    /// awkward type belongs in [`ModuleKind::Call`].
+    ///
+    /// The payload is why this member cannot be data, stated per row.
+    /// An escape hatch with no stated reason is how an escape hatch
+    /// becomes the ordinary way to add a member.
+    Custom(&'static str),
 }
 
 /// What a free module's parameter accepts.
@@ -187,9 +228,9 @@ pub enum ParamDesc {
 /// One type in the table's type language, as a [`TyDesc`].
 ///
 /// Every type is exactly one token tree, which is what keeps the table
-/// grammar trivial: named types are bare words (`int`, `string`,
-/// `bool`, `unit`, `unknown`, `walk`, `json`, `procOutput`), the
-/// receiver's element type is
+/// grammar trivial: named types are bare words (`int`, `float`,
+/// `string`, `bool`, `unit`, `range`, `unknown`, `walk`, `json`,
+/// `procOutput`, `response`, `args`), the receiver's element type is
 /// `elem`, and every composite type is bracketed — `[Vector<elem>]`,
 /// `[Option<elem>]`, `[Map<string, string>]`, `[Tuple<elem, unknown>]`,
 /// `[fn(elem) -> bool]`.
@@ -197,6 +238,12 @@ pub enum ParamDesc {
 macro_rules! ty {
     (int) => {
         $crate::TyDesc::Int
+    };
+    (float) => {
+        $crate::TyDesc::Float
+    };
+    (range) => {
+        $crate::TyDesc::Range
     };
     (string) => {
         $crate::TyDesc::String
@@ -218,6 +265,12 @@ macro_rules! ty {
     };
     (procOutput) => {
         $crate::TyDesc::ProcOutput
+    };
+    (response) => {
+        $crate::TyDesc::HttpResponse
+    };
+    (args) => {
+        $crate::TyDesc::CliArgs
     };
     (json) => {
         $crate::TyDesc::Json
@@ -374,7 +427,7 @@ macro_rules! method_table {
 ///
 /// Like [`method_table!`] it expands to the member enum the VM matches
 /// exhaustively and to the declaration table the checker reads, and it
-/// adds the two columns a free member has and a method does not:
+/// adds the two things a free member has and a method does not:
 /// optional trailing parameters, written as a second parenthesized
 /// group after a `?`, and the errors the member raises, written after
 /// `throws`.
@@ -382,6 +435,10 @@ macro_rules! method_table {
 /// Parameters are written in the [`param!`] language, which is the
 /// [`ty!`] language plus `command`; results are written in [`ty!`]
 /// alone, since a result is always one type.
+///
+/// A row takes one of the three forms of [`ModuleKind`]. A parameter
+/// list means a call; `constant` means a member read without one; and
+/// `custom` means the checker owns the signature:
 ///
 /// ```ignore
 /// brasa_stdlib::module_table! {
@@ -400,18 +457,54 @@ macro_rules! method_table {
 ///         Run "run" (command) ?(string) -> procOutput throws STRICT_ERRORS;
 ///     }
 /// }
+///
+/// brasa_stdlib::module_table! {
+///     /// The `std::math` members: all three row forms at once.
+///     MathMember => MATH_MEMBERS, module "math" {
+///         Sqrt "sqrt" (float) -> float;                    // called
+///         Pi   "pi"   constant float;                      // read, never called
+///         Abs  "abs"  custom "polymorphic over int/float";  // delegated
+///     }
+/// }
 /// ```
 #[macro_export]
 macro_rules! module_table {
     (@throws) => { &[] };
     (@throws $throws:expr) => { $throws };
+
+    // One row's kind. Exactly one of the outer optional groups is
+    // present, so exactly one of these matches.
+    (@kind ( $($req:tt),* ) -> $ret:tt) => {
+        $crate::ModuleKind::Call {
+            required: &[$($crate::param!($req)),*],
+            optional: &[],
+            ret: $crate::ty!($ret),
+        }
+    };
+    (@kind ( $($req:tt),* ) ? ( $($opt:tt),* ) -> $ret:tt) => {
+        $crate::ModuleKind::Call {
+            required: &[$($crate::param!($req)),*],
+            optional: &[$($crate::param!($opt)),*],
+            ret: $crate::ty!($ret),
+        }
+    };
+    (@kind constant $ret:tt) => {
+        $crate::ModuleKind::Constant($crate::ty!($ret))
+    };
+    (@kind custom $reason:literal) => {
+        $crate::ModuleKind::Custom($reason)
+    };
+
     (
         $(#[$table_meta:meta])*
         $member:ident => $table:ident, module $module:literal {
             $(
                 $(#[$row_meta:meta])*
-                $variant:ident $name:literal ( $($req:tt),* ) $( ? ( $($opt:tt),* ) )?
-                    -> $ret:tt $( throws $throws:expr )? ;
+                $variant:ident $name:literal
+                    $( ( $($req:tt),* ) $( ? ( $($opt:tt),* ) )? -> $ret:tt )?
+                    $( constant $cret:tt )?
+                    $( custom $reason:literal )?
+                    $( throws $throws:expr )? ;
             )*
         }
     ) => {
@@ -449,9 +542,11 @@ macro_rules! module_table {
             $(
                 $crate::ModuleDecl {
                     name: $name,
-                    required: &[$($crate::param!($req)),*],
-                    optional: &[$($($crate::param!($opt)),*)?],
-                    ret: $crate::ty!($ret),
+                    kind: $crate::module_table!(@kind
+                        $( ( $($req),* ) $( ? ( $($opt),* ) )? -> $ret )?
+                        $( constant $cret )?
+                        $( custom $reason )?
+                    ),
                     throws: $crate::module_table!(@throws $($throws)?),
                 },
             )*
@@ -538,16 +633,22 @@ pub mod fs;
 pub mod http;
 pub mod io;
 pub mod json;
+pub mod math;
 pub mod proc;
+pub mod rand;
+pub mod time;
 pub mod vector;
 
-pub use cli::{ARGS_MEMBERS, ArgsMember};
+pub use cli::{ARGS_MEMBERS, ArgsMember, CLI_MEMBERS, CliMember};
 pub use env::{ENV_MEMBERS, EnvMember};
 pub use fs::{FS_MEMBERS, FsMember, WALK_MEMBERS, WalkMember};
-pub use http::{RESPONSE_MEMBERS, ResponseMember};
+pub use http::{HTTP_MEMBERS, HttpMember, RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
 pub use json::{JSON_MEMBERS, JsonMember};
+pub use math::{MATH_MEMBERS, MathMember};
 pub use proc::{OUTPUT_MEMBERS, OutputMember, PROC_MEMBERS, ProcMember};
+pub use rand::{RAND_MEMBERS, RandMember};
+pub use time::{TIME_MEMBERS, TimeMember};
 pub use vector::{VECTOR_METHODS, VectorMember};
 
 /// Every free module that has been converted to a table, by module
@@ -556,14 +657,21 @@ pub use vector::{VECTOR_METHODS, VectorMember};
 /// both-directions cross-check — walk this instead of naming each
 /// module, so converting the next one does not mean editing them.
 ///
-/// A module absent here is not undeclared, only still hand-written in
-/// each layer; `math`, `time` and `rand` are the ones left.
+/// Every free stdlib module is now here (BRS-96). The list stays
+/// because the layers that cover the whole free surface walk it rather
+/// than naming each module — so a module added to the language later is
+/// covered by joining one list.
 pub const FREE_MODULES: &[(&str, &[ModuleDecl])] = &[
     (FsMember::MODULE, FS_MEMBERS),
     (JsonMember::MODULE, JSON_MEMBERS),
     (IoMember::MODULE, IO_MEMBERS),
     (EnvMember::MODULE, ENV_MEMBERS),
     (ProcMember::MODULE, PROC_MEMBERS),
+    (HttpMember::MODULE, HTTP_MEMBERS),
+    (CliMember::MODULE, CLI_MEMBERS),
+    (MathMember::MODULE, MATH_MEMBERS),
+    (TimeMember::MODULE, TIME_MEMBERS),
+    (RandMember::MODULE, RAND_MEMBERS),
 ];
 
 /// The declaration of `module.name`, or `None` when the module has no
@@ -600,7 +708,7 @@ pub const RECORDS: &[(&str, &[RecordDecl])] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{FREE_MODULES, ParamDesc, RECORDS, RecordKind, TyDesc};
+    use super::{FREE_MODULES, ModuleDecl, ModuleKind, ParamDesc, RECORDS, RecordKind, TyDesc};
 
     /// Whether a declared type reaches [`TyDesc::Elem`] anywhere.
     ///
@@ -618,13 +726,43 @@ mod tests {
             TyDesc::Tuple(items) => items.iter().any(mentions_elem),
             TyDesc::Fn(params, ret) => params.iter().any(mentions_elem) || mentions_elem(ret),
             TyDesc::Int
+            | TyDesc::Float
             | TyDesc::String
             | TyDesc::Bool
             | TyDesc::Unit
+            | TyDesc::Range
             | TyDesc::Unknown
             | TyDesc::Walk
             | TyDesc::Json
-            | TyDesc::ProcOutput => false,
+            | TyDesc::ProcOutput
+            | TyDesc::HttpResponse
+            | TyDesc::CliArgs => false,
+        }
+    }
+
+    /// Every type a free module row mentions, whatever row form it is.
+    ///
+    /// A constant has one and a delegated member has none, so a guard
+    /// that reached for `required`/`ret` directly would either miss
+    /// rows or not compile. Going through the kind is what keeps the
+    /// guards total as the row forms grow.
+    fn module_row_types(decl: &'static ModuleDecl) -> Vec<&'static TyDesc> {
+        match &decl.kind {
+            ModuleKind::Call {
+                required,
+                optional,
+                ret,
+            } => required
+                .iter()
+                .chain(*optional)
+                .filter_map(|param| match param {
+                    ParamDesc::Ty(desc) => Some(desc),
+                    ParamDesc::Command => None,
+                })
+                .chain(std::iter::once(ret))
+                .collect(),
+            ModuleKind::Constant(ret) => vec![ret],
+            ModuleKind::Custom(_) => Vec::new(),
         }
     }
 
@@ -641,21 +779,83 @@ mod tests {
     fn no_free_module_row_mentions_the_receiver_element_type() {
         for (module, members) in FREE_MODULES {
             for decl in *members {
-                for param in decl.required.iter().chain(decl.optional) {
-                    let ParamDesc::Ty(desc) = param else {
-                        continue;
-                    };
-
+                for desc in module_row_types(decl) {
                     assert!(
                         !mentions_elem(desc),
-                        "`{module}.{}` takes `elem`, but a free module has no receiver",
+                        "`{module}.{}` mentions `elem`, but a free module has no receiver",
                         decl.name
                     );
                 }
+            }
+        }
+    }
+
+    /// The escape hatch stays an escape hatch. Every delegated member
+    /// states why it cannot be data, and the reason has to be a
+    /// sentence rather than a placeholder — an empty one would make
+    /// `custom` the cheapest way to add a member instead of the most
+    /// expensive.
+    #[test]
+    fn every_delegated_member_states_why() {
+        for (module, members) in FREE_MODULES {
+            for decl in *members {
+                let ModuleKind::Custom(reason) = decl.kind else {
+                    continue;
+                };
 
                 assert!(
-                    !mentions_elem(&decl.ret),
-                    "`{module}.{}` returns `elem`, but a free module has no receiver",
+                    reason.len() > 20,
+                    "`{module}.{}` delegates its signature without saying why",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// Delegation is rare on purpose. This is a ratchet, not a law: if
+    /// a genuine sixth arrives, raising the number is a deliberate edit
+    /// with a reviewer looking at it, which is exactly the point.
+    #[test]
+    fn delegation_stays_rare() {
+        let delegated: Vec<_> = FREE_MODULES
+            .iter()
+            .flat_map(|(module, members)| {
+                members
+                    .iter()
+                    .filter(|decl| matches!(decl.kind, ModuleKind::Custom(_)))
+                    .map(move |decl| format!("{module}.{}", decl.name))
+            })
+            .collect();
+
+        assert_eq!(
+            delegated,
+            [
+                "math.abs",
+                "math.min",
+                "math.max",
+                "rand.choice",
+                "rand.shuffle"
+            ],
+            "the set of members the checker owns changed"
+        );
+    }
+
+    /// Only a member that is never called may be a constant, and a
+    /// constant never throws: there is no call for an error to escape
+    /// from. The same holds for a delegated member today, and the
+    /// column lives outside the kind so that stops being true by
+    /// someone writing it down rather than by accident.
+    #[test]
+    fn only_a_called_member_throws() {
+        for (module, members) in FREE_MODULES {
+            for decl in *members {
+                if matches!(decl.kind, ModuleKind::Call { .. }) {
+                    continue;
+                }
+
+                assert!(
+                    decl.throws.is_empty(),
+                    "`{module}.{}` is not called, so nothing can throw out of it",
                     decl.name
                 );
             }

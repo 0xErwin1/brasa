@@ -14,8 +14,8 @@ use brasa_runtime::proc_env::{
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
-    ArgsMember, EnvMember, FsMember, IoMember, JsonMember, OutputMember, ProcMember,
-    ResponseMember, VectorMember, WalkMember,
+    ArgsMember, CliMember, EnvMember, FsMember, HttpMember, IoMember, JsonMember, MathMember,
+    OutputMember, ProcMember, RandMember, ResponseMember, TimeMember, VectorMember, WalkMember,
 };
 
 use crate::value::{
@@ -38,15 +38,11 @@ const STRING_REGEX_ERROR: &str = "string.RegexError";
 /// `brasa_stdlib` has no dependencies, so both sides can share it.
 use brasa_stdlib::proc::{NON_ZERO_EXIT as PROC_NON_ZERO_EXIT, SPAWN_ERROR as PROC_SPAWN_ERROR};
 
-/// The canonical qualified name of the native `http` request error
-/// (`docs/spec/05-stdlib.md`, BRS-113): a request that never produced a
-/// response.
-const HTTP_REQUEST_ERROR: &str = "http.RequestError";
-
-/// The canonical qualified name of the native `cli` usage error
-/// (`docs/spec/05-stdlib.md`, BRS-112): a command line the declaration
-/// does not accept.
-const CLI_USAGE_ERROR: &str = "cli.UsageError";
+/// The `http` and `cli` error names, from the same declarations the
+/// checker and the error-set pass read (BRS-96), for the reason the
+/// `proc` pair above gives.
+use brasa_stdlib::cli::USAGE_ERROR as CLI_USAGE_ERROR;
+use brasa_stdlib::http::REQUEST_ERROR as HTTP_REQUEST_ERROR;
 
 impl Vm<'_> {
     /// Receiver-less builtins: the prelude printers, `std::math`
@@ -189,10 +185,14 @@ impl Vm<'_> {
     /// would tell the person running the script to fix a command line
     /// that was fine.
     fn cli_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `cli.{name}`"));
+        let Some(member) = CliMember::from_name(name) else {
+            return Err(unknown_module_member(CliMember::MODULE, name));
+        };
 
-        match (name, args.as_slice()) {
-            ("parse", [Value::Vector(argv), Value::Vector(spec)]) => {
+        let invalid = || invalid_module_args(CliMember::MODULE, name);
+
+        match (member, args.as_slice()) {
+            (CliMember::Parse, [Value::Vector(argv), Value::Vector(spec)]) => {
                 let argv = self.string_vector(*argv).ok_or_else(invalid)?;
                 let params = self.params(*spec)?;
 
@@ -205,14 +205,11 @@ impl Vm<'_> {
                     rest: parsed.rest,
                 })))
             }
-            ("help", [Value::Str(program), Value::Vector(spec)]) => {
+            (CliMember::Help, [Value::Str(program), Value::Vector(spec)]) => {
                 let params = self.params(*spec)?;
                 Ok(Value::Str(Rc::from(cli_glue::help(program, &params))))
             }
-            ("parse" | "help", _) => Err(invalid()),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `cli`"
-            ))),
+            _ => Err(invalid()),
         }
     }
 
@@ -266,23 +263,24 @@ impl Vm<'_> {
     /// reaches here, which is what keeps cold start unmoved for the
     /// scripts that never make a request.
     fn http_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        let invalid = || Signal::Fatal(format!("brasa: invalid argument(s) to `http.{name}`"));
+        let invalid = || invalid_module_args(HttpMember::MODULE, name);
 
-        let (url, body, timeout) = match (name, args.as_slice()) {
-            ("get", [Value::Str(url)]) => (url.to_string(), None, None),
-            ("get", [Value::Str(url), Value::Int(ms)]) => (url.to_string(), None, Some(*ms)),
-            ("post", [Value::Str(url), Value::Str(body)]) => {
+        let Some(member) = HttpMember::from_name(name) else {
+            return Err(unknown_module_member(HttpMember::MODULE, name));
+        };
+
+        let (url, body, timeout) = match (member, args.as_slice()) {
+            (HttpMember::Get, [Value::Str(url)]) => (url.to_string(), None, None),
+            (HttpMember::Get, [Value::Str(url), Value::Int(ms)]) => {
+                (url.to_string(), None, Some(*ms))
+            }
+            (HttpMember::Post, [Value::Str(url), Value::Str(body)]) => {
                 (url.to_string(), Some(body.to_string()), None)
             }
-            ("post", [Value::Str(url), Value::Str(body), Value::Int(ms)]) => {
+            (HttpMember::Post, [Value::Str(url), Value::Str(body), Value::Int(ms)]) => {
                 (url.to_string(), Some(body.to_string()), Some(*ms))
             }
-            ("get" | "post", _) => return Err(invalid()),
-            _ => {
-                return Err(Signal::Fatal(format!(
-                    "brasa: unknown member `{name}` on module `http`"
-                )));
-            }
+            _ => return Err(invalid()),
         };
 
         let headers = std::collections::HashMap::new();
@@ -811,32 +809,35 @@ impl Vm<'_> {
     /// and floats. The constants `pi`/`e` arrive here through the
     /// module field-read path with zero arguments.
     fn math_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("pi", []) => Ok(Value::Float(std::f64::consts::PI)),
-            ("e", []) => Ok(Value::Float(std::f64::consts::E)),
-            ("sqrt", [Value::Float(v)]) => Ok(Value::Float(v.sqrt())),
-            ("floor", [Value::Float(v)]) => Ok(Value::Float(v.floor())),
-            ("ceil", [Value::Float(v)]) => Ok(Value::Float(v.ceil())),
-            ("round", [Value::Float(v)]) => Ok(Value::Float(v.round())),
-            ("pow", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.powf(*b))),
-            ("abs", [Value::Float(v)]) => Ok(Value::Float(v.abs())),
-            ("abs", [Value::Int(v)]) => v
+        let Some(member) = MathMember::from_name(name) else {
+            return Err(unknown_module_member(MathMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(MathMember::MODULE, name);
+
+        match (member, args.as_slice()) {
+            // The constants reach here with no operands: a module
+            // field read compiles to a zero-argument builtin call.
+            (MathMember::Pi, []) => Ok(Value::Float(std::f64::consts::PI)),
+            (MathMember::E, []) => Ok(Value::Float(std::f64::consts::E)),
+            (MathMember::Sqrt, [Value::Float(v)]) => Ok(Value::Float(v.sqrt())),
+            (MathMember::Floor, [Value::Float(v)]) => Ok(Value::Float(v.floor())),
+            (MathMember::Ceil, [Value::Float(v)]) => Ok(Value::Float(v.ceil())),
+            (MathMember::Round, [Value::Float(v)]) => Ok(Value::Float(v.round())),
+            (MathMember::Pow, [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.powf(*b))),
+            // The delegated three, which answer in the kind they were
+            // given. `abs` is the only one that can overflow: the
+            // negative end of the int range has no positive twin.
+            (MathMember::Abs, [Value::Float(v)]) => Ok(Value::Float(v.abs())),
+            (MathMember::Abs, [Value::Int(v)]) => v
                 .checked_abs()
                 .map(Value::Int)
                 .ok_or_else(|| self.panic(INTEGER_OVERFLOW, "integer overflow in `math.abs`")),
-            ("min", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).min(*b))),
-            ("max", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).max(*b))),
-            ("min", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.min(*b))),
-            ("max", [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.max(*b))),
-            (
-                "pi" | "e" | "sqrt" | "floor" | "ceil" | "round" | "pow" | "abs" | "min" | "max",
-                _,
-            ) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `math.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `math`"
-            ))),
+            (MathMember::Min, [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).min(*b))),
+            (MathMember::Max, [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).max(*b))),
+            (MathMember::Min, [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.min(*b))),
+            (MathMember::Max, [Value::Float(a), Value::Float(b)]) => Ok(Value::Float(a.max(*b))),
+            _ => Err(invalid()),
         }
     }
 
@@ -845,10 +846,16 @@ impl Vm<'_> {
     /// shared `brasa_runtime::time_glue`. A negative `sleep` duration
     /// panics with `panics.AssertionFailed`.
     fn time_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("now", []) => Ok(Value::Float(time_glue::now_seconds())),
-            ("nowMillis", []) => Ok(Value::Int(time_glue::now_millis())),
-            ("sleep", [Value::Int(ms)]) => {
+        let Some(member) = TimeMember::from_name(name) else {
+            return Err(unknown_module_member(TimeMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(TimeMember::MODULE, name);
+
+        match (member, args.as_slice()) {
+            (TimeMember::Now, []) => Ok(Value::Float(time_glue::now_seconds())),
+            (TimeMember::NowMillis, []) => Ok(Value::Int(time_glue::now_millis())),
+            (TimeMember::Sleep, [Value::Int(ms)]) => {
                 if *ms < 0 {
                     return Err(self.panic(
                         ASSERTION_FAILED,
@@ -858,13 +865,8 @@ impl Vm<'_> {
                 time_glue::sleep_ms(*ms as u64);
                 Ok(Value::Unit)
             }
-            ("iso", [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
-            ("now" | "nowMillis" | "sleep" | "iso", _) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `time.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `time`"
-            ))),
+            (TimeMember::Iso, [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
+            _ => Err(invalid()),
         }
     }
 
@@ -874,19 +876,25 @@ impl Vm<'_> {
     /// vector panics with `panics.AssertionFailed`; `shuffle` returns
     /// a NEW vector.
     fn rand_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
-        match (name, args.as_slice()) {
-            ("seed", [Value::Int(n)]) => {
+        let Some(member) = RandMember::from_name(name) else {
+            return Err(unknown_module_member(RandMember::MODULE, name));
+        };
+
+        let invalid = || invalid_module_args(RandMember::MODULE, name);
+
+        match (member, args.as_slice()) {
+            (RandMember::Seed, [Value::Int(n)]) => {
                 self.rng = brasa_runtime::rand_glue::Rng::seeded(*n as u64);
                 Ok(Value::Unit)
             }
-            ("int", [Value::Range { lo, hi, inclusive }]) => {
+            (RandMember::Int, [Value::Range { lo, hi, inclusive }]) => {
                 match self.rng.int_in(*lo, *hi, *inclusive) {
                     Some(value) => Ok(Value::Int(value)),
                     None => Err(self.panic(ASSERTION_FAILED, "cannot pick from an empty range")),
                 }
             }
-            ("float", []) => Ok(Value::Float(self.rng.float())),
-            ("choice", [Value::Vector(items)]) => {
+            (RandMember::Float, []) => Ok(Value::Float(self.rng.float())),
+            (RandMember::Choice, [Value::Vector(items)]) => {
                 let items = self.heap.vector(*items).borrow();
                 if items.is_empty() {
                     return Err(self.panic(ASSERTION_FAILED, "cannot pick from an empty vector"));
@@ -894,17 +902,12 @@ impl Vm<'_> {
                 let index = self.rng.below(items.len() as u64) as usize;
                 Ok(items[index].clone())
             }
-            ("shuffle", [Value::Vector(items)]) => {
+            (RandMember::Shuffle, [Value::Vector(items)]) => {
                 let mut shuffled = self.heap.vector(*items).borrow().clone();
                 self.rng.shuffle(&mut shuffled);
                 Ok(self.heap.alloc_vector(shuffled))
             }
-            ("seed" | "int" | "float" | "choice" | "shuffle", _) => Err(Signal::Fatal(format!(
-                "brasa: invalid argument(s) to `rand.{name}`"
-            ))),
-            _ => Err(Signal::Fatal(format!(
-                "brasa: unknown member `{name}` on module `rand`"
-            ))),
+            _ => Err(invalid()),
         }
     }
 

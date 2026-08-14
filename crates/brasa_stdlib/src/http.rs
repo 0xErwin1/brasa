@@ -1,11 +1,25 @@
-//! The `std::http` record surface (`docs/spec/05-stdlib.md`, BRS-113).
-//!
-//! Only the record so far. `http.get` and `http.post` still declare
-//! their signatures and their `http.RequestError` contribution by hand
-//! in `brasa_typeck::builtins`; this file exists because the record is
-//! convertible on its own — a record shares nothing with the module
-//! members that yield it, so waiting for the module would be waiting
-//! for an unrelated decision.
+//! The `std::http` surface (`docs/spec/05-stdlib.md`, BRS-113): the two
+//! request members and the `Response` record they yield.
+
+/// `http.RequestError`: the request never produced a response. A
+/// non-2xx status is NOT this — it is an answer, reported through
+/// `Response::status`.
+pub const REQUEST_ERROR: &str = "http.RequestError";
+
+/// The one error either request member raises.
+pub const ALL_ERRORS: &[&str] = &[REQUEST_ERROR];
+
+crate::module_table! {
+    /// Every `std::http` member, in surface order.
+    HttpMember => HTTP_MEMBERS, module "http" {
+        /// The optional trailing parameter is a timeout in
+        /// milliseconds. Both members answer a `Response` whatever the
+        /// status was, and throw only when there was no response at
+        /// all.
+        Get  "get"  (string)         ?(int) -> response throws ALL_ERRORS;
+        Post "post" (string, string) ?(int) -> response throws ALL_ERRORS;
+    }
+}
 
 crate::record_table! {
     /// The `Response` record: the two parts of an answer that always
