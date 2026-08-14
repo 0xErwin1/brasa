@@ -135,6 +135,7 @@ dependencies = [
  "brasa_typeck",
  "brasa_vm",
  "clap",
+ "serde_json",
 ]
 
 [[package]]

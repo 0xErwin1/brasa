@@ -17,6 +17,7 @@ brasa_parser = { workspace = true }
 brasa_hir = { workspace = true }
 brasa_module = { workspace = true }
 brasa_lsp = { workspace = true }
+serde_json = { workspace = true }
 brasa_resolver = { workspace = true }
 brasa_typeck = { workspace = true }
 brasa_errorset = { workspace = true }

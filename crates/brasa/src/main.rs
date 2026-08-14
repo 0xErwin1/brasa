@@ -8,6 +8,7 @@
 //! Exit codes follow sysexits: 64 usage, 65 bad input, 70 runtime failure.
 
 mod bundle;
+mod debug;
 mod fmt;
 
 use std::collections::HashMap;
@@ -77,6 +78,12 @@ enum Subcommand {
     Test(TestArgs),
     /// Pack a script and everything it imports into one executable.
     Bundle(bundle::BundleArgs),
+    /// Debug a script non-interactively (BRS-118).
+    ///
+    /// One question per invocation: stop at a `file:line`, print the
+    /// frames or the locals, exit. `--json` is the contract for an
+    /// agent; the plain form renders the same data.
+    Debug(debug::DebugArgs),
     /// Run the language server over stdin/stdout (BRS-92).
     ///
     /// Speaks LSP to an editor: diagnostics as you type, and hover
@@ -116,6 +123,7 @@ fn main() -> ExitCode {
         Some(Subcommand::Fmt(args)) => return fmt::run(args),
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
+        Some(Subcommand::Debug(args)) => return debug::run(args),
         Some(Subcommand::Lsp) => return run_lsp(),
         None => {}
     }
@@ -127,6 +135,21 @@ fn main() -> ExitCode {
     };
 
     run_script(&cli, &script)
+}
+
+/// Compiles a loaded program to a module for a debug session.
+///
+/// Gated exactly like a normal run: a script that does not compile
+/// cannot be debugged, and reporting its diagnostics is more useful
+/// than stopping at a breakpoint in code the compiler rejected.
+fn compile_for_debug(
+    program: &brasa_module::Program,
+    sources: &SourceMap,
+) -> Result<brasa_bytecode::Module, ExitCode> {
+    match compile_program(program, sources, true, false, Dumps::default()) {
+        Compiled::Module(result) => Ok(result.module),
+        Compiled::Stopped(code) => Err(code),
+    }
 }
 
 /// Serves the language server until the editor disconnects.
@@ -171,7 +194,7 @@ enum Compiled {
 /// this CLI has an opinion about. A subcommand keeps the whole line,
 /// since `brasa fmt --check` is genuinely ours.
 fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
-    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "help"];
+    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "debug", "help"];
 
     let argv: Vec<String> = argv.collect();
 
