@@ -84,6 +84,11 @@ enum Subcommand {
     /// frames or the locals, exit. `--json` is the contract for an
     /// agent; the plain form renders the same data.
     Debug(debug::DebugArgs),
+    /// Serve the Debug Adapter Protocol over stdin/stdout (BRS-119).
+    ///
+    /// Breakpoints and stepping in VS Code and nvim-dap. Not meant to
+    /// be run by hand — an editor starts it.
+    Dap,
     /// Run the language server over stdin/stdout (BRS-92).
     ///
     /// Speaks LSP to an editor: diagnostics as you type, and hover
@@ -124,6 +129,7 @@ fn main() -> ExitCode {
         Some(Subcommand::Test(args)) => return run_tests(&args.script),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
         Some(Subcommand::Debug(args)) => return debug::run(args),
+        Some(Subcommand::Dap) => return run_dap(),
         Some(Subcommand::Lsp) => return run_lsp(),
         None => {}
     }
@@ -149,6 +155,17 @@ fn compile_for_debug(
     match compile_program(program, sources, true, false, Dumps::default()) {
         Compiled::Module(result) => Ok(result.module),
         Compiled::Stopped(code) => Err(code),
+    }
+}
+
+/// Serves the debug adapter until the editor disconnects.
+fn run_dap() -> ExitCode {
+    match brasa_dap::run() {
+        Ok(()) => ExitCode::from(0),
+        Err(err) => {
+            eprintln!("brasa: debug adapter stopped: {err}");
+            ExitCode::from(70)
+        }
     }
 }
 
@@ -194,7 +211,7 @@ enum Compiled {
 /// this CLI has an opinion about. A subcommand keeps the whole line,
 /// since `brasa fmt --check` is genuinely ours.
 fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<String>) {
-    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "debug", "help"];
+    const SUBCOMMANDS: &[&str] = &["fmt", "test", "bundle", "lsp", "dap", "debug", "help"];
 
     let argv: Vec<String> = argv.collect();
 

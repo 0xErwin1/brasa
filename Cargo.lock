@@ -122,6 +122,7 @@ version = "0.1.0"
 dependencies = [
  "brasa_bytecode",
  "brasa_codegen",
+ "brasa_dap",
  "brasa_diagnostics",
  "brasa_errorset",
  "brasa_fmt",
@@ -171,6 +172,23 @@ dependencies = [
  "brasa_source",
  "brasa_typeck",
  "insta",
+]
+
+[[package]]
+name = "brasa_dap"
+version = "0.1.0"
+dependencies = [
+ "brasa_bytecode",
+ "brasa_codegen",
+ "brasa_diagnostics",
+ "brasa_errorset",
+ "brasa_module",
+ "brasa_resolver",
+ "brasa_runtime",
+ "brasa_source",
+ "brasa_typeck",
+ "brasa_vm",
+ "serde_json",
 ]
 
 [[package]]

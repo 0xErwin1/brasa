@@ -173,21 +173,18 @@ fn resolve(
         .get(line - 1)
         .ok_or_else(|| format!("`{path}` has no line {line}"))?;
 
-    session
-        .resolve(file, start.0)
-        .or_else(|| {
-            // A line whose first byte is indentation resolves through
-            // the first instruction anywhere on it, so `--break` on a
-            // normally-indented statement works without the caller
-            // counting columns.
-            let end = source
-                .line_starts
-                .get(line)
-                .map(|next| next.0)
-                .unwrap_or_else(|| source.len_bytes());
+    // A line whose first byte is indentation resolves through the first
+    // instruction anywhere on it, so `--break` on a normally-indented
+    // statement works without the caller counting columns. The scan
+    // lives in the substrate so this and the DAP adapter cannot drift.
+    let end = source
+        .line_starts
+        .get(line)
+        .map(|next| next.0)
+        .unwrap_or_else(|| source.len_bytes());
 
-            (start.0..end).find_map(|offset| session.resolve(file, offset))
-        })
+    session
+        .resolve_range(file, start.0, end)
         .ok_or_else(|| format!("no code at `{spec}`"))
 }
 

@@ -190,6 +190,18 @@ impl<'a> Session<'a> {
         best.map(|(func, ip, _)| (func, ip))
     }
 
+    /// The first instruction anywhere in `start..end`.
+    ///
+    /// This is what a `file:line` breakpoint actually needs: a line
+    /// normally begins with indentation, which no instruction's span
+    /// covers, so resolving its first byte alone finds nothing. Both
+    /// front-ends want the same answer, so the scan lives here — a
+    /// second copy in each of them would drift, and the failure is a
+    /// breakpoint that silently never binds.
+    pub fn resolve_range(&self, file: FileId, start: u32, end: u32) -> Option<(FuncId, usize)> {
+        (start..end.max(start + 1)).find_map(|offset| self.resolve(file, offset))
+    }
+
     /// Sets a breakpoint at a resolved position. Returns whether it was
     /// new.
     pub fn set_breakpoint(&mut self, func: FuncId, ip: usize) -> bool {

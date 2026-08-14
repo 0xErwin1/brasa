@@ -53,6 +53,7 @@ brasa_parser = { path = "crates/brasa_parser" }
 brasa_hir = { path = "crates/brasa_hir" }
 brasa_module = { path = "crates/brasa_module" }
 brasa_lsp = { path = "crates/brasa_lsp" }
+brasa_dap = { path = "crates/brasa_dap" }
 brasa_resolver = { path = "crates/brasa_resolver" }
 brasa_typeck = { path = "crates/brasa_typeck" }
 brasa_errorset = { path = "crates/brasa_errorset" }
