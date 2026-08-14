@@ -276,3 +276,123 @@ fn a_value_reads_one_level_deep() {
     assert_eq!(vector.children.len(), 3);
     assert_eq!(vector.children[0], ("0".to_string(), "10".to_string()));
 }
+
+const GRAPH: &str = r#"struct Node
+  label: string
+  kids: Vector<int>
+end
+
+def main()
+  let a = Node { label: "root", kids: [1, 2, 3] }
+  let b = Node { label: "leaf", kids: [4] }
+  let all = [a, b]
+  puts all.len()
+end
+"#;
+
+/// The heap census counts arena slots by kind — the one view an
+/// editor's debug panels have no vocabulary for (BRS-120).
+#[test]
+fn the_heap_census_counts_live_slots_by_kind() {
+    let (module, file, _sources) = compile(GRAPH);
+    let (mut out, mut err, mut input) = (Vec::new(), Vec::new(), &b""[..]);
+    let mut session = Session::new(&module, streams(&mut out, &mut err, &mut input), &[]);
+
+    let (func, ip) = session
+        .resolve(file, at(GRAPH, "all.len()"))
+        .expect("the final expression resolves");
+    session.set_breakpoint(func, ip);
+    session.resume();
+
+    let heap = session.heap();
+    let by_kind: std::collections::HashMap<_, _> = heap.by_kind.iter().cloned().collect();
+
+    // Two structs, and three vectors: each node's `kids` plus `all`.
+    assert_eq!(by_kind.get("struct"), Some(&2));
+    assert_eq!(by_kind.get("Vector"), Some(&3));
+
+    assert_eq!(heap.live_slots, 5);
+    assert!(heap.live_bytes > 0);
+    assert!(heap.allocations >= heap.live_slots as u64);
+}
+
+/// Free slots are reported apart from live ones: an arena that is
+/// mostly holes and one that is mostly live say different things about
+/// whether collection is keeping up.
+#[test]
+fn free_slots_are_reported_apart_from_live_ones() {
+    let (module, file, _sources) = compile(GRAPH);
+    let (mut out, mut err, mut input) = (Vec::new(), Vec::new(), &b""[..]);
+    let mut session = Session::new(&module, streams(&mut out, &mut err, &mut input), &[]);
+
+    let (func, ip) = session
+        .resolve(file, at(GRAPH, "all.len()"))
+        .expect("the final expression resolves");
+    session.set_breakpoint(func, ip);
+    session.resume();
+
+    let heap = session.heap();
+
+    // Nothing has been collected yet, so every slot is live.
+    assert_eq!(heap.collections, 0);
+    assert_eq!(heap.free_slots, 0);
+    assert!(heap.report().contains("live slots"));
+}
+
+/// Retention answers "why is this still here" with the shortest chain
+/// from a root, which is the most direct reason rather than merely a
+/// true one.
+#[test]
+fn retention_finds_the_shortest_path_from_a_root() {
+    let (module, file, _sources) = compile(GRAPH);
+    let (mut out, mut err, mut input) = (Vec::new(), Vec::new(), &b""[..]);
+    let mut session = Session::new(&module, streams(&mut out, &mut err, &mut input), &[]);
+
+    let (func, ip) = session
+        .resolve(file, at(GRAPH, "all.len()"))
+        .expect("the final expression resolves");
+    session.set_breakpoint(func, ip);
+    session.resume();
+
+    let frames = session.frames();
+    let main = frames.last().expect("frame");
+
+    // `all` is the vector holding both nodes.
+    let all = main
+        .locals
+        .iter()
+        .flatten()
+        .find(|view| view.summary == "Vector of 2")
+        .expect("`all` holds the two nodes");
+
+    let cell = all.cell.expect("a Vector lives in an arena cell");
+    let path = session
+        .retention(cell)
+        .expect("a bound local is reachable from a root");
+
+    assert_eq!(
+        path.last().copied(),
+        Some(cell),
+        "the path ends at what was asked about"
+    );
+    assert_eq!(
+        path.len(),
+        1,
+        "`all` is itself on the stack, so the shortest reason is direct"
+    );
+
+    // A node inside it is one hop further: reachable through `all`, and
+    // also directly, so the shortest path is still the direct one.
+    let node = main
+        .locals
+        .iter()
+        .flatten()
+        .find(|view| view.summary == "Node")
+        .expect("`a` is a Node");
+    let node_cell = node.cell.expect("a struct lives in an arena cell");
+
+    assert!(
+        session.retention(node_cell).is_some(),
+        "a bound struct is reachable"
+    );
+}

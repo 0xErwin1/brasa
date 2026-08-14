@@ -566,11 +566,51 @@ impl<'a> Vm<'a> {
             .collect()
     }
 
+    /// A census of the heap at the pause (BRS-120).
+    pub(crate) fn heap_view(&self) -> crate::debug::HeapView {
+        let stats = self.heap.stats();
+
+        crate::debug::HeapView {
+            by_kind: self
+                .heap
+                .census()
+                .into_iter()
+                .map(|(kind, count)| (kind.to_string(), count))
+                .collect(),
+            live_slots: stats.live,
+            free_slots: self.heap.free_slots(),
+            live_bytes: self.heap.live_bytes(),
+            peak_bytes: self.heap.peak_bytes(),
+            allocations: stats.allocations,
+            collections: stats.collections,
+        }
+    }
+
+    /// Why an object is still alive: the shortest chain of arena cells
+    /// from a root to it (BRS-120).
+    pub(crate) fn retention_of(&self, target: crate::GcRef) -> Option<Vec<crate::GcRef>> {
+        self.heap.retention_path(
+            self.stack
+                .iter()
+                .chain(self.globals.iter().flatten())
+                .chain(self.native_roots.iter()),
+            target,
+        )
+    }
+
     /// One value rendered one level deep (`crate::debug::ValueView`).
     pub(crate) fn value_view(&self, value: &Value) -> crate::debug::ValueView {
         crate::debug::ValueView {
             summary: self.debug_summary(value),
             children: self.debug_children(value),
+            cell: match value {
+                Value::Vector(r)
+                | Value::Map(r)
+                | Value::Set(r)
+                | Value::Struct(r)
+                | Value::Binding(r) => Some(*r),
+                _ => None,
+            },
         }
     }
 

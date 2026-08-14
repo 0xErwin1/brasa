@@ -408,6 +408,145 @@ impl Heap {
         self.stats
     }
 
+    /// A census of the live arena, by kind (BRS-120).
+    ///
+    /// The one view an editor's debug panels have no vocabulary for.
+    /// DAP describes a paused frame; nothing in it can say how many
+    /// vectors are alive or what the collector is holding.
+    ///
+    /// Counts SLOTS, which is what the collector reclaims. A `Vector`
+    /// slot's own bytes do not include the values it holds — those are
+    /// their own slots or shared nodes — so the totals add up rather
+    /// than double-counting a graph.
+    pub(crate) fn census(&self) -> Vec<(&'static str, usize)> {
+        let mut counts = [0usize; 5];
+
+        for cell in &self.cells {
+            match cell {
+                HeapCell::Vector(_) => counts[0] += 1,
+                HeapCell::Map(_) => counts[1] += 1,
+                HeapCell::Set(_) => counts[2] += 1,
+                HeapCell::Struct(_) => counts[3] += 1,
+                HeapCell::Binding(_) => counts[4] += 1,
+                HeapCell::Free => {}
+            }
+        }
+
+        [
+            ("Vector", counts[0]),
+            ("Map", counts[1]),
+            ("Set", counts[2]),
+            ("struct", counts[3]),
+            ("binding", counts[4]),
+        ]
+        .into_iter()
+        .filter(|(_, count)| *count > 0)
+        .collect()
+    }
+
+    /// Free slots the sweeper left behind, reusable by the next
+    /// allocation. Reported apart from live ones because an arena that
+    /// is mostly holes and one that is mostly live say different things
+    /// about whether collection is keeping up.
+    pub(crate) fn free_slots(&self) -> usize {
+        self.cells
+            .iter()
+            .filter(|cell| matches!(cell, HeapCell::Free))
+            .count()
+    }
+
+    /// The chain of arena cells from a root to `target`, if one keeps
+    /// it alive (BRS-120).
+    ///
+    /// A breadth-first walk, so what comes back is a SHORTEST path —
+    /// the most direct reason the object survives, which is the answer
+    /// to "why is this still here". A longer path would be true and
+    /// useless.
+    ///
+    /// Only arena cells appear: the shared immutable nodes (tuples,
+    /// enum payloads, options) are reference-counted rather than
+    /// collected, so they are edges on the way, not things the
+    /// collector is holding.
+    pub(crate) fn retention_path<'r>(
+        &self,
+        roots: impl Iterator<Item = &'r Value>,
+        target: GcRef,
+    ) -> Option<Vec<GcRef>> {
+        let mut previous: std::collections::HashMap<GcRef, Option<GcRef>> =
+            std::collections::HashMap::new();
+        let mut queue: std::collections::VecDeque<GcRef> = std::collections::VecDeque::new();
+
+        let enqueue = |value: &Value,
+                       from: Option<GcRef>,
+                       previous: &mut std::collections::HashMap<GcRef, Option<GcRef>>,
+                       queue: &mut std::collections::VecDeque<GcRef>| {
+            for cell in Heap::cells_of(value) {
+                if !previous.contains_key(&cell) {
+                    previous.insert(cell, from);
+                    queue.push_back(cell);
+                }
+            }
+        };
+
+        for root in roots {
+            enqueue(root, None, &mut previous, &mut queue);
+        }
+
+        while let Some(cell) = queue.pop_front() {
+            if cell == target {
+                let mut path = vec![cell];
+                let mut at = cell;
+
+                while let Some(Some(parent)) = previous.get(&at).copied() {
+                    path.push(parent);
+                    at = parent;
+                }
+
+                path.reverse();
+                return Some(path);
+            }
+
+            for value in self.values_of(cell) {
+                enqueue(&value, Some(cell), &mut previous, &mut queue);
+            }
+        }
+
+        None
+    }
+
+    /// Every arena cell a value reaches without passing through another
+    /// arena cell — through the shared nodes, which are transparent
+    /// here for the reason `retention_path` gives.
+    fn cells_of(value: &Value) -> Vec<GcRef> {
+        match value {
+            Value::Vector(r)
+            | Value::Map(r)
+            | Value::Set(r)
+            | Value::Struct(r)
+            | Value::Binding(r) => vec![*r],
+            Value::Tuple(items) => items.iter().flat_map(Heap::cells_of).collect(),
+            Value::Option(Some(inner)) => Heap::cells_of(inner),
+            Value::Enum(e) => e.fields.iter().flat_map(Heap::cells_of).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The values one arena cell holds.
+    fn values_of(&self, r: GcRef) -> Vec<Value> {
+        match &self.cells[r.0 as usize] {
+            HeapCell::Vector(items) => items.borrow().clone(),
+            HeapCell::Set(items) => items.borrow().iter().cloned().collect(),
+            HeapCell::Map(entries) => entries
+                .borrow()
+                .iter()
+                .flat_map(|(key, value)| [key.clone(), value.clone()])
+                .collect(),
+            HeapCell::Struct(s) => s.fields.borrow().clone(),
+            HeapCell::Binding(value) => vec![value.borrow().clone()],
+            HeapCell::Free => Vec::new(),
+        }
+    }
+
     /// Lowers the marking allowance to what the arena alone justifies,
     /// for when the roots it was measured against are gone
     /// (`Vm::unroot`). Without it the floor would stay in force until

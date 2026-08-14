@@ -121,9 +121,62 @@ pub struct FrameView {
 pub struct ValueView {
     /// A one-line rendering of the value itself.
     pub summary: String,
+    /// The arena cell behind this value, when it has one.
+    ///
+    /// Present so [`Session::retention`] has something to ask about:
+    /// without it that method would be unreachable from this API, and
+    /// a method nobody can call is not a feature.
+    pub cell: Option<crate::GcRef>,
     /// Named children, one level down: a struct's fields, a vector's
     /// elements, a map's entries. Empty for scalars.
     pub children: Vec<(String, String)>,
+}
+
+/// The heap at a pause (BRS-120).
+///
+/// The one view an editor's debug panels have no vocabulary for. DAP
+/// describes a paused frame; nothing in it can say how many vectors
+/// are alive, how much the arena is holding, or whether collection is
+/// keeping up with allocation.
+pub struct HeapView {
+    /// Live arena slots by kind.
+    pub by_kind: Vec<(String, usize)>,
+    pub live_slots: usize,
+    /// Holes the sweeper left, reusable by the next allocation.
+    /// Reported apart from live slots because an arena that is mostly
+    /// holes and one that is mostly live say different things about
+    /// whether collection is keeping up.
+    pub free_slots: usize,
+    pub live_bytes: usize,
+    pub peak_bytes: usize,
+    pub allocations: u64,
+    pub collections: u64,
+}
+
+impl HeapView {
+    pub fn report(&self) -> String {
+        let mut out = format!(
+            "{} live slots, {} free — {} bytes live, {} peak\n{} allocations over {} collections\n",
+            self.live_slots,
+            self.free_slots,
+            self.live_bytes,
+            self.peak_bytes,
+            self.allocations,
+            self.collections,
+        );
+
+        if self.by_kind.is_empty() {
+            out.push_str("\nthe arena is empty");
+            return out;
+        }
+
+        out.push_str("\n  count  kind\n");
+        for (kind, count) in &self.by_kind {
+            out.push_str(&format!("  {count:>5}  {kind}\n"));
+        }
+
+        out.trim_end().to_string()
+    }
 }
 
 /// A debug session driving one VM.
@@ -288,6 +341,17 @@ impl<'a> Session<'a> {
                     .collect(),
             })
             .collect()
+    }
+
+    /// The heap as it stands at this pause.
+    pub fn heap(&self) -> HeapView {
+        self.vm.heap_view()
+    }
+
+    /// The shortest chain of arena cells from a root to `target`, or
+    /// `None` when nothing keeps it alive.
+    pub fn retention(&self, target: crate::GcRef) -> Option<Vec<crate::GcRef>> {
+        self.vm.retention_of(target)
     }
 
     /// One value, one level deep.

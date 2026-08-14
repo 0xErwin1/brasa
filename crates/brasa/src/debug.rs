@@ -61,11 +61,15 @@ pub enum Dump {
     Frames,
     /// The innermost frame's slots and their values.
     Locals,
+    /// The heap: live objects by kind, and what the collector has done
+    /// (BRS-120). The one view an editor's panels cannot show.
+    Heap,
 }
 
 /// What one invocation found, before any rendering decision.
 struct Report {
     stopped: bool,
+    heap: Option<HeapReport>,
     /// Where it stopped, as `file:line`, when it stopped.
     at: Option<String>,
     function: Option<String>,
@@ -76,6 +80,16 @@ struct Report {
 struct ReportFrame {
     name: String,
     at: String,
+}
+
+struct HeapReport {
+    by_kind: Vec<(String, usize)>,
+    live_slots: usize,
+    free_slots: usize,
+    live_bytes: usize,
+    peak_bytes: usize,
+    allocations: u64,
+    collections: u64,
 }
 
 struct ReportLocal {
@@ -201,6 +215,7 @@ fn build_report(session: &Session<'_>, sources: &SourceMap, stop: &Stop) -> Repo
     let Stop::Paused { span, .. } = stop else {
         return Report {
             stopped: false,
+            heap: None,
             at: None,
             function: None,
             frames: Vec::new(),
@@ -211,8 +226,19 @@ fn build_report(session: &Session<'_>, sources: &SourceMap, stop: &Stop) -> Repo
     let frames = session.frames();
     let innermost = frames.last();
 
+    let heap = session.heap();
+
     Report {
         stopped: true,
+        heap: Some(HeapReport {
+            by_kind: heap.by_kind.clone(),
+            live_slots: heap.live_slots,
+            free_slots: heap.free_slots,
+            live_bytes: heap.live_bytes,
+            peak_bytes: heap.peak_bytes,
+            allocations: heap.allocations,
+            collections: heap.collections,
+        }),
         at: Some(position(sources, *span)),
         function: innermost.map(|frame| frame.name.clone()),
         frames: frames
@@ -258,6 +284,22 @@ fn render_json(report: &Report, dump: Dump) -> String {
                 .map(|frame| serde_json::json!({ "function": frame.name, "at": frame.at }))
                 .collect::<Vec<_>>()
         ),
+        Dump::Heap => match &report.heap {
+            Some(heap) => serde_json::json!({
+                "liveSlots": heap.live_slots,
+                "freeSlots": heap.free_slots,
+                "liveBytes": heap.live_bytes,
+                "peakBytes": heap.peak_bytes,
+                "allocations": heap.allocations,
+                "collections": heap.collections,
+                "byKind": heap
+                    .by_kind
+                    .iter()
+                    .map(|(kind, count)| serde_json::json!({ "kind": kind, "count": count }))
+                    .collect::<Vec<_>>(),
+            }),
+            None => serde_json::Value::Null,
+        },
         Dump::Locals => serde_json::json!(
             report
                 .locals
@@ -284,6 +326,7 @@ fn render_json(report: &Report, dump: Dump) -> String {
     let key = match dump {
         Dump::Frames => "frames",
         Dump::Locals => "locals",
+        Dump::Heap => "heap",
     };
     value
         .as_object_mut()
@@ -306,6 +349,23 @@ fn render_text(report: &Report, dump: Dump) -> String {
         Dump::Frames => {
             for frame in report.frames.iter().rev() {
                 out.push_str(&format!("  {} at {}\n", frame.name, frame.at));
+            }
+        }
+        Dump::Heap => {
+            if let Some(heap) = &report.heap {
+                out.push_str(&format!(
+                    "  {} live slots, {} free — {} bytes live, {} peak\n  {} allocations over {} collections\n",
+                    heap.live_slots,
+                    heap.free_slots,
+                    heap.live_bytes,
+                    heap.peak_bytes,
+                    heap.allocations,
+                    heap.collections,
+                ));
+
+                for (kind, count) in &heap.by_kind {
+                    out.push_str(&format!("    {count:>5}  {kind}\n"));
+                }
             }
         }
         Dump::Locals => {
