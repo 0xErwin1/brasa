@@ -1,0 +1,15 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  viaLocal -> {concurrent.ScopeExited, string.ParseError}
+  viaDirectRead -> {concurrent.ScopeExited}
+  viaVector -> {concurrent.ScopeExited, string.ParseError}
+lambda error sets
+  e6 -> {string.ParseError}
+  e14 -> {concurrent.ScopeExited, string.ParseError}
+  e22 -> {string.ParseError}
+  e29 -> {concurrent.ScopeExited}
+  e37 -> {string.ParseError}
+  e48 -> {concurrent.ScopeExited, string.ParseError}

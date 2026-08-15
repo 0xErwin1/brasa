@@ -35,6 +35,25 @@ use brasa_typeck::{Type, TypeTables};
 
 use crate::{ErrorSet, ErrorTag, Primitive, check};
 
+/// Where a `Task` value came from, so a `value()` read can charge the
+/// spawned block's errors at the READ as well as at the spawn
+/// (BRS-136).
+///
+/// Charging only the spawn site was correct for the enclosing body —
+/// the scope rethrows every unread failure, so the total is the same
+/// either way — but it left the read's own subject set empty, which
+/// made a named `catch` arm around `t.value()` unreachable (E001) and
+/// forced `_`. This records the block's set against the spawn call and
+/// against a local a `let` bound it to; anything less direct (a task
+/// in a vector, returned from a function, reassigned) stays as it was
+/// and contributes nothing extra, so the change only ever ADDS
+/// precision.
+#[derive(Default)]
+pub(crate) struct TaskOrigins {
+    by_call: HashMap<ExprId, ErrorSet>,
+    by_local: HashMap<brasa_resolver::LocalId, ErrorSet>,
+}
+
 pub(crate) struct Collector<'a> {
     pub hir: &'a Hir,
     pub res: &'a Resolutions,
@@ -43,6 +62,9 @@ pub(crate) struct Collector<'a> {
     pub sets: &'a HashMap<DefRef, ErrorSet>,
     /// This-iteration lambda sets, filled as lambda literals are walked.
     pub lambda_sets: &'a mut HashMap<ExprId, ErrorSet>,
+    /// Per-body: which spawned block each reachable `Task` value came
+    /// from ([`TaskOrigins`]).
+    pub tasks: TaskOrigins,
     /// `Some` only during the post-convergence checking pass: each
     /// `catch` then runs the BRS-23 arm checks against its subject's
     /// contribution set, which only exists transiently inside
@@ -82,7 +104,20 @@ impl<'a> Collector<'a> {
 
     fn stmt(&mut self, id: StmtId) -> ErrorSet {
         match self.hir.stmt(id) {
-            Stmt::Let(let_stmt) => self.expr(let_stmt.value),
+            Stmt::Let(let_stmt) => {
+                let set = self.expr(let_stmt.value);
+
+                // `let t = scope.spawn do ... end` — carry the block's
+                // set from the call onto the binding, so a later
+                // `t.value()` can charge it.
+                if let Some(spawned) = self.tasks.by_call.get(&let_stmt.value).cloned()
+                    && let Some(&local) = self.res.stmt_locals.get(&id)
+                {
+                    self.tasks.by_local.insert(local, spawned);
+                }
+
+                set
+            }
             Stmt::Assign { target, value } => {
                 let mut set = self.expr(*target);
                 set.union_with(&self.expr(*value));
@@ -148,7 +183,7 @@ impl<'a> Collector<'a> {
             | Expr::Str(_)
             | Expr::Ident(_)
             | Expr::SelfExpr => ErrorSet::default(),
-            Expr::Call { callee, args } => self.call(*callee, args),
+            Expr::Call { callee, args } => self.call(id, *callee, args),
             // A field read cannot throw; index, unary, and binary
             // operations only panic (IndexOutOfBounds, DivisionByZero,
             // IntegerOverflow), and panics are not in error-sets
@@ -257,7 +292,7 @@ impl<'a> Collector<'a> {
         set
     }
 
-    fn call(&mut self, callee: ExprId, args: &[ExprId]) -> ErrorSet {
+    fn call(&mut self, id: ExprId, callee: ExprId, args: &[ExprId]) -> ErrorSet {
         // `mod.f(...)` on an imported file module resolved to `f`'s
         // item, so its declared or inferred set is the callee's — the
         // call graph the fixpoint walks crosses files exactly here.
@@ -268,7 +303,7 @@ impl<'a> Collector<'a> {
         }
 
         match self.hir.expr(callee) {
-            Expr::Field { recv, name } => self.method_call(*recv, name, args),
+            Expr::Field { recv, name } => self.method_call(id, *recv, name, args),
             // `concurrent(lambda)` is a builtin HOF in free-call
             // position (BRS-133): the scope body runs inside the call,
             // so its literal-lambda set flows here exactly as a
@@ -326,7 +361,7 @@ impl<'a> Collector<'a> {
         }
     }
 
-    fn method_call(&mut self, recv: ExprId, name: &str, args: &[ExprId]) -> ErrorSet {
+    fn method_call(&mut self, id: ExprId, recv: ExprId, name: &str, args: &[ExprId]) -> ErrorSet {
         if self.is_module_ref(recv) {
             // The throwing module members whose signatures have closed
             // (spec: 05 — Stdlib de scripting). BRS-32: the `proc` runners
@@ -356,6 +391,38 @@ impl<'a> Collector<'a> {
                 let item = *item;
                 set.union_with(&self.args(args));
                 set.union_with(&self.struct_method(item, name));
+            }
+            // `scope.spawn do ... end` (BRS-133): the block's set is
+            // recorded against this call so a later `value()` read can
+            // charge it too (BRS-136). It is STILL charged here as
+            // well — the scope rethrows every unread failure before
+            // `concurrent` returns, so an unread task's errors escape
+            // whether or not anyone reads it.
+            Some(Type::ConcurrentScope) if name == "spawn" => {
+                if let [block] = args
+                    && matches!(self.hir.expr(*block), Expr::Lambda { .. })
+                {
+                    self.lambda(*block);
+                    if let Some(spawned) = self.lambda_sets.get(block).cloned() {
+                        self.tasks.by_call.insert(id, spawned);
+                    }
+                }
+
+                set.union_with(&self.hof_args(args));
+                for error in brasa_typeck::builtins::method_throws(&Type::ConcurrentScope, name) {
+                    set.tags.insert(ErrorTag::Opaque(error));
+                }
+            }
+            // `t.value()` (BRS-136): the read rethrows what the block
+            // threw, so the arms around it are checked against that set
+            // rather than against nothing. Untraceable receivers keep
+            // contributing nothing — the enclosing body already carries
+            // the set from the spawn site, so this only sharpens the
+            // subject of a `catch`, never widens a `throws`.
+            Some(Type::Task(_)) if name == "value" => {
+                if let Some(spawned) = self.task_origin(recv) {
+                    set.union_with(&spawned);
+                }
             }
             // The throwing builtin methods, from the same declaration
             // their signatures come from (`brasa_stdlib`, BRS-96):
@@ -465,6 +532,20 @@ impl<'a> Collector<'a> {
     /// inheritance of literal argument sets is the BRS-25 precision
     /// gap; the literal-lambda special case in [`Self::hof_args`]
     /// exists only for builtin HOF methods.
+    /// The set of the block behind a `Task`-valued expression, when it
+    /// is reachable: the spawn call itself, or a local a `let` bound
+    /// straight to one.
+    fn task_origin(&self, recv: ExprId) -> Option<ErrorSet> {
+        if let Some(set) = self.tasks.by_call.get(&recv) {
+            return Some(set.clone());
+        }
+
+        match self.res.expr_res.get(&recv) {
+            Some(&Res::Local(local)) => self.tasks.by_local.get(&local).cloned(),
+            _ => None,
+        }
+    }
+
     fn args(&mut self, args: &[ExprId]) -> ErrorSet {
         let mut set = ErrorSet::default();
         for &arg in args {

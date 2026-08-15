@@ -196,6 +196,7 @@ pub fn infer(
                 types,
                 sets: &sets,
                 lambda_sets: &mut next_lambda_sets,
+                tasks: Default::default(),
                 diagnostics: None,
             };
             next_sets.insert(def, collector.block(body));
@@ -217,6 +218,7 @@ pub fn infer(
             types,
             sets: &sets,
             lambda_sets: &mut checked_lambda_sets,
+            tasks: Default::default(),
             diagnostics: Some(&mut diagnostics),
         };
         collector.block(body);
@@ -235,6 +237,7 @@ pub fn infer(
         types,
         sets: &sets,
         lambda_sets: &mut checked_lambda_sets,
+        tasks: Default::default(),
         diagnostics: Some(&mut diagnostics),
     };
     collector.top_level(roots);

@@ -1488,3 +1488,63 @@ def viaBody(flag: bool): int
 end
 "#
 );
+
+// BRS-136: the block's set is charged at the READ as well, so a named
+// arm around `value()` is reachable. Charging it only at the spawn kept
+// the enclosing set right but left the read's own subject empty, and a
+// `catch` is checked against its subject — which made
+// `string.ParseError => ...` here an E001 and forced `_`.
+errorset_test!(
+    a_task_read_carries_the_blocks_errors,
+    r#"
+def viaLocal(): int
+  concurrent do |scope|
+    let t = scope.spawn do "abc".toInt() end
+
+    t.value() catch (e)
+      string.ParseError => -1
+    end
+  end
+end
+
+def viaDirectRead(): int
+  concurrent do |scope|
+    scope.spawn do "abc".toInt() end.value() catch (e)
+      string.ParseError => -2
+    end
+  end
+end
+
+# A task whose origin is not traceable (held in a vector) keeps the
+# old behaviour: the read contributes nothing, and the enclosing set
+# still carries the block's errors from the spawn site.
+def viaVector(): int
+  concurrent do |scope|
+    let held = [scope.spawn do "abc".toInt() end]
+
+    held[0].value() catch (e)
+      _ => -3
+    end
+  end
+end
+"#
+);
+
+// The precision cuts both ways: an arm naming an error the block cannot
+// throw is still unreachable. Without this the fix could have been "put
+// everything in the set", which would silence E001 instead of informing
+// it.
+errorset_error_test!(
+    a_task_read_does_not_carry_errors_the_block_cannot_throw,
+    r#"
+def read(): int
+  concurrent do |scope|
+    let t = scope.spawn do "abc".toInt() end
+
+    t.value() catch (e)
+      json.ParseError => -1
+    end
+  end
+end
+"#
+);
