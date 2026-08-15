@@ -72,6 +72,7 @@ mod depth;
 mod expr;
 mod func;
 mod item;
+mod json_decode;
 mod limits;
 mod pattern;
 mod stmt;

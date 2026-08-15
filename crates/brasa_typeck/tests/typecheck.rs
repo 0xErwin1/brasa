@@ -1595,7 +1595,7 @@ import std::io
 
 json.parse(42)
 json.stringify()
-json.decode("typed bridge is v2")
+json.encode("the write side is `of`")
 io.readLine("no args")
 io.nope()
 
@@ -1613,6 +1613,120 @@ import std::json
 let data = json.parse("{\"a\": 1}")
 data["a"] = data["b"]
 data["a"][0] = data["b"]
+"#
+);
+
+// `json.decode` answers the type its call site expects (BRS-144), so
+// the checker is where a target is accepted or refused: it is the last
+// phase that knows the type, and code generation synthesizes the
+// decoder from what it accepts here.
+
+typecheck_test!(
+    json_decode_typed_targets,
+    r#"
+import std::json
+
+struct Address
+  city: string
+  zip: string
+end
+
+struct Config
+  host: string
+  port: int
+  ratio: float
+  debug: bool
+  tags: Vector<string>
+  nickname: Option<string>
+  home: Address
+  routes: Vector<Address>
+end
+
+struct Node
+  value: int
+  next: Option<Node>
+end
+
+struct Branch
+  leaves: Vector<Leaf>
+end
+
+struct Leaf
+  parent: Option<Branch>
+end
+
+def load(text: string): Config
+  json.decode(text)
+end
+
+let config: Config = json.decode("{}")
+let chain: Node = json.decode("{}")
+let tree: Branch = json.decode("{}")
+let loaded = load("{}")
+"#
+);
+
+typecheck_error_test!(
+    json_decode_without_a_target_type,
+    r#"
+import std::json
+
+let anything = json.decode("{}")
+json.decode("{}")
+"#
+);
+
+typecheck_error_test!(
+    json_decode_undecodable_targets,
+    r#"
+import std::json
+
+enum Mode
+  Fast
+  Slow
+end
+
+struct Boxed<T>
+  value: T
+end
+
+struct WithMap
+  extra: Map<string, int>
+end
+
+struct WithJson
+  raw: Json
+end
+
+struct WithEnum
+  mode: Mode
+end
+
+struct WithTuple
+  pair: (int, string)
+end
+
+struct WithNestedOption
+  maybe: Option<Option<int>>
+end
+
+struct Inner
+  extra: Map<string, int>
+end
+
+struct Outer
+  inners: Vector<Inner>
+end
+
+let plain: int = json.decode("1")
+let listed: Vector<int> = json.decode("[]")
+let generic: Boxed<int> = json.decode("{}")
+let mapped: WithMap = json.decode("{}")
+let raw: WithJson = json.decode("{}")
+let moded: WithEnum = json.decode("{}")
+let paired: WithTuple = json.decode("{}")
+let maybe: WithNestedOption = json.decode("{}")
+let nested: Outer = json.decode("{}")
 "#
 );
 

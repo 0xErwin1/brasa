@@ -9,5 +9,5 @@ expression: rendered
    │                                       ───┬───  
    │                                          ╰───── no such stdlib error
    │ 
-   │ Note: known stdlib errors: string.ParseError, string.RegexError, proc.NonZeroExit, proc.SpawnError, fs.NotFound, fs.Denied, fs.IoError, json.ParseError, json.ValueError, http.RequestError, cli.UsageError, concurrent.ScopeExited, concurrent.Cancelled, time.ParseError
+   │ Note: known stdlib errors: string.ParseError, string.RegexError, proc.NonZeroExit, proc.SpawnError, fs.NotFound, fs.Denied, fs.IoError, json.ParseError, json.ValueError, json.DecodeError, http.RequestError, cli.UsageError, concurrent.ScopeExited, concurrent.Cancelled, time.ParseError
 ───╯

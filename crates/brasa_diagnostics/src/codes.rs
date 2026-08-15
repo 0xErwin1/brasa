@@ -203,6 +203,13 @@ pub const T_TO_STRING_CANNOT_THROW: &str = "T034";
 /// one is a program that says nothing — the shape a reader coming from
 /// Ruby writes expecting a block.
 pub const T_LAMBDA_VALUE_DISCARDED: &str = "T035";
+/// A `json.decode` whose target type is undetermined or undecodable:
+/// nothing at the call site says which type to produce, the type is not
+/// a struct, or one of the struct's fields has a type JSON decoding
+/// does not cover. The decoder is synthesized at compile time from that
+/// type, so a target it cannot be synthesized for has to be refused
+/// here rather than half-decoded at run time.
+pub const T_UNDECODABLE_JSON_TARGET: &str = "T036";
 
 // --- error-sets (E) ---
 
@@ -336,6 +343,8 @@ mod tests {
         super::T_LOOP_JUMP_OUTSIDE_LOOP,
         super::T_NOT_A_VALUE,
         super::T_TO_STRING_CANNOT_THROW,
+        super::T_LAMBDA_VALUE_DISCARDED,
+        super::T_UNDECODABLE_JSON_TARGET,
         super::E_UNREACHABLE_ARM,
         super::E_CATCH_ALL_NOT_EXHAUSTIVE,
         super::E_UNVERIFIABLE_EXHAUSTIVENESS,

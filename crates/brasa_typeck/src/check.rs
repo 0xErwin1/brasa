@@ -1277,10 +1277,15 @@ impl<'a> Checker<'a> {
             .unwrap_or(Type::Unknown)
     }
 
-    /// Checks a member call. `expected` reaches only the generic-method
-    /// arm, the one place where the call's own result can still have
-    /// type parameters left to instantiate; builtin methods and module
-    /// members have closed signatures and never read it.
+    /// Checks a member call.
+    ///
+    /// `expected` reaches the two places where the call's own result is
+    /// not fixed by the callee: the generic-method arm, which still has
+    /// type parameters to instantiate, and the delegated module members
+    /// ([`Checker::check_module_special`]) — `json.decode` answers
+    /// whatever type the call site asked for, which is the one thing a
+    /// signature table cannot state. Everything else has a closed
+    /// signature and never reads it.
     fn check_method_call(
         &mut self,
         span: Span,
@@ -1292,7 +1297,7 @@ impl<'a> Checker<'a> {
     ) -> Type {
         if self.is_module_ref(recv) {
             self.type_module_handle(recv);
-            return self.check_module_call(span, callee, recv, name, args);
+            return self.check_module_call(span, callee, recv, name, args, expected);
         }
 
         let recv_ty = self.check_expr(recv, None);
@@ -1415,6 +1420,7 @@ impl<'a> Checker<'a> {
         recv: ExprId,
         name: &str,
         args: &[ExprId],
+        expected: Option<&Type>,
     ) -> Type {
         let unknown = |checker: &mut Self| {
             checker.tables.expr_types.insert(callee, Type::Unknown);
@@ -1429,7 +1435,7 @@ impl<'a> Checker<'a> {
         };
 
         if builtins::module_member_special(&module, name) {
-            return self.check_module_special(span, callee, &module, name, args);
+            return self.check_module_special(span, callee, &module, name, args, expected);
         }
 
         let Some(sig) = builtins::module_member(&module, name) else {
@@ -1512,10 +1518,11 @@ impl<'a> Checker<'a> {
         sig.ret
     }
 
-    /// The module members whose types the fixed table cannot express
-    /// (BRS-35): `math.abs`/`min`/`max` are polymorphic over
-    /// `int`/`float`, and `rand.choice`/`shuffle` are generic over the
-    /// vector element.
+    /// The module members whose types the fixed table cannot express:
+    /// `math.abs`/`min`/`max` are polymorphic over `int`/`float`,
+    /// `rand.choice`/`shuffle` are generic over the vector element
+    /// (BRS-35), and `json.decode` answers the type its call site asked
+    /// for (BRS-144) — the only one of the five that reads `expected`.
     fn check_module_special(
         &mut self,
         span: Span,
@@ -1523,8 +1530,10 @@ impl<'a> Checker<'a> {
         module: &str,
         name: &str,
         args: &[ExprId],
+        expected: Option<&Type>,
     ) -> Type {
         let ret = match (module, name) {
+            ("json", "decode") => self.check_json_decode(span, args, expected),
             ("math", "abs") => self.check_numeric_args(span, args, 1),
             ("math", "min" | "max") => self.check_numeric_args(span, args, 2),
             ("rand", "choice" | "shuffle") => {
@@ -1545,6 +1554,161 @@ impl<'a> Checker<'a> {
 
         self.tables.expr_types.insert(callee, Type::Unknown);
         ret
+    }
+
+    /// `json.decode(text)` (BRS-144): reads a document and answers the
+    /// struct the call site asked for.
+    ///
+    /// The expected type IS the signature here, which is why the member
+    /// is delegated: nothing about the argument says what to produce.
+    /// It is also the input to code generation, which synthesizes one
+    /// decoder function per target type — so this is the last phase
+    /// that can tell a caller their target cannot be decoded, and it
+    /// refuses rather than leaving a hole for the generator to fill
+    /// with something plausible.
+    fn check_json_decode(&mut self, span: Span, args: &[ExprId], expected: Option<&Type>) -> Type {
+        self.check_args(span, args, &[Type::String]);
+
+        let Some(target) = expected.filter(|ty| !ty.is_flexible()) else {
+            self.error(
+                err_at(
+                    codes::T_UNDECODABLE_JSON_TARGET,
+                    span,
+                    "cannot determine the type `json.decode` should produce".to_string(),
+                    "no annotation or expected type determines it",
+                )
+                .with_note(
+                    "annotate the target: `let config: Config = json.decode(text)`".to_string(),
+                ),
+            );
+            return Type::Unknown;
+        };
+
+        let target = target.clone();
+        if let Some(problem) = self.undecodable(&target) {
+            let shown = target.display(self.hir);
+            self.error(err_at(
+                codes::T_UNDECODABLE_JSON_TARGET,
+                span,
+                format!("`json.decode` cannot produce `{shown}`: {problem}"),
+                "undecodable target type",
+            ));
+            return Type::Unknown;
+        }
+
+        target
+    }
+
+    /// Why `target` cannot be decoded, or `None` when it can.
+    ///
+    /// A document is a tree of members, so the target has to be a
+    /// struct: it is what gives the members names and types to be
+    /// decoded into. Every other shape either has no member names at
+    /// all or does not fix them at compile time.
+    fn undecodable(&mut self, target: &Type) -> Option<String> {
+        let Type::Struct(item, args) = target else {
+            let shown = target.display(self.hir);
+            return Some(format!("`{shown}` is not a struct"));
+        };
+
+        let (item, args) = (*item, args.clone());
+        self.undecodable_struct(item, &args, &mut HashSet::new())
+    }
+
+    /// Why this struct cannot be decoded, walking its fields in
+    /// declaration order and reporting the first that cannot.
+    ///
+    /// `visiting` is what makes a recursive type terminate. A struct
+    /// already on the walk is decodable exactly when the rest of the
+    /// walk is — its decoder calls itself — so revisiting it would
+    /// answer a question that is already being answered.
+    fn undecodable_struct(
+        &mut self,
+        item: ItemId,
+        args: &[Type],
+        visiting: &mut HashSet<ItemId>,
+    ) -> Option<String> {
+        let hir = self.hir;
+        let Item::StructDef(def) = hir.item(item) else {
+            return Some(format!("`{}` is not a struct", item_name(hir, item)));
+        };
+
+        // A generic struct would need one decoder per instantiation,
+        // and the decoder cache is keyed by the declaration alone. The
+        // restriction is what makes that key sound, so it is stated
+        // here rather than discovered as a wrong decode later.
+        if !args.is_empty() || !def.generics.is_empty() {
+            return Some(format!("`{}` is a generic struct", def.name));
+        }
+
+        if !visiting.insert(item) {
+            return None;
+        }
+
+        let owner = def.name.clone();
+        let fields: Vec<(String, TypeExprId)> =
+            def.fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
+
+        let mut types = Vec::with_capacity(fields.len());
+        for (field, ty) in fields {
+            let ty = self.conv(ty);
+            if let Some(problem) = self.undecodable_field(&owner, &field, &ty, &ty, visiting) {
+                return Some(problem);
+            }
+            types.push(ty);
+        }
+
+        // Recorded only on the way out, so the table holds exactly the
+        // structs whose decoders code generation is allowed to build.
+        self.tables.decode_fields.insert(item, types);
+
+        None
+    }
+
+    /// Why one field cannot be decoded, or `None` when it can.
+    ///
+    /// `part` is the piece of the type currently under inspection and
+    /// `declared` is the whole field type. An unsupported piece is
+    /// reported as the field the author wrote, not as the inner type
+    /// they would have to reconstruct — except for a nested struct,
+    /// whose own failure already names a field of its own and is passed
+    /// through unchanged.
+    fn undecodable_field(
+        &mut self,
+        owner: &str,
+        field: &str,
+        part: &Type,
+        declared: &Type,
+        visiting: &mut HashSet<ItemId>,
+    ) -> Option<String> {
+        let unsupported = |checker: &Self| {
+            let shown = declared.display(checker.hir);
+            Some(format!(
+                "field `{owner}.{field}` has type `{shown}`, which `json.decode` does not support"
+            ))
+        };
+
+        match part {
+            Type::Int | Type::Float | Type::Bool | Type::String => None,
+            // JSON has one `null`, so `Some(None)` and `None` would
+            // encode identically: the round trip is not a round trip.
+            Type::Option(inner) if matches!(**inner, Type::Option(_)) => {
+                let shown = declared.display(self.hir);
+                Some(format!(
+                    "field `{owner}.{field}` has type `{shown}`, and JSON has one `null`, \
+                     so a nested `Option` cannot be decoded back"
+                ))
+            }
+            Type::Option(inner) | Type::Vector(inner) => {
+                let inner = (**inner).clone();
+                self.undecodable_field(owner, field, &inner, declared, visiting)
+            }
+            Type::Struct(item, args) => {
+                let (item, args) = (*item, args.clone());
+                self.undecodable_struct(item, &args, visiting)
+            }
+            _ => unsupported(self),
+        }
     }
 
     /// Checks the arguments of a numeric-polymorphic `math` member:

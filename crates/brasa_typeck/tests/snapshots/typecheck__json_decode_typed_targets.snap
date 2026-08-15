@@ -1,0 +1,32 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i6 load -> (string) -> Config
+  i7 config -> Config
+  i8 chain -> Node
+  i9 tree -> Branch
+  i10 loaded -> Config
+local types
+  l0 text -> string
+expr types
+  e0 -> unknown
+  e1 -> unknown
+  e2 -> string
+  e3 -> Config
+  e4 -> unknown
+  e5 -> unknown
+  e6 -> string
+  e7 -> Config
+  e8 -> unknown
+  e9 -> unknown
+  e10 -> string
+  e11 -> Node
+  e12 -> unknown
+  e13 -> unknown
+  e14 -> string
+  e15 -> Branch
+  e16 -> (string) -> Config
+  e17 -> string
+  e18 -> Config

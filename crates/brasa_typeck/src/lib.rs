@@ -62,6 +62,18 @@ pub struct TypeTables {
     /// ERROR SETS, and those are inferred by `brasa_errorset` after
     /// this pass has finished.
     pub iface_uses: Vec<(ItemId, ItemId, Span)>,
+    /// The field types, in declaration order, of every struct reachable
+    /// as a `json.decode` target (BRS-144).
+    ///
+    /// Code generation synthesizes a decoder per target struct and
+    /// needs each field's TYPE to pick the accessor for it, but a
+    /// field's type is a `TypeExpr` that only this pass resolves. The
+    /// check that proves a target decodable already converts every one
+    /// of them, so it records what it converted rather than making a
+    /// later phase redo the resolution — and the table's presence is
+    /// itself the proof: a struct is here only if decoding it was
+    /// accepted.
+    pub decode_fields: HashMap<ItemId, Vec<Type>>,
 }
 
 /// The output of type checking one module: the type tables and every

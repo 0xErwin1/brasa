@@ -40,6 +40,16 @@ pub const VALUE_ERROR: &str = "json.ValueError";
 /// one.
 pub const VALUE_ERRORS: &[&str] = &[VALUE_ERROR];
 
+/// `json.DecodeError`: the document does not fit the declared type.
+pub const DECODE_ERROR: &str = "json.DecodeError";
+
+/// What `decode` raises. It reads a `string`, so it can fail the way
+/// `parse` fails before it ever reaches the declared type — the two
+/// errors are separate names because they are separate questions
+/// ("this is not JSON" against "this JSON is not that type"), and an
+/// arm that only wants one must be able to say so.
+pub const DECODE_ERRORS: &[&str] = &[PARSE_ERROR, DECODE_ERROR];
+
 crate::module_table! {
     /// Every `std::json` member, in declaration order.
     JsonMember => JSON_MEMBERS, module "json" {
@@ -56,6 +66,19 @@ crate::module_table! {
         /// always did, and anything else is built first, so this can
         /// fail exactly where `of` does.
         Stringify "stringify" (unknown) -> string throws VALUE_ERRORS;
+
+        /// The typed read side (BRS-144): reads a document and answers
+        /// the struct the call site asked for. Delegated because the
+        /// result is the EXPECTED type — the one thing a table cannot
+        /// state, since it is not a function of the arguments — and
+        /// because the checker is also what proves the target
+        /// decodable before code generation synthesizes its decoder.
+        ///
+        /// It takes a `string` rather than a `json` for the reason
+        /// `stringify` takes any value: the other half already exists,
+        /// so making a caller spell `decode(parse(text))` would be
+        /// asking for a step the module can take itself.
+        Decode    "decode"    custom "answers the type the call site expects, which no signature can name" throws DECODE_ERRORS;
     }
 }
 
@@ -87,7 +110,7 @@ crate::method_table! {
 
 #[cfg(test)]
 mod tests {
-    use super::{JSON_MEMBERS, JsonMember, PARSE_ERRORS, VALUE_ERRORS};
+    use super::{DECODE_ERRORS, JSON_MEMBERS, JsonMember, PARSE_ERRORS, VALUE_ERRORS};
 
     /// `decl` indexes the table by the variant's position, so a row and
     /// its variant must stay in the same order.
@@ -117,6 +140,17 @@ mod tests {
         assert_eq!(JsonMember::Stringify.decl().throws, VALUE_ERRORS);
     }
 
+    /// `decode` reads, so it carries the read side's error — and its
+    /// own on top. Losing `json.ParseError` here would let a caller
+    /// declare `throws json.DecodeError` and still die on a malformed
+    /// document.
+    #[test]
+    fn decode_throws_the_read_error_and_its_own() {
+        assert_eq!(JsonMember::Decode.decl().throws, DECODE_ERRORS);
+        assert!(DECODE_ERRORS.contains(&super::PARSE_ERROR));
+        assert!(DECODE_ERRORS.contains(&super::DECODE_ERROR));
+    }
+
     /// Every declared error is one of this module's own, so a member
     /// cannot name an error `catch` is unable to reach under `json.`
     /// (the `fs` table guards its two lists the same way).
@@ -126,7 +160,8 @@ mod tests {
             assert!(
                 decl.throws.is_empty()
                     || decl.throws == PARSE_ERRORS
-                    || decl.throws == VALUE_ERRORS,
+                    || decl.throws == VALUE_ERRORS
+                    || decl.throws == DECODE_ERRORS,
                 "`json.{}` declares an error list this module does not define",
                 decl.name
             );

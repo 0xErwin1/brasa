@@ -13,6 +13,7 @@ use brasa_typeck::{Type, WrapDecision};
 use crate::captures::lambda_captures;
 use crate::catch::compile_catch;
 use crate::func::{FnKind, FuncCx, PLACEHOLDER};
+use crate::json_decode;
 use crate::limits::MAX_ELEMENTS;
 use crate::pattern::compile_match;
 use crate::stmt::{block_value, if_value};
@@ -41,7 +42,7 @@ pub(crate) fn compile_expr(f: &mut FuncCx, id: ExprId) {
         }
         Expr::Ident(name) => ident(f, id, &name, span),
         Expr::SelfExpr => f.load_self(span),
-        Expr::Call { callee, args } => call(f, callee, &args, span),
+        Expr::Call { callee, args } => call(f, id, callee, &args, span),
         Expr::Field { recv, name } => field(f, id, recv, &name, span),
         Expr::Index { recv, index } => {
             compile_expr(f, recv);
@@ -354,7 +355,10 @@ fn dynamic_receiver(f: &FuncCx, recv: ExprId) -> bool {
     )
 }
 
-pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) {
+/// `id` is the call expression itself, which `json.decode` needs: its
+/// result type is the target the synthesized decoder is built from
+/// (`crate::json_decode`), and only the node carries it.
+pub(crate) fn call(f: &mut FuncCx, id: ExprId, callee: ExprId, args: &[ExprId], span: Span) {
     match f.cx.hir.expr(callee).clone() {
         // `assert`/`assertEq` compile to a conditional raise of the
         // internal `<assert-failed>` builtin rather than to a call: the
@@ -419,7 +423,7 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
                 }
             }
         }
-        Expr::Field { recv, name } => method_call(f, recv, &name, args, span),
+        Expr::Field { recv, name } => method_call(f, id, recv, &name, args, span),
         Expr::Ident(_)
             if matches!(
                 f.cx.res.expr_res.get(&callee),
@@ -484,11 +488,11 @@ fn assertion(f: &mut FuncCx, builtin: BuiltinValue, args: &[ExprId], span: Span)
     f.emit(Op::LoadUnit, span);
 }
 
-fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: Span) {
+fn method_call(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, args: &[ExprId], span: Span) {
     if let Expr::Ident(_) = f.cx.hir.expr(recv)
         && let Some(Res::Module(item)) = f.cx.res.expr_res.get(&recv).copied()
     {
-        module_call(f, item, name, args, span);
+        module_call(f, id, item, name, args, span);
         return;
     }
 
@@ -560,7 +564,14 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
     }
 }
 
-fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId], span: Span) {
+fn module_call(
+    f: &mut FuncCx,
+    id: ExprId,
+    module_item: ItemId,
+    name: &str,
+    args: &[ExprId],
+    span: Span,
+) {
     let Item::Import(import) = f.cx.hir.item(module_item) else {
         f.emit_fatal("brasa: module handle is not an import", span);
         return;
@@ -581,6 +592,14 @@ fn module_call(f: &mut FuncCx, module_item: ItemId, name: &str, args: &[ExprId],
     };
 
     if std_module.is_some() {
+        // `json.decode` holds no registry id: it is compiled into a
+        // decoder synthesized from the type the call site expects
+        // (`crate::json_decode`), so there is nothing native to call.
+        if module == "json" && name == "decode" {
+            json_decode::compile_call(f, id, args, span);
+            return;
+        }
+
         if let Some(builtin) = builtin_id(&format!("{module}.{name}")) {
             for &arg in args {
                 compile_expr(f, arg);
@@ -640,7 +659,7 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
     if let Expr::Ident(_) = f.cx.hir.expr(recv)
         && let Some(Res::Module(item)) = f.cx.res.expr_res.get(&recv).copied()
     {
-        module_call(f, item, name, &[], span);
+        module_call(f, id, item, name, &[], span);
         return;
     }
 

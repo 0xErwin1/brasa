@@ -13,9 +13,9 @@
 //! one ([`BuiltinDef::has_receiver`]), so the stack effect is always
 //! "pop `argc`, push one result".
 //!
-//! Two internal entries exist for code the generator can prove faulty
-//! at compile time but must fail at runtime, mirroring the
-//! behavior fixed by spec: 05 — Stdlib de scripting:
+//! Internal entries exist for failures the generator has to raise from
+//! code it emitted itself, mirroring the behavior fixed by
+//! spec: 05 — Stdlib de scripting:
 //!
 //! - `<fatal>`: raises an uncatchable fatal error with the message
 //!   string argument (e.g. a member call on a module that has not
@@ -23,6 +23,16 @@
 //! - `<assert-failed>`: raises `panics.AssertionFailed` with the detail
 //!   string argument (match fall-through after guards, a `for` pattern
 //!   that did not match the element).
+//! - `<json-decode-failed>`: raises `json.DecodeError` from a
+//!   synthesized `json.decode` decoder (BRS-144), given the path into
+//!   the document, the JSON kind the declared type wanted, and the
+//!   member that was found there.
+//!
+//! The first two are statically-known failures; the third is a genuine
+//! runtime one, and it is here for the same reason they are — a raise
+//! the generator emits needs somewhere to come from, and inventing an
+//! opcode for it would put a permanent instruction in the set for one
+//! stdlib member.
 
 use crate::BuiltinId;
 
@@ -267,6 +277,11 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("output"),
     // The local UTC offset behind `std::time`'s day bucketing (BRS-147).
     free("time.localOffsetMillis"),
+    // The raiser a synthesized `json.decode` decoder calls (BRS-144).
+    // `json.decode` itself holds no id: it is compiled away into one
+    // decoder function per target type, so no call ever reaches a
+    // native entry for it.
+    free("<json-decode-failed>"),
 ];
 
 /// Looks up a builtin by its stable name.
@@ -345,6 +360,17 @@ mod tests {
         }
     }
 
+    /// The declared free members that hold no id because they are
+    /// COMPILED rather than called.
+    ///
+    /// `json.decode` is the whole list and is meant to stay that way.
+    /// Its result is the type the call site expects, so there is
+    /// nothing for a native entry to return: the code generator emits
+    /// one decoder function per target type instead, and no call ever
+    /// reaches the registry. Any other name appearing here would be a
+    /// member the VM silently cannot run.
+    const COMPILED_FREE_MEMBERS: &[&str] = &["json.decode"];
+
     /// The same cover for the free modules, whose registry names are
     /// qualified (`fs.read`) because a bare member name is not unique
     /// across modules (`fs.read`, `io.readAll`).
@@ -356,6 +382,15 @@ mod tests {
         for (module, members) in brasa_stdlib::FREE_MODULES {
             for decl in *members {
                 let qualified = format!("{}.{}", module, decl.name);
+                if COMPILED_FREE_MEMBERS.contains(&qualified.as_str()) {
+                    assert_eq!(
+                        builtin_id(&qualified),
+                        None,
+                        "`{qualified}` is compiled away, so an id for it could never be called"
+                    );
+                    continue;
+                }
+
                 let id = builtin_id(&qualified)
                     .unwrap_or_else(|| panic!("`{qualified}` is declared but has no id"));
 

@@ -1,0 +1,67 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T036] Error: `json.decode` cannot produce `int`: `int` is not a struct
+    ╭─[ json_decode_undecodable_targets.bras:41:18 ]
+    │
+ 41 │ let plain: int = json.decode("1")
+    │                  ────────┬───────  
+    │                          ╰───────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `Vector<int>`: `Vector<int>` is not a struct
+    ╭─[ json_decode_undecodable_targets.bras:42:27 ]
+    │
+ 42 │ let listed: Vector<int> = json.decode("[]")
+    │                           ────────┬────────  
+    │                                   ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `Boxed<int>`: `Boxed` is a generic struct
+    ╭─[ json_decode_undecodable_targets.bras:43:27 ]
+    │
+ 43 │ let generic: Boxed<int> = json.decode("{}")
+    │                           ────────┬────────  
+    │                                   ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `WithMap`: field `WithMap.extra` has type `Map<string, int>`, which `json.decode` does not support
+    ╭─[ json_decode_undecodable_targets.bras:44:23 ]
+    │
+ 44 │ let mapped: WithMap = json.decode("{}")
+    │                       ────────┬────────  
+    │                               ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `WithJson`: field `WithJson.raw` has type `Json`, which `json.decode` does not support
+    ╭─[ json_decode_undecodable_targets.bras:45:21 ]
+    │
+ 45 │ let raw: WithJson = json.decode("{}")
+    │                     ────────┬────────  
+    │                             ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `WithEnum`: field `WithEnum.mode` has type `Mode`, which `json.decode` does not support
+    ╭─[ json_decode_undecodable_targets.bras:46:23 ]
+    │
+ 46 │ let moded: WithEnum = json.decode("{}")
+    │                       ────────┬────────  
+    │                               ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `WithTuple`: field `WithTuple.pair` has type `(int, string)`, which `json.decode` does not support
+    ╭─[ json_decode_undecodable_targets.bras:47:25 ]
+    │
+ 47 │ let paired: WithTuple = json.decode("{}")
+    │                         ────────┬────────  
+    │                                 ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `WithNestedOption`: field `WithNestedOption.maybe` has type `Option<Option<int>>`, and JSON has one `null`, so a nested `Option` cannot be decoded back
+    ╭─[ json_decode_undecodable_targets.bras:48:31 ]
+    │
+ 48 │ let maybe: WithNestedOption = json.decode("{}")
+    │                               ────────┬────────  
+    │                                       ╰────────── undecodable target type
+────╯
+[T036] Error: `json.decode` cannot produce `Outer`: field `Inner.extra` has type `Map<string, int>`, which `json.decode` does not support
+    ╭─[ json_decode_undecodable_targets.bras:49:21 ]
+    │
+ 49 │ let nested: Outer = json.decode("{}")
+    │                     ────────┬────────  
+    │                             ╰────────── undecodable target type
+────╯

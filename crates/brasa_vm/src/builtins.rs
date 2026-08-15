@@ -90,6 +90,7 @@ impl Vm<'_> {
                 Some(Value::Str(detail)) => Err(self.panic(ASSERTION_FAILED, detail.to_string())),
                 _ => unreachable!("<assert-failed> always receives a detail string"),
             },
+            "<json-decode-failed>" => Err(json_decode_failed(&args)),
             _ => {
                 if let Some(member) = name.strip_prefix("math.") {
                     self.math_call(member, args)
@@ -801,6 +802,14 @@ impl Vm<'_> {
                 }
                 _ => Err(invalid()),
             },
+            // Compiled away rather than implemented: the result is the
+            // type the call site expects, which no native entry can
+            // know, so the generator emits a decoder function per
+            // target type and no call ever arrives here (BRS-144). The
+            // arm exists because this surface is matched exhaustively.
+            JsonMember::Decode => Err(Signal::Fatal(
+                "brasa: `json.decode` is compiled to a synthesized decoder".to_string(),
+            )),
         }
     }
 
@@ -2195,6 +2204,36 @@ fn invalid_fs_args(name: &str) -> Signal {
 /// A name `std::fs` does not carry.
 fn unknown_fs_member(name: &str) -> Signal {
     unknown_module_member(FsMember::MODULE, name)
+}
+
+/// Raises the `json.DecodeError` a synthesized decoder reports
+/// (BRS-144), from the three operands the generator pushes: the path
+/// into the document, the JSON kind the declared type wanted, and the
+/// member found there.
+///
+/// The member arrives as the `Option<Json>` an object lookup yields, so
+/// `None` is a member the document does not carry — the one failure
+/// whose message cannot name a JSON kind. The wording itself belongs to
+/// `brasa_runtime::json_glue`, like every other observable JSON string.
+fn json_decode_failed(args: &[Value]) -> Signal {
+    let [Value::Str(path), Value::Str(expected), found] = args else {
+        return Signal::Fatal(
+            "brasa: `<json-decode-failed>` takes a path, an expected kind, and the member found"
+                .to_string(),
+        );
+    };
+
+    let found = match found {
+        Value::Json(tree) => Some(&**tree),
+        Value::Option(Some(inner)) => match &**inner {
+            Value::Json(tree) => Some(&**tree),
+            _ => None,
+        },
+        _ => None,
+    };
+
+    let error = json_glue::decode_error(path, expected, found);
+    native_error(error.name, error.message)
 }
 
 /// Raises a stdlib-native error: an ordinary error signal carrying a

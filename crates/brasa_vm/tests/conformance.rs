@@ -4427,6 +4427,345 @@ fn json_uncaught_value_error_message_matches() {
     );
 }
 
+// --- std::json typed decoding (BRS-144) -------------------------------
+//
+// `json.decode` is compiled, not called: the generator synthesizes a
+// decoder function per target struct out of instructions that already
+// exist. What these pin is the behavior of that synthesis — every
+// supported field kind, recursion through the decoder cache, and the
+// path each failure names.
+
+/// Every supported field kind in one struct, including a nested struct
+/// and a vector of structs.
+#[test]
+fn json_decode_reads_every_supported_field_kind() {
+    assert_success(
+        r##"
+import std::json
+
+struct Address
+  city: string
+  zip: string
+end
+
+struct Config
+  host: string
+  port: int
+  ratio: float
+  debug: bool
+  tags: Vector<string>
+  nickname: Option<string>
+  home: Address
+  routes: Vector<Address>
+end
+
+let text = "{\"host\":\"localhost\",\"port\":8080,\"ratio\":0.25,\"debug\":true,\"tags\":[\"a\",\"b\"],\"nickname\":\"box\",\"home\":{\"city\":\"London\",\"zip\":\"E1\"},\"routes\":[{\"city\":\"Lima\",\"zip\":\"15001\"}]}"
+let config: Config = json.decode(text)
+
+puts config.host
+puts config.port
+puts config.ratio
+puts config.debug
+puts config.tags.join(",")
+puts config.nickname ?? "none"
+puts config.home.city
+puts config.routes[0].zip
+puts config.routes.len()
+"##,
+        "localhost\n8080\n0.25\ntrue\na,b\nbox\nLondon\n15001\n1\n",
+    );
+}
+
+/// A self-referencing struct. The decoder's id is reserved and cached
+/// before its body is emitted, so the `next` field compiles to a call
+/// to the function currently being written.
+#[test]
+fn json_decode_reads_a_recursive_struct() {
+    assert_success(
+        r##"
+import std::json
+
+struct Node
+  value: int
+  next: Option<Node>
+end
+
+let chain: Node = json.decode("{\"value\":1,\"next\":{\"value\":2,\"next\":null}}")
+puts chain.value
+puts chain.next?.value ?? -1
+puts chain.next?.next?.value ?? -1
+"##,
+        "1\n2\n-1\n",
+    );
+}
+
+/// Two structs that reach each other. The same reserve-then-fill makes
+/// the cycle terminate whichever of the two is compiled first.
+#[test]
+fn json_decode_reads_mutually_recursive_structs() {
+    assert_success(
+        r##"
+import std::json
+
+struct Branch
+  label: string
+  leaves: Vector<Leaf>
+end
+
+struct Leaf
+  size: int
+  parent: Option<Branch>
+end
+
+let text = "{\"label\":\"root\",\"leaves\":[{\"size\":1,\"parent\":{\"label\":\"inner\",\"leaves\":[]}},{\"size\":2}]}"
+let branch: Branch = json.decode(text)
+
+puts branch.label
+puts branch.leaves.len()
+puts branch.leaves[0].parent?.label ?? "-"
+puts branch.leaves[1].parent?.label ?? "-"
+"##,
+        "root\n2\ninner\n-\n",
+    );
+}
+
+/// An `Option` field across its three inputs: absent, explicit `null`,
+/// and present. The first two are separate tests in the emitted code —
+/// `null?` answers `false` for a member that is not there.
+#[test]
+fn json_decode_option_reads_absent_null_and_present() {
+    assert_success(
+        r##"
+import std::json
+
+struct Row
+  nickname: Option<string>
+end
+
+def shown(text: string): string
+  let row: Row = json.decode(text)
+  row.nickname ?? "none"
+end
+
+puts shown("{}")
+puts shown("{\"nickname\":null}")
+puts shown("{\"nickname\":\"box\"}")
+"##,
+        "none\nnone\nbox\n",
+    );
+}
+
+/// A member the struct does not declare is ignored. Rejecting unknown
+/// members would break every decoder the day a provider adds a field.
+#[test]
+fn json_decode_ignores_an_undeclared_member() {
+    assert_success(
+        r##"
+import std::json
+
+struct Row
+  name: string
+end
+
+let row: Row = json.decode("{\"name\":\"ada\",\"added_by_the_provider\":[1, 2, 3]}")
+puts row.name
+"##,
+        "ada\n",
+    );
+}
+
+/// Numbers do not coerce: an `int` field needs an integral number and a
+/// `float` field takes any, which is `asInt`/`asFloat`'s existing rule
+/// rather than a second one.
+#[test]
+fn json_decode_does_not_coerce_numbers() {
+    assert_success(
+        r##"
+import std::json
+
+struct Ints
+  n: int
+end
+
+struct Floats
+  n: float
+end
+
+def asInt(text: string): string
+  let row: Ints = json.decode(text) catch (e)
+    _ => return e.toString()
+  end
+  row.n.toString()
+end
+
+def asFloat(text: string): string
+  let row: Floats = json.decode(text)
+  row.n.toString()
+end
+
+puts asInt("{\"n\":7}")
+puts asInt("{\"n\":7.5}")
+puts asFloat("{\"n\":7}")
+puts asFloat("{\"n\":7.5}")
+"##,
+        "7\nn: expected int, found float\n7.0\n7.5\n",
+    );
+}
+
+/// Every failure names the path into the document, including the index
+/// path a vector element gets — which is what makes the error worth
+/// more than "decode failed".
+#[test]
+fn json_decode_failures_name_the_path() {
+    assert_success(
+        r##"
+import std::json
+
+struct Person
+  email: string
+end
+
+struct Root
+  users: Vector<Person>
+end
+
+def attempt(text: string): string
+  let root: Root = json.decode(text) catch (e)
+    json.DecodeError => return e.message
+  end
+  "ok: #{root.users.len()}"
+end
+
+puts attempt("{\"users\":[{\"email\":\"a\"},{\"email\":\"b\"}]}")
+puts attempt("{\"users\":[{\"email\":\"a\"},{\"email\":\"b\"},{\"email\":\"c\"},{\"email\":7}]}")
+puts attempt("{\"users\":[{}]}")
+puts attempt("{\"users\":[{\"email\":null}]}")
+puts attempt("{\"users\":7}")
+puts attempt("[]")
+"##,
+        "ok: 2\n\
+         users[3].email: expected string, found int\n\
+         users[0].email: expected string, found no member\n\
+         users[0].email: expected string, found null\n\
+         users: expected array, found int\n\
+         <document>: expected object, found array\n",
+    );
+}
+
+/// `decode` reads a string, so it fails the way `parse` does before it
+/// ever reaches the declared type. The two errors are separate names,
+/// and an arm may catch only one of them.
+#[test]
+fn json_decode_raises_the_parse_error_for_a_malformed_document() {
+    assert_success(
+        r##"
+import std::json
+
+struct Row
+  name: string
+end
+
+def name(text: string): string
+  let row: Row = json.decode(text) catch (e)
+    json.ParseError => return e.message
+  end
+  row.name
+end
+
+puts name("{\"name\":\"ada\"}")
+puts name("nope")
+"##,
+        "ada\ncannot parse JSON: expected ident at line 1 column 2\n",
+    );
+}
+
+/// The two errors are separately catchable: an arm naming only
+/// `json.DecodeError` leaves a malformed document to escape, which is
+/// the whole reason `decode` declares both names rather than one.
+#[test]
+fn json_decode_and_parse_errors_are_separately_catchable() {
+    assert_success(
+        r##"
+import std::json
+
+struct Row
+  name: string
+end
+
+def decoded(text: string): string
+  let row: Row = json.decode(text) catch! (e)
+    json.DecodeError => return "decode: #{e.message}"
+    json.ParseError => return "parse: #{e.message}"
+  end
+  row.name
+end
+
+puts decoded("{\"name\":\"ada\"}")
+puts decoded("{\"name\":7}")
+puts decoded("nope")
+"##,
+        "ada\n\
+         decode: name: expected string, found int\n\
+         parse: cannot parse JSON: expected ident at line 1 column 2\n",
+    );
+}
+
+/// An uncaught decode failure carries the nominal tag, like an uncaught
+/// parse failure does.
+#[test]
+fn json_uncaught_decode_error_message_matches() {
+    let (outcome, stdout) = assert_parity(
+        r##"
+import std::json
+
+struct Row
+  port: int
+end
+
+let row: Row = json.decode("{\"port\":\"8080\"}")
+puts row.port
+"##,
+    );
+    assert_eq!(stdout, "");
+    assert_eq!(
+        outcome,
+        Outcome::Error {
+            message: "error: json.DecodeError: port: expected int, found string".to_string()
+        }
+    );
+}
+
+/// Decoding and the write side agree: a document whose members the
+/// struct all declares survives the round trip, member order included
+/// (both ends sort bytewise).
+#[test]
+fn json_decode_round_trips_through_of_and_stringify() {
+    assert_success(
+        r##"
+import std::json
+
+struct Address
+  city: string
+  zip: string
+end
+
+struct Config
+  debug: bool
+  home: Address
+  port: int
+  ratio: float
+  tags: Vector<string>
+end
+
+let text = "{\"debug\":false,\"home\":{\"city\":\"Lima\",\"zip\":\"15001\"},\"port\":80,\"ratio\":1.5,\"tags\":[\"a\"]}"
+let config: Config = json.decode(text)
+puts json.stringify(json.of(config))
+puts json.stringify(json.of(config)) == text
+"##,
+        "{\"debug\":false,\"home\":{\"city\":\"Lima\",\"zip\":\"15001\"},\"port\":80,\"ratio\":1.5,\"tags\":[\"a\"]}\ntrue\n",
+    );
+}
+
 // --- BRS-35: collection surfaces, math/time/rand closure --------------
 
 #[test]
@@ -4935,7 +5274,12 @@ puts deep == chain(299)
 /// generator's internal raisers, which a checked program cannot reach
 /// through a stdlib call. They are pinned by id resolution instead of
 /// by a snippet.
-const INTERNAL_BUILTINS: &[&str] = &["<fatal>", "<assert-failed>"];
+///
+/// `<json-decode-failed>` is here for the same reason the other two
+/// are, even though a program CAN make it run: it has no stdlib name,
+/// so there is no member for a coverage snippet to call. Its behavior
+/// is pinned by the `json.decode` failure tests instead.
+const INTERNAL_BUILTINS: &[&str] = &["<fatal>", "<assert-failed>", "<json-decode-failed>"];
 
 /// The stdin every cross-check snippet sees, so `io.readLine` and
 /// `io.readAll` have something to consume.

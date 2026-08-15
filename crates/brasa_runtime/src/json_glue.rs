@@ -31,6 +31,11 @@
 //!   semantics). A JSON `2.0` is a float, not an int — no coercions.
 //! - `parse` failures raise the native `json.ParseError`; the message
 //!   carries serde_json's rendering, which includes line and column.
+//! - A document that does not fit a declared type raises the native
+//!   `json.DecodeError`, whose message names the path into the document
+//!   ([`decode_error`]). The decoder itself is synthesized bytecode, so
+//!   only the message lives here — for the same reason every other
+//!   observable string does.
 //! - A value that has no JSON representation raises the native
 //!   `json.ValueError`. Deciding WHICH values those are needs a
 //!   backend's value representation, so the walk lives in the backend;
@@ -39,7 +44,7 @@
 
 use std::rc::Rc;
 
-use brasa_resolver::{JSON_PARSE_ERROR, JSON_VALUE_ERROR};
+use brasa_resolver::{JSON_DECODE_ERROR, JSON_PARSE_ERROR, JSON_VALUE_ERROR};
 
 /// The shared JSON tree node both backends wrap in their `Value::Json`
 /// variant.
@@ -180,12 +185,94 @@ pub fn is_null(value: &JsonValue) -> bool {
     value.is_null()
 }
 
+/// The root's name in a decode path, so a failure about the document
+/// itself does not render as an empty prefix.
+const DOCUMENT_ROOT: &str = "<document>";
+
+/// What a decode failure reports having found where a declared type
+/// wanted something else.
+///
+/// A number answers `int` or `float` by the same rule `as_int` and
+/// `as_float` follow — integral and representable is an `int`, anything
+/// else is a `float` — so the message never claims a kind the accessor
+/// would have refused.
+pub fn kind_name(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) if as_int(value).is_some() => "int",
+        JsonValue::Number(_) => "float",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+/// The `json.DecodeError` for one member of one document (BRS-144):
+/// where it is, what the declared type wanted, and what the document
+/// holds there — `None` for a member the document does not carry at
+/// all.
+///
+/// The path is what makes the error worth reading: a document is a tree
+/// and a decode walks all of it, so "decode failed" would leave the
+/// caller to find the offending member by hand.
+pub fn decode_error(path: &str, expected: &str, found: Option<&JsonValue>) -> JsonError {
+    let where_ = if path.is_empty() { DOCUMENT_ROOT } else { path };
+
+    let found = match found {
+        Some(value) => kind_name(value),
+        None => "no member",
+    };
+
+    JsonError {
+        name: JSON_DECODE_ERROR,
+        message: format!("{where_}: expected {expected}, found {found}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        as_float, as_int, from_bool, from_float, from_int, from_items, from_members, from_string,
-        index_key, index_position, null, parse, stringify,
+        as_float, as_int, decode_error, from_bool, from_float, from_int, from_items, from_members,
+        from_string, index_key, index_position, kind_name, null, parse, stringify,
     };
+
+    /// A decode failure must not claim a kind the accessor would have
+    /// refused: `2.0` is a float here for the same reason `asInt`
+    /// answers `None` for it.
+    #[test]
+    fn kind_name_splits_numbers_the_way_the_accessors_do() {
+        let tree = parse(r#"{"i": 2, "f": 2.5, "s": "x", "b": true, "n": null, "a": [], "o": {}}"#)
+            .expect("valid JSON");
+
+        let kind = |key: &str| kind_name(&index_key(&tree, key).expect("the member exists"));
+
+        assert_eq!(kind("i"), "int");
+        assert_eq!(kind("f"), "float");
+        assert_eq!(kind("s"), "string");
+        assert_eq!(kind("b"), "bool");
+        assert_eq!(kind("n"), "null");
+        assert_eq!(kind("a"), "array");
+        assert_eq!(kind("o"), "object");
+        assert_eq!(kind_name(&tree), "object");
+    }
+
+    /// The message names WHERE, not only what: an absent member has no
+    /// kind to report, and the document root has no path to print.
+    #[test]
+    fn decode_errors_name_the_path() {
+        let found = from_int(7);
+
+        let wrong = decode_error("users[3].email", "string", Some(&found));
+        assert_eq!(wrong.name, "json.DecodeError");
+        assert_eq!(wrong.message, "users[3].email: expected string, found int");
+
+        let absent = decode_error("port", "int", None);
+        assert_eq!(absent.message, "port: expected int, found no member");
+
+        let root = decode_error("", "object", Some(&from_items(vec![])));
+        assert_eq!(root.message, "<document>: expected object, found array");
+    }
 
     #[test]
     fn stringify_is_compact_with_sorted_keys() {

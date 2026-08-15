@@ -1,0 +1,22 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T036] Error: cannot determine the type `json.decode` should produce
+   ╭─[ json_decode_without_a_target_type.bras:4:16 ]
+   │
+ 4 │ let anything = json.decode("{}")
+   │                ────────┬────────  
+   │                        ╰────────── no annotation or expected type determines it
+   │ 
+   │ Note: annotate the target: `let config: Config = json.decode(text)`
+───╯
+[T036] Error: cannot determine the type `json.decode` should produce
+   ╭─[ json_decode_without_a_target_type.bras:5:1 ]
+   │
+ 5 │ json.decode("{}")
+   │ ────────┬────────  
+   │         ╰────────── no annotation or expected type determines it
+   │ 
+   │ Note: annotate the target: `let config: Config = json.decode(text)`
+───╯

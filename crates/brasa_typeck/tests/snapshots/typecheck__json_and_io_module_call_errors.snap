@@ -16,12 +16,12 @@ expression: rendered
    │ ────────┬───────  
    │         ╰───────── expected 1 argument(s)
 ───╯
-[T007] Error: module `json` has no member `decode`
+[T007] Error: module `json` has no member `encode`
    ╭─[ json_and_io_module_call_errors.bras:7:1 ]
    │
- 7 │ json.decode("typed bridge is v2")
-   │ ────────────────┬────────────────  
-   │                 ╰────────────────── unknown member
+ 7 │ json.encode("the write side is `of`")
+   │ ──────────────────┬──────────────────  
+   │                   ╰──────────────────── unknown member
 ───╯
 [T005] Error: wrong number of arguments: expected 0, found 1
    ╭─[ json_and_io_module_call_errors.bras:8:1 ]

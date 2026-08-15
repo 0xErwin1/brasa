@@ -185,6 +185,7 @@ const PINNED: &[(u16, &str, bool)] = &[
     (157, "time.parseIso", false),
     (158, "output", true),
     (159, "time.localOffsetMillis", false),
+    (160, "<json-decode-failed>", false),
 ];
 
 #[test]

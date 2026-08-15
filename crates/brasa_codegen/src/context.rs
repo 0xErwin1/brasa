@@ -42,6 +42,15 @@ pub(crate) struct Cx<'a> {
     pub(crate) func_of_item: HashMap<ItemId, FuncId>,
     pub(crate) func_of_method: HashMap<(ItemId, usize), FuncId>,
     pub(crate) struct_of_item: HashMap<ItemId, StructId>,
+    /// The synthesized `json.decode` decoder of each target struct
+    /// (`crate::json_decode`), reserved before its body is emitted so a
+    /// recursive type compiles to a call to an id that already exists.
+    ///
+    /// Keyed by the DECLARATION, which is sound only because a generic
+    /// struct is not a decodable target: one declaration means one
+    /// decoder. `Type` is not `Hash` either, so this is also the only
+    /// key available.
+    pub(crate) decoder_of: HashMap<ItemId, FuncId>,
     pub(crate) enum_of_item: HashMap<ItemId, EnumId>,
     pub(crate) global_of_item: HashMap<ItemId, GlobalIx>,
     pub(crate) structs: Vec<StructShape>,
@@ -68,6 +77,7 @@ impl<'a> Cx<'a> {
             func_of_item: HashMap::new(),
             func_of_method: HashMap::new(),
             struct_of_item: HashMap::new(),
+            decoder_of: HashMap::new(),
             enum_of_item: HashMap::new(),
             global_of_item: HashMap::new(),
             structs: Vec::new(),

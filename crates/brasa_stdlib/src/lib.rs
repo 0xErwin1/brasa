@@ -224,10 +224,12 @@ pub struct ModuleDecl {
     /// qualified name (`fs.NotFound`) — the member's contribution to
     /// its caller's inferred error-set.
     ///
-    /// Outside [`ModuleKind::Call`] this is always empty: a constant is
-    /// a value that is simply there, and no delegated member throws
-    /// today. It stays on the outside so that stops being true by
-    /// someone writing it down.
+    /// A [`ModuleKind::Constant`] row always leaves this empty: a
+    /// constant is a value that is simply there, with no call for an
+    /// error to escape from. A [`ModuleKind::Custom`] row may fill it —
+    /// delegation is about the SIGNATURE, not about whether the member
+    /// is called — which is why the column sits outside the kind
+    /// instead of inside the `Call` variant.
     pub throws: &'static [&'static str],
 }
 
@@ -1078,6 +1080,7 @@ mod tests {
         assert_eq!(
             delegated,
             [
+                "json.decode",
                 "math.abs",
                 "math.min",
                 "math.max",
@@ -1088,22 +1091,25 @@ mod tests {
         );
     }
 
-    /// Only a member that is never called may be a constant, and a
-    /// constant never throws: there is no call for an error to escape
-    /// from. The same holds for a delegated member today, and the
-    /// column lives outside the kind so that stops being true by
-    /// someone writing it down rather than by accident.
+    /// A constant never throws: it is read rather than called, so there
+    /// is no call for an error to escape from.
+    ///
+    /// A DELEGATED member is called like any other — only its signature
+    /// is the checker's — so it may throw, and `json.decode` does. That
+    /// is exactly why the column lives outside the kind: the delegated
+    /// rows happened to be infallible until one was not, and the shape
+    /// of the table did not have to change for it.
     #[test]
-    fn only_a_called_member_throws() {
+    fn a_constant_never_throws() {
         for (module, members) in FREE_MODULES {
             for decl in *members {
-                if matches!(decl.kind, ModuleKind::Call { .. }) {
+                if !matches!(decl.kind, ModuleKind::Constant(_)) {
                     continue;
                 }
 
                 assert!(
                     decl.throws.is_empty(),
-                    "`{module}.{}` is not called, so nothing can throw out of it",
+                    "`{module}.{}` is read rather than called, so nothing can throw out of it",
                     decl.name
                 );
             }

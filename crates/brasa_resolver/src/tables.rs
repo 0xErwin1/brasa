@@ -207,6 +207,16 @@ pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 /// representation).
 pub const JSON_VALUE_ERROR: &str = "json.ValueError";
 
+/// The canonical qualified name of the native `json` decode error
+/// (spec: 05 — Stdlib de scripting, BRS-144): `json.decode` throws it
+/// when the document does not fit the declared type — a member the
+/// struct requires but the document omits, a member whose JSON kind is
+/// not the declared one, or a `null` where the field is not an
+/// `Option`. Its message names the path into the document, so a
+/// failure locates itself instead of only reporting that decoding
+/// failed.
+pub const JSON_DECODE_ERROR: &str = "json.DecodeError";
+
 /// The canonical qualified name of the native `http` request error
 /// (spec: 05 — Stdlib de scripting, BRS-113): a request that never produced a
 /// response — DNS, connection, TLS, or timeout. A non-2xx status is an
@@ -258,6 +268,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     FS_IO_ERROR,
     JSON_PARSE_ERROR,
     JSON_VALUE_ERROR,
+    JSON_DECODE_ERROR,
     HTTP_REQUEST_ERROR,
     CLI_USAGE_ERROR,
     CONCURRENT_SCOPE_EXITED,
