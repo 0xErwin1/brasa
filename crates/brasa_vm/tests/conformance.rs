@@ -3115,6 +3115,93 @@ puts gone
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// One `fs.stat` answers what the four predicates answer plus the size
+/// and the modification time, and a missing path raises the same
+/// catchable `fs.NotFound` every other read does.
+///
+/// The whole-record rendering is pinned too, which means the expected
+/// timestamp has to be read from the fixture rather than written down:
+/// it is the one field no literal can predict.
+#[test]
+fn fs_stat_reports_size_time_and_kind() {
+    let tmp = fs_temp_dir("stat");
+    let t = tmp.display();
+
+    let file = tmp.join("a.txt");
+    std::fs::write(&file, "hello").expect("fixture written");
+    std::fs::create_dir_all(tmp.join("sub")).expect("fixture dirs");
+
+    let millis = std::fs::metadata(&file)
+        .and_then(|meta| meta.modified())
+        .expect("the fixture has a modification time")
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("the fixture is not older than the epoch")
+        .as_millis();
+
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+let s = fs.stat("{t}/a.txt")
+puts s.size
+puts s.isFile?
+puts s.isDir?
+puts s.isSymlink?
+puts s.modifiedMillis > 0
+puts fs.stat("{t}/sub").isDir?
+puts s
+puts(fs.stat("{t}/missing").size catch (e)
+  fs.NotFound => -1
+end)
+"##
+        ),
+        &format!(
+            "5\ntrue\nfalse\nfalse\ntrue\ntrue\n\
+             Stat {{ size: 5, modifiedMillis: {millis}, isFile?: true, isDir?: false, isSymlink?: false }}\n\
+             -1\n"
+        ),
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `stat` follows the link for everything about the content and reports
+/// the link itself only through `isSymlink?`, so each field agrees with
+/// the free predicate of the same name. A dangling link has no target
+/// to measure and raises, which is the price of that agreement.
+#[test]
+#[cfg(unix)]
+fn fs_stat_follows_a_symlink_except_for_its_kind() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = fs_temp_dir("statlink");
+    let t = tmp.display();
+
+    std::fs::write(tmp.join("target.txt"), "hello").expect("fixture written");
+    symlink("target.txt", tmp.join("link")).expect("link created");
+    symlink("nowhere.txt", tmp.join("dangling")).expect("link created");
+
+    assert_success(
+        &format!(
+            r##"
+import std::fs
+let s = fs.stat("{t}/link")
+puts s.size
+puts s.isFile?
+puts s.isSymlink?
+puts fs.isSymlink?("{t}/link")
+puts(fs.stat("{t}/dangling").size catch (e)
+  fs.NotFound => -1
+end)
+puts fs.isSymlink?("{t}/dangling")
+"##
+        ),
+        "5\ntrue\ntrue\ntrue\n-1\ntrue\n",
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn fs_ls_glob_and_walk_are_sorted() {
     let tmp = fs_temp_dir("list");
@@ -5278,6 +5365,39 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
         (
             "fs.isSymlink?",
             format!("{fs}puts fs.isSymlink?(\"{dir}/ro\")\n"),
+            "false\n",
+        ),
+        // The `Stat` record. Its size is stable for a fixture file, and
+        // `modifiedMillis` is not — that one pins a property, the way
+        // the clock members do.
+        (
+            "fs.stat",
+            format!("{fs}puts fs.stat(\"{dir}/ro/a.txt\").size\n"),
+            "1\n",
+        ),
+        (
+            "size",
+            format!("{fs}puts fs.stat(\"{dir}/ro/sub/b.txt\").size\n"),
+            "1\n",
+        ),
+        (
+            "modifiedMillis",
+            format!("{fs}puts fs.stat(\"{dir}/ro/a.txt\").modifiedMillis > 0\n"),
+            "true\n",
+        ),
+        (
+            "isFile?",
+            format!("{fs}puts fs.stat(\"{dir}/ro/a.txt\").isFile?\n"),
+            "true\n",
+        ),
+        (
+            "isDir?",
+            format!("{fs}puts fs.stat(\"{dir}/ro\").isDir?\n"),
+            "true\n",
+        ),
+        (
+            "isSymlink?",
+            format!("{fs}puts fs.stat(\"{dir}/ro\").isSymlink?\n"),
             "false\n",
         ),
         // std::json.

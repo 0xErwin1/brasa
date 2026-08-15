@@ -176,6 +176,12 @@ const PINNED: &[(u16, &str, bool)] = &[
     (148, "http.postWith", false),
     (149, "message", true),
     (150, "json.of", false),
+    (151, "fs.stat", false),
+    (152, "size", true),
+    (153, "modifiedMillis", true),
+    (154, "isFile?", true),
+    (155, "isDir?", true),
+    (156, "isSymlink?", true),
 ];
 
 #[test]

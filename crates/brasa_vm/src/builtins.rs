@@ -16,14 +16,14 @@ use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
     ArgsMember, CliMember, EnvMember, ErrorMember, FsMember, HttpMember, IoMember, JsonMember,
-    MathMember, OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, TaskMember,
-    TimeMember, VectorMember, WalkMember,
+    MathMember, OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, StatMember,
+    TaskMember, TimeMember, VectorMember, WalkMember,
 };
 
 use crate::heap::GcRef;
 use crate::value::{
-    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, TaskState, Value, WalkValue,
-    value_cmp, value_eq,
+    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, StatValue, TaskState, Value,
+    WalkValue, value_cmp, value_eq,
 };
 use crate::vm::{
     ASSERTION_FAILED, DriveGoal, INTEGER_OVERFLOW, JobResume, Signal, Step, Vm, VmResult, Wait,
@@ -631,6 +631,10 @@ impl Vm<'_> {
                 [Value::Str(path)] => Ok(Value::Bool(fs_glue::is_symlink(path))),
                 _ => Err(invalid(name)),
             },
+            FsMember::Stat => match args.as_slice() {
+                [Value::Str(path)] => fs_stat(fs_glue::stat(path)),
+                _ => Err(invalid(name)),
+            },
             FsMember::Ls => match args.as_slice() {
                 [Value::Str(path)] => self.fs_strings(fs_glue::ls(path)),
                 _ => Err(invalid(name)),
@@ -1092,6 +1096,10 @@ impl Vm<'_> {
             Value::Walk(walk) => {
                 let walk = walk.clone();
                 walk_builtin(&walk, name, &args)
+            }
+            Value::Stat(stat) => {
+                let stat = stat.clone();
+                stat_builtin(&stat, name, &args)
             }
             Value::NativeError(error) => {
                 let error = error.clone();
@@ -2041,6 +2049,23 @@ fn walk_builtin(walk: &WalkValue, name: &str, args: &[Value]) -> VmResult {
     }
 }
 
+/// The `Stat` record's field accessors, the same shape as
+/// `proc_output_builtin`.
+fn stat_builtin(stat: &StatValue, name: &str, args: &[Value]) -> VmResult {
+    let Some(member) = StatMember::from_name(name) else {
+        return Err(builtin_error(name));
+    };
+
+    match (member, args) {
+        (StatMember::Size, []) => Ok(Value::Int(stat.size)),
+        (StatMember::ModifiedMillis, []) => Ok(Value::Int(stat.modified_millis)),
+        (StatMember::IsFile, []) => Ok(Value::Bool(stat.is_file)),
+        (StatMember::IsDir, []) => Ok(Value::Bool(stat.is_dir)),
+        (StatMember::IsSymlink, []) => Ok(Value::Bool(stat.is_symlink)),
+        _ => Err(builtin_error(name)),
+    }
+}
+
 fn builtin_error(name: &str) -> Signal {
     Signal::Fatal(format!("brasa: unknown builtin method `{name}`"))
 }
@@ -2094,4 +2119,19 @@ fn fs_str(result: fs_glue::FsResult<String>) -> VmResult {
 
 fn fs_unit(result: fs_glue::FsResult<()>) -> VmResult {
     result.map(|()| Value::Unit).map_err(fs_signal)
+}
+
+/// Builds the `Stat` record. Every field is a scalar, so this is a
+/// plain `Rc` allocation — no arena cell to root across, unlike
+/// `Vm::fs_walk`.
+fn fs_stat(result: fs_glue::FsResult<fs_glue::RawStat>) -> VmResult {
+    let raw = result.map_err(fs_signal)?;
+
+    Ok(Value::Stat(Rc::new(StatValue {
+        size: raw.size,
+        modified_millis: raw.modified_millis,
+        is_file: raw.is_file,
+        is_dir: raw.is_dir,
+        is_symlink: raw.is_symlink,
+    })))
 }

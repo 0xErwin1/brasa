@@ -390,7 +390,7 @@ impl<'a> Collector<'a> {
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, enums (whose only member is the derived
             // `toString`), the `proc` `Output`, `http` `Response`,
-            // `fs` `Walk` and `NativeError` records (fields plus
+            // `fs` `Walk` and `Stat`, and `NativeError` records (fields plus
             // `toString` only, and `Response::header`, which never
             // throws), and `Json` (the `as*`
             // accessors and `null?` never throw — BRS-34). Every other builtin method
@@ -414,6 +414,7 @@ impl<'a> Collector<'a> {
                 | Type::HttpResponse
                 | Type::CliArgs
                 | Type::Walk
+                | Type::Stat
                 | Type::NativeError
                 | Type::Json
                 | Type::ConcurrentScope

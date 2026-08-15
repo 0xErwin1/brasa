@@ -255,6 +255,13 @@ impl<'a> Vm<'a> {
                     ))
                 })
             }
+            // The `Stat` record renders like a struct too. Every field
+            // is a scalar, so there is nothing to root and nothing to
+            // recurse into.
+            Value::Stat(stat) => Ok(format!(
+                "Stat {{ size: {}, modifiedMillis: {}, isFile?: {}, isDir?: {}, isSymlink?: {} }}",
+                stat.size, stat.modified_millis, stat.is_file, stat.is_dir, stat.is_symlink
+            )),
             // A `Json` value renders as its compact serialization —
             // the same text `json.stringify` yields, in every position
             // (JSON is its own quoting) — BRS-34,

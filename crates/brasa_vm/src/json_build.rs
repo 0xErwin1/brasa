@@ -26,8 +26,9 @@
 //!
 //! Everything else raises `json.ValueError` naming the type it
 //! rejected: an enum, a range, anything callable, an error value, and
-//! each of the compiler-known records (`Output`, `Walk`, `Args`,
-//! `Response`, `Scope`, `Task`). Rejecting them is deliberate. An enum
+//! each of the compiler-known records (`Output`, `Walk`, `Stat`,
+//! `Args`, `Response`, `Scope`, `Task`). Rejecting them is deliberate.
+//! An enum
 //! has no encoding a reader could agree on without a schema — a bare
 //! variant name, a tagged object, and a positional array are all
 //! defensible — and inventing one here would freeze it into every
@@ -206,6 +207,7 @@ impl Vm<'_> {
             Value::NativeError(_) => "error".to_string(),
             Value::ProcOutput(_) => "Output".to_string(),
             Value::Walk(_) => "Walk".to_string(),
+            Value::Stat(_) => "Stat".to_string(),
             Value::CliArgs(_) => "Args".to_string(),
             Value::HttpResponse(_) => "Response".to_string(),
             Value::ConcurrentScope(_) => "Scope".to_string(),

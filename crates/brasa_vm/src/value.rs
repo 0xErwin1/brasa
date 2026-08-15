@@ -90,6 +90,10 @@ pub enum Value {
     /// The `fs.tryWalk` record (BRS-66), holding what the traversal
     /// reached and what it could not read.
     Walk(Handle<WalkValue>),
+    /// The `fs.stat` record: one path's metadata. Every field is a
+    /// scalar, so unlike [`Value::Walk`] it is frozen and free of heap
+    /// references, and a plain [`Handle`] is a precise collector for it.
+    Stat(Handle<StatValue>),
     /// A `std::json` tree (BRS-34, spec: 05 — Stdlib de scripting): frozen at
     /// `parse` and free of heap references, so a plain [`Handle`] is a
     /// precise collector for it.
@@ -220,6 +224,21 @@ pub struct ArgsValue {
 pub struct WalkValue {
     pub paths: Value,
     pub unreadable: Value,
+}
+
+/// The fields of a [`Value::Stat`], in declaration order.
+///
+/// `modified_millis` is signed because a file older than the epoch is
+/// an ordinary thing to find on disk, and `size` is signed because the
+/// language has no unsigned integer to answer with — both saturate
+/// rather than wrap at the edge (`brasa_runtime::fs_glue::stat`).
+#[derive(Debug)]
+pub struct StatValue {
+    pub size: i64,
+    pub modified_millis: i64,
+    pub is_file: bool,
+    pub is_dir: bool,
+    pub is_symlink: bool,
 }
 
 #[derive(Debug)]

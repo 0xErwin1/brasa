@@ -18,6 +18,15 @@
 //!   dangling symlink reports `exists?` false; they never throw. The
 //!   exception is `isSymlink?`, whose whole job is to answer about the
 //!   path rather than its target, so it stats without following.
+//! - `stat` reads the metadata behind ONE path and answers what the
+//!   four predicates answer, plus the size and the modification time.
+//!   It follows the link for everything about the content and stats
+//!   without following for `is_symlink`, so each of its fields agrees
+//!   with the free predicate of the same name — the record replaces
+//!   those calls rather than contradicting them. A dangling symlink
+//!   therefore raises `fs.NotFound`: it has no size and no
+//!   modification time to report, and answering about the link alone
+//!   would make the other fields lies.
 //! - `abs` is lexical and `resolve` is not: `abs` normalizes `.`/`..`
 //!   without touching an inode, `resolve` follows every link and
 //!   requires the path to exist. A containment check needs `resolve`;
@@ -51,11 +60,13 @@
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
 
 use brasa_resolver::{FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND};
 
 /// One failed filesystem operation: the qualified native-error name
 /// (`fs.NotFound`, `fs.Denied`, or `fs.IoError`) and its message.
+#[derive(Debug)]
 pub struct FsError {
     pub name: &'static str,
     pub message: String,
@@ -127,6 +138,75 @@ pub fn is_dir(path: &str) -> bool {
 /// refuses to stat is simply `false`.
 pub fn is_symlink(path: &str) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// Everything `fs.stat` observes about one path.
+pub struct RawStat {
+    pub size: i64,
+    pub modified_millis: i64,
+    pub is_file: bool,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+}
+
+/// The metadata behind one path, in one call: the size, the
+/// modification time as epoch milliseconds, and the three kinds.
+///
+/// Unlike the predicates this throws, because it reads rather than
+/// asks: a caller that wanted an answer about a path it may not be able
+/// to touch already has `exists?`.
+///
+/// Two stats, deliberately. Everything about the content follows the
+/// link, exactly as `fs.isFile?` and `fs.isDir?` do; `is_symlink` comes
+/// from the un-followed stat, exactly as `fs.isSymlink?` does. Reading
+/// both from one `metadata` would make `is_symlink` permanently false,
+/// and reading both from one `symlink_metadata` would report the link's
+/// own size instead of the file's — either way the record would
+/// disagree with the four free predicates it exists to replace.
+///
+/// A dangling symlink has no target to measure, so it raises
+/// `fs.NotFound` here while `fs.isSymlink?` still answers `true`.
+pub fn stat(path: &str) -> FsResult<RawStat> {
+    let target = std::fs::metadata(path).map_err(|err| fs_err("stat", path, err))?;
+
+    // Not every platform records a modification time, and the ones that
+    // do can still refuse: that is an ordinary filesystem failure and
+    // maps through the same table as any other.
+    let modified = target
+        .modified()
+        .map_err(|err| fs_err("read the modification time of", path, err))?;
+
+    let link = std::fs::symlink_metadata(path).map_err(|err| fs_err("stat", path, err))?;
+
+    Ok(RawStat {
+        size: clamped(u128::from(target.len())),
+        modified_millis: millis_since_epoch(modified),
+        is_file: target.is_file(),
+        is_dir: target.is_dir(),
+        is_symlink: link.file_type().is_symlink(),
+    })
+}
+
+/// Epoch milliseconds, signed: a file modified before 1970 answers a
+/// NEGATIVE number rather than zero, which is why the comparison is
+/// made in both directions — `SystemTime` reports the gap as a
+/// magnitude and leaves the sign to the caller.
+fn millis_since_epoch(time: SystemTime) -> i64 {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(after) => clamped(after.as_millis()),
+        Err(before) => -clamped(before.duration().as_millis()),
+    }
+}
+
+/// Clamps a magnitude no `i64` can hold rather than wrapping it.
+///
+/// The bound needs a file of some eight exabytes or a timestamp roughly
+/// 292 million years from the epoch, and there is no truthful smaller
+/// answer to give for either — wrapping would report a colossal file as
+/// a tiny one, which is worse than reporting it as the largest size the
+/// field can express.
+fn clamped(value: u128) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 pub fn ls(path: &str) -> FsResult<Vec<String>> {
@@ -700,6 +780,141 @@ mod tests {
             vec![plain],
             "an unopenable directory is a recorded place, not a raised error"
         );
+    }
+
+    /// A fixture root of this module's own, so a `stat` test never
+    /// races the walker tests over a shared directory.
+    fn stat_fixture(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("brasa-fs-glue-stat-{tag}-{}", std::process::id()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the fixture directory is creatable");
+        dir
+    }
+
+    #[test]
+    fn the_size_is_the_byte_count_of_the_file() {
+        let dir = stat_fixture("size");
+        let file = dir.join("payload");
+        std::fs::write(&file, b"hello").expect("the fixture file is writable");
+
+        let stat = stat(&lossy(&file)).expect("an existing file stats");
+
+        assert_eq!(stat.size, 5);
+        assert!(stat.is_file);
+        assert!(!stat.is_dir);
+        assert!(!stat.is_symlink);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Not a literal — the clock moves. What is checkable is that the
+    /// value lands inside the window the write happened in, which is
+    /// what catches a unit mix-up (seconds reported as milliseconds
+    /// would land in 1970) or a sign error.
+    #[test]
+    fn the_modification_time_is_epoch_milliseconds_around_the_write() {
+        let dir = stat_fixture("mtime");
+        let file = dir.join("payload");
+
+        let before = SystemTime::now();
+        std::fs::write(&file, b"x").expect("the fixture file is writable");
+
+        let stat = stat(&lossy(&file)).expect("an existing file stats");
+        let after = SystemTime::now();
+
+        let lower = millis_since_epoch(before);
+        let upper = millis_since_epoch(after);
+
+        // A filesystem may hold the timestamp at a coarser resolution
+        // than the clock this brackets it with, so the window is
+        // widened by one second on each side rather than pinned tight.
+        assert!(
+            stat.modified_millis >= lower - 1_000 && stat.modified_millis <= upper + 1_000,
+            "{} is outside the write window {lower}..{upper}",
+            stat.modified_millis
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pre-epoch modification time is negative rather than clamped at
+    /// zero: `SystemTime` reports the gap as a magnitude in either
+    /// direction, and only one of them carries a sign.
+    #[test]
+    fn a_time_before_the_epoch_is_negative() {
+        let epoch = SystemTime::UNIX_EPOCH;
+
+        assert_eq!(millis_since_epoch(epoch), 0);
+        assert_eq!(
+            millis_since_epoch(epoch + std::time::Duration::from_millis(1_500)),
+            1_500
+        );
+        assert_eq!(
+            millis_since_epoch(epoch - std::time::Duration::from_millis(1_500)),
+            -1_500
+        );
+    }
+
+    #[test]
+    fn a_directory_reports_its_kind() {
+        let dir = stat_fixture("dir");
+
+        let stat = stat(&lossy(&dir)).expect("an existing directory stats");
+
+        assert!(stat.is_dir);
+        assert!(!stat.is_file);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_path_raises_not_found() {
+        let dir = stat_fixture("missing");
+
+        let err = stat(&lossy(&dir.join("nothing"))).err().expect("it fails");
+
+        assert_eq!(err.name, FS_NOT_FOUND);
+        assert!(err.message.starts_with("cannot stat "));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An unsearchable parent is what makes the entry beneath it
+    /// unstattable, since the OS has to traverse the directory to reach
+    /// it. Root ignores mode 000, so the mode is probed first and the
+    /// assertion skipped honestly rather than demanding a denial the
+    /// runner cannot produce.
+    #[test]
+    #[cfg(unix)]
+    fn an_unsearchable_parent_raises_denied() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = stat_fixture("denied");
+        let closed = dir.join("closed");
+        std::fs::create_dir_all(&closed).expect("the fixture directory is creatable");
+
+        let file = closed.join("payload");
+        std::fs::write(&file, b"x").expect("the fixture file is writable");
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o000))
+            .expect("the mode is settable");
+
+        let enforced = matches!(
+            std::fs::metadata(&file),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied
+        );
+        let outcome = stat(&lossy(&file));
+
+        let _ = std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o700));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        if enforced {
+            let err = outcome
+                .err()
+                .expect("an unsearchable parent blocks the stat");
+            assert_eq!(err.name, FS_DENIED);
+        }
     }
 
     /// Sorted and deduplicated as bytes, not as rendered strings. Two

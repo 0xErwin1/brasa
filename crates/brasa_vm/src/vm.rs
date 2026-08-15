@@ -2297,6 +2297,7 @@ impl<'a> Vm<'a> {
             Value::HttpResponse(_) => "Response".to_string(),
             Value::CliArgs(_) => "Args".to_string(),
             Value::Walk(_) => "Walk".to_string(),
+            Value::Stat(_) => "Stat".to_string(),
             Value::Json(_) => "Json".to_string(),
             Value::ConcurrentScope(_) => "Scope".to_string(),
             Value::Task(_) => "Task".to_string(),

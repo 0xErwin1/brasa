@@ -81,6 +81,13 @@ pub enum Type {
     /// best-effort traversal that returned only a short list would be a
     /// partial answer presented as a complete one.
     Walk,
+    /// The compiler-known `Stat` record `fs.stat` returns
+    /// (spec: 05 — Stdlib de scripting): `size: int`,
+    /// `modifiedMillis: int`, and the three kind predicates. Native like
+    /// `Output` — not user-constructible and not a pattern. It exists so
+    /// a script can ask about a file's metadata at all: the predicates
+    /// answer what a path IS and nothing about its size or its age.
+    Stat,
     /// The compiler-known `NativeError` record a `catch` arm binds for a
     /// stdlib error name (spec: 04 — Sistema de errores, BRS-135):
     /// `message: string`, plus whatever fields the error itself
@@ -181,6 +188,7 @@ impl Type {
             Type::HttpResponse => "Response".to_string(),
             Type::CliArgs => "Args".to_string(),
             Type::Walk => "Walk".to_string(),
+            Type::Stat => "Stat".to_string(),
             Type::NativeError => "NativeError".to_string(),
             Type::Json => "Json".to_string(),
             Type::ConcurrentScope => "Scope".to_string(),

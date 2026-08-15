@@ -868,6 +868,7 @@ fn shared_address(value: &Value) -> Option<usize> {
         | Value::ProcOutput(_)
         | Value::HttpResponse(_)
         | Value::CliArgs(_)
+        | Value::Stat(_)
         | Value::Json(_)
         | Value::Vector(_)
         | Value::Map(_)

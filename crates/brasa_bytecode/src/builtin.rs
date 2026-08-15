@@ -249,6 +249,17 @@ pub const BUILTINS: &[BuiltinDef] = &[
     // `json.stringify` widened its parameter rather than gaining a
     // second entry — a signature change is not an id change.
     free("json.of"),
+    // `fs.stat` and the `Stat` record's field reads, which are
+    // receiver-only like `Output`'s. The three predicate names are bare
+    // here and qualified above (`fs.isFile?`): a record member and a
+    // free member never share a registry name, so they never share an
+    // id either.
+    free("fs.stat"),
+    method("size"),
+    method("modifiedMillis"),
+    method("isFile?"),
+    method("isDir?"),
+    method("isSymlink?"),
 ];
 
 /// Looks up a builtin by its stable name.

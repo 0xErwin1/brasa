@@ -46,6 +46,12 @@ crate::module_table! {
         IsDir     "isDir?"     (string)         -> bool;
         IsSymlink "isSymlink?" (string)         -> bool;
 
+        /// The four predicates above in one read, plus the size and the
+        /// modification time. It throws where they do not, because it
+        /// reads rather than asks: a caller guarding a path it may not
+        /// be able to touch still has `exists?`.
+        Stat      "stat"       (string)         -> stat             throws ALL_ERRORS;
+
         Ls        "ls"         (string)         -> [Vector<string>] throws ALL_ERRORS;
         Glob      "glob"       (string)         -> [Vector<string>] throws ALL_ERRORS;
 
@@ -87,6 +93,30 @@ crate::record_table! {
     WalkMember => WALK_MEMBERS, record "Walk" {
         Paths      "paths"      -> [Vector<string>];
         Unreadable "unreadable" -> [Vector<string>];
+    }
+}
+
+crate::record_table! {
+    /// The `Stat` record `fs.stat` yields: what one metadata read
+    /// observed about a path.
+    ///
+    /// The three kinds carry the spelling of the free predicates they
+    /// stand in for, and they answer identically — the content fields
+    /// and `isFile?`/`isDir?` follow a symlink, `isSymlink?` does not
+    /// (`brasa_runtime::fs_glue::stat`). Reading `s.isFile?` after
+    /// writing `fs.isFile?(p)` must not change the answer, or the
+    /// record would be a second, quieter surface for the same question.
+    StatMember => STAT_MEMBERS, record "Stat" {
+        Size           "size"           -> int;
+
+        /// Epoch milliseconds, the unit `time.iso` renders and
+        /// `time.nowMillis` reports, so an age is a subtraction rather
+        /// than a conversion. Negative for a file older than 1970.
+        ModifiedMillis "modifiedMillis" -> int;
+
+        IsFile         "isFile?"        -> bool;
+        IsDir          "isDir?"         -> bool;
+        IsSymlink      "isSymlink?"     -> bool;
     }
 }
 

@@ -110,6 +110,8 @@ pub enum TyDesc {
     Value,
     /// The `Walk` record `fs.tryWalk` yields (BRS-66).
     Walk,
+    /// The `Stat` record `fs.stat` yields.
+    Stat,
     /// The `Json` tree `json.parse` yields (BRS-34).
     Json,
     /// The `Output` record every `std::proc` runner yields (BRS-32).
@@ -299,7 +301,7 @@ pub enum ParamDesc {
 /// Every type is exactly one token tree, which is what keeps the table
 /// grammar trivial: named types are bare words (`int`, `float`,
 /// `string`, `bool`, `unit`, `range`, `unknown`, `walk`, `json`,
-/// `procOutput`, `response`, `args`), the receiver's element type is
+/// `procOutput`, `response`, `args`, `stat`), the receiver's element type is
 /// `elem`, and every composite type is bracketed — `[Vector<elem>]`,
 /// `[Option<elem>]`, `[Map<string, string>]`, `[Tuple<elem, unknown>]`,
 /// `[fn(elem) -> bool]`.
@@ -340,6 +342,9 @@ macro_rules! ty {
     };
     (walk) => {
         $crate::TyDesc::Walk
+    };
+    (stat) => {
+        $crate::TyDesc::Stat
     };
     (procOutput) => {
         $crate::TyDesc::ProcOutput
@@ -750,7 +755,7 @@ pub use string::{STRING_METHODS, StringMember};
 pub use cli::{ARGS_MEMBERS, ArgsMember, CLI_MEMBERS, CliMember};
 pub use env::{ENV_MEMBERS, EnvMember};
 pub use error::{ERROR_MEMBERS, ErrorMember};
-pub use fs::{FS_MEMBERS, FsMember, WALK_MEMBERS, WalkMember};
+pub use fs::{FS_MEMBERS, FsMember, STAT_MEMBERS, StatMember, WALK_MEMBERS, WalkMember};
 pub use http::{HTTP_MEMBERS, HttpMember, RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
 pub use json::{JSON_ACCESSORS, JSON_MEMBERS, JsonAccessor, JsonMember};
@@ -837,6 +842,7 @@ pub const RECORDS: &[(&str, &[RecordDecl])] = &[
     (ArgsMember::RECORD, ARGS_MEMBERS),
     (WalkMember::RECORD, WALK_MEMBERS),
     (ErrorMember::RECORD, ERROR_MEMBERS),
+    (StatMember::RECORD, STAT_MEMBERS),
 ];
 
 #[cfg(test)]

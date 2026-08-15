@@ -183,6 +183,7 @@ fn lower(desc: &TyDesc, recv: Recv<'_>) -> Type {
         TyDesc::Range => Type::Range,
         TyDesc::Unknown => Type::Unknown,
         TyDesc::Walk => Type::Walk,
+        TyDesc::Stat => Type::Stat,
         TyDesc::Json => Type::Json,
         TyDesc::ProcOutput => Type::ProcOutput,
         TyDesc::HttpResponse => Type::HttpResponse,
@@ -227,6 +228,7 @@ fn record_table(recv: &Type) -> Option<&'static [brasa_stdlib::RecordDecl]> {
         Type::HttpResponse => Some(brasa_stdlib::RESPONSE_MEMBERS),
         Type::CliArgs => Some(brasa_stdlib::ARGS_MEMBERS),
         Type::Walk => Some(brasa_stdlib::WALK_MEMBERS),
+        Type::Stat => Some(brasa_stdlib::STAT_MEMBERS),
         Type::NativeError => Some(brasa_stdlib::ERROR_MEMBERS),
         _ => None,
     }
@@ -794,6 +796,7 @@ mod stdlib_declaration_tests {
             ("isFile?", NONE),
             ("isDir?", NONE),
             ("isSymlink?", NONE),
+            ("stat", ALL),
             ("ls", ALL),
             ("glob", ALL),
             ("walk", ALL),
@@ -906,6 +909,7 @@ mod stdlib_declaration_tests {
             "Response" => Type::HttpResponse,
             "Args" => Type::CliArgs,
             "Walk" => Type::Walk,
+            "Stat" => Type::Stat,
             "NativeError" => Type::NativeError,
             other => panic!("`{other}` has no checker type; add it to `record_table`"),
         };
