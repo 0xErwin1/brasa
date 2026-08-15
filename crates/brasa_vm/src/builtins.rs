@@ -2028,6 +2028,38 @@ pub(crate) fn is_record_field(recv: &Value, name: &str) -> bool {
     matches!(record_member_kind(recv, name), Some(RecordKind::Field))
 }
 
+/// Whether a value's members come from a record table rather than from
+/// the shared method registry.
+fn is_record_receiver(recv: &Value) -> bool {
+    matches!(
+        recv,
+        Value::ProcOutput(_)
+            | Value::HttpResponse(_)
+            | Value::CliArgs(_)
+            | Value::Walk(_)
+            | Value::Stat(_)
+            | Value::NativeError(_)
+    )
+}
+
+/// Whether `recv.name` may be bound as a method reference.
+///
+/// The registry is keyed by name alone and its names are shared across
+/// receiver kinds, so it cannot answer this for a record: `output` is a
+/// member of `proc.NonZeroExit` and nothing at all on a
+/// `proc.SpawnError`. Binding it anyway yields a reference that can
+/// never be called, and the failure then surfaces wherever that value
+/// is finally used — arbitrarily far from the mistake.
+///
+/// `toString` is the one member every value has.
+pub(crate) fn can_bind_member(recv: &Value, name: &str) -> bool {
+    if !is_record_receiver(recv) {
+        return true;
+    }
+
+    name == "toString" || record_member_kind(recv, name).is_some()
+}
+
 /// The `Output` record's field accessors (BRS-32,
 /// spec: 05 — Stdlib de scripting): receiver-only builtins that yield the
 /// field value, dispatched through the declared member enum

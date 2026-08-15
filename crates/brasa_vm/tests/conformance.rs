@@ -6723,3 +6723,57 @@ puts time.localOffsetMillis(0) == time.localOffsetMillis(0)
         "true\ntrue\ntrue\ntrue\n",
     );
 }
+
+/// A record's member names are shared across receiver kinds, so the
+/// method registry — keyed by name alone — cannot decide them. `output`
+/// is a member of `proc.NonZeroExit` and nothing at all on the
+/// `proc.SpawnError` the very same call can throw, which is a
+/// distinction an untyped receiver only learns at runtime.
+///
+/// Binding it anyway produced a reference that could never be called,
+/// and the program died wherever that value was finally used: reading
+/// `.output` off a failed spawn reported `invalid operands for
+/// arithmetic operator`, naming the concatenation two members later
+/// rather than the member that does not exist.
+#[test]
+fn a_member_another_record_declares_is_not_bound_off_this_one() {
+    let outcome = assert_fails_silently(
+        r##"
+import std::proc
+
+let out = proc.run(["/definitely/not/a/program"]).stdout catch (e)
+  _ => e.output.stdout + "|" + e.output.code.toString()
+end
+puts out
+"##,
+    );
+
+    assert!(
+        matches!(outcome, Outcome::Error { ref message } if message.contains("unknown builtin method `output`")),
+        "expected the missing member to be named, got: {outcome:?}"
+    );
+}
+
+/// The other half, and the reason the check cannot simply reject every
+/// name a record's own table is missing: an untyped receiver still
+/// reads what the record it actually is declares, and `toString`
+/// applies to every value there is.
+#[test]
+fn an_untyped_error_receiver_still_reads_its_own_members() {
+    assert_success(
+        r##"
+import std::proc
+
+let started = proc.run(["/definitely/not/a/program"]).stdout catch (e)
+  _ => e.message.startsWith?("cannot run").toString()
+end
+puts started
+
+let rendered = proc.run(["/bin/sh", "-c", "exit 3"]).stdout catch (e)
+  _ => e.output.code.toString()
+end
+puts rendered
+"##,
+        "true\n3\n",
+    );
+}

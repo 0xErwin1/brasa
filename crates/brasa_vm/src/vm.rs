@@ -28,7 +28,7 @@ use brasa_runtime::Outcome;
 use brasa_runtime::offload::{Job, JobId, OffloadPool};
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 
-use crate::builtins::is_record_field;
+use crate::builtins::{can_bind_member, is_record_field};
 use crate::heap::{GcRef, Heap, Interner};
 use crate::value::{
     BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, TaskState,
@@ -1949,7 +1949,10 @@ impl<'a> Vm<'a> {
             return self.method_builtin(name, recv, Vec::new());
         }
 
-        match builtin_id(name).filter(|&id| builtin_def(id).is_some_and(|def| def.has_receiver)) {
+        match builtin_id(name)
+            .filter(|_| can_bind_member(&recv, name))
+            .filter(|&id| builtin_def(id).is_some_and(|def| def.has_receiver))
+        {
             Some(builtin) => Ok(Value::BoundBuiltin(Rc::new(BoundBuiltin { recv, builtin }))),
             None => Err(Self::fatal(format!(
                 "brasa: unknown builtin method `{name}`"
