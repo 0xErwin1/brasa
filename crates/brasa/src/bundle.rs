@@ -237,13 +237,17 @@ fn emit(output: &Path, payload: &[u8]) -> std::io::Result<()> {
 fn assemble(exe: &Path, staging: &Path, payload: &[u8]) -> std::io::Result<()> {
     std::fs::copy(exe, staging)?;
 
+    // The copy inherits the interpreter's mode, and an installed
+    // interpreter is often read-only (a Nix store path), so the mode
+    // must be reset before the payload can be appended.
+    make_executable(staging)?;
+
     let mut file = std::fs::OpenOptions::new().append(true).open(staging)?;
     file.write_all(payload)?;
     file.write_all(&brasa_module::bundle::trailer(payload.len() as u64))?;
     file.flush()?;
-    drop(file);
 
-    make_executable(staging)
+    Ok(())
 }
 
 /// A sibling of the destination, so the rename that follows stays on one
