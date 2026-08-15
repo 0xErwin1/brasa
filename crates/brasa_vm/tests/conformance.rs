@@ -6735,6 +6735,12 @@ puts time.localOffsetMillis(0) == time.localOffsetMillis(0)
 /// `.output` off a failed spawn reported `invalid operands for
 /// arithmetic operator`, naming the concatenation two members later
 /// rather than the member that does not exist.
+///
+/// That this compiles at all is the ruled behaviour, not a gap: a `_`
+/// arm's binding is deliberately untyped (doc 04), because `throw`
+/// accepts any value and the error-set that could type it is inferred
+/// from the checker's own output. So the runtime is where this can be
+/// caught, and the message it gives is the whole guarantee.
 #[test]
 fn a_member_another_record_declares_is_not_bound_off_this_one() {
     let outcome = assert_fails_silently(
