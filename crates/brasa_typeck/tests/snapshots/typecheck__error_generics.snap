@@ -46,7 +46,7 @@ expression: rendered
     │
  31 │ let nothing = emptyOf()
     │               ────┬────  
-    │                   ╰────── no argument determines it
+    │                   ╰────── no argument or expected type determines it
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ error_generics.bras:32:25 ]

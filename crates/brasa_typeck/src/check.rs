@@ -205,8 +205,11 @@ impl<'a> Checker<'a> {
     /// before any body is checked (the local-inference boundary,
     /// spec: 03 — Sistema de tipos). Generic parameters stay rigid
     /// [`Type::Generic`]s in the stored signature; call sites substitute
-    /// them once the arguments are known (spec: 02 — Gramática formal, no
-    /// turbofish — instantiation is always inferred).
+    /// them once the arguments — and, for whatever they leave open, the
+    /// expected type — are known (spec: 03 — Sistema de tipos). There is
+    /// no syntax for passing a type argument
+    /// (spec: 02 — Gramática formal), so instantiation is always
+    /// inferred.
     fn collect_signatures(&mut self, roots: &[ItemId]) {
         for &root in roots {
             if let Item::FuncDef(func) = self.hir.item(root) {
@@ -783,7 +786,7 @@ impl<'a> Checker<'a> {
             Expr::Unit => Type::Unit,
             Expr::Str(_) => Type::String,
             Expr::Ident(_) | Expr::SelfExpr => self.check_ident(id),
-            Expr::Call { callee, args } => self.check_call(id, *callee, args.clone()),
+            Expr::Call { callee, args } => self.check_call(id, *callee, args.clone(), expected),
             Expr::Field { recv, name } => {
                 let (recv, name) = (*recv, name.clone());
                 self.check_field(id, recv, &name)
@@ -904,7 +907,18 @@ impl<'a> Checker<'a> {
 
     // --- calls and members ---------------------------------------------
 
-    fn check_call(&mut self, id: ExprId, callee: ExprId, args: Vec<ExprId>) -> Type {
+    /// Checks a call. `expected` is the type the surrounding context
+    /// requires of the result; it is consulted only by the generic
+    /// paths, which may need it to instantiate a type parameter no
+    /// argument mentions. Every other path ignores it, because its
+    /// result is already fully determined by the callee's signature.
+    fn check_call(
+        &mut self,
+        id: ExprId,
+        callee: ExprId,
+        args: Vec<ExprId>,
+        expected: Option<&Type>,
+    ) -> Type {
         let hir = self.hir;
         let span = hir.span_of_expr(id);
 
@@ -955,17 +969,19 @@ impl<'a> Checker<'a> {
             && !matches!(self.res.expr_res.get(&callee), Some(Res::Item(_)))
         {
             let (recv, name) = (*recv, name.clone());
-            return self.check_method_call(span, callee, recv, &name, &args);
+            return self.check_method_call(span, callee, recv, &name, &args, expected);
         }
 
         // Direct calls to generic functions solve the type parameters
-        // from the arguments — there is no turbofish, instantiation is
-        // always inferred at the call site (spec: 02 — Gramática formal).
+        // from the arguments first and from the expected type for
+        // whatever the arguments left open (spec: 03 — Sistema de
+        // tipos). Instantiation is always inferred: there is no syntax
+        // for passing a type argument (spec: 02 — Gramática formal).
         if let Some(&Res::Item(item)) = self.res.expr_res.get(&callee)
             && let Item::FuncDef(func) = hir.item(item)
             && !func.generics.is_empty()
         {
-            return self.check_generic_call(span, callee, item, func, &args);
+            return self.check_generic_call(span, callee, item, func, &args, expected);
         }
 
         let callee_ty = self.check_expr(callee, None);
@@ -1022,7 +1038,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Checks a direct call to a generic function. Instantiation is
-    /// always inferred from the arguments — there is no turbofish
+    /// always inferred at the call site — there is no turbofish
     /// (spec: 02 — Gramática formal) — and everything happens in the
     /// checker: the VM runs one uniform function per generic definition
     /// (spec: 03 — Sistema de tipos, generics execution model).
@@ -1033,10 +1049,11 @@ impl<'a> Checker<'a> {
     /// reports a plain mismatch against the substituted type). The
     /// expectation propagates into the argument only once its parameter
     /// type is fully solved, so literals never unify against a rigid
-    /// `T`. Constraints are then checked against the solved types —
-    /// satisfaction happens at the call site, where the concrete types
-    /// are known (spec: 03 — Sistema de tipos) — and the result is the
-    /// substituted return type.
+    /// `T`. Whatever the arguments leave open is then solved from the
+    /// type the call site expects of the result. Constraints are checked
+    /// against the solved types — satisfaction happens at the call site,
+    /// where the concrete types are known (spec: 03 — Sistema de tipos)
+    /// — and the result is the substituted return type.
     fn check_generic_call(
         &mut self,
         span: Span,
@@ -1044,6 +1061,7 @@ impl<'a> Checker<'a> {
         item: ItemId,
         func: &'a FuncDef,
         args: &[ExprId],
+        expected: Option<&Type>,
     ) -> Type {
         let sig = self.tables.item_types.get(&item).cloned();
         let Some(Type::Fn { params, ret }) = sig else {
@@ -1062,15 +1080,21 @@ impl<'a> Checker<'a> {
             &func.generics,
             &func.name,
             args,
+            expected,
         )
     }
 
-    /// Solves one call's type parameters from its arguments and returns
-    /// the substituted result. Shared by generic free functions and by
-    /// struct methods with parameters of their own: both leave rigid
-    /// `Generic` types in the signature that only the arguments can
-    /// fill, and both are dispatched uniformly at runtime, so the whole
-    /// difference between them is which [`DefRef`] owns the parameters.
+    /// Solves one call's type parameters and returns the substituted
+    /// result. Shared by generic free functions and by struct methods
+    /// with parameters of their own: both leave rigid `Generic` types in
+    /// the signature that only the call site can fill, and both are
+    /// dispatched uniformly at runtime, so the whole difference between
+    /// them is which [`DefRef`] owns the parameters.
+    ///
+    /// Arguments come first and the expectation second: `expected` is
+    /// only ever read for parameters the arguments left unsolved, so
+    /// adding it can turn a `cannot infer` report into a solution but
+    /// can never re-decide a parameter an argument already fixed.
     #[allow(clippy::too_many_arguments)]
     fn solve_generic_call(
         &mut self,
@@ -1082,6 +1106,7 @@ impl<'a> Checker<'a> {
         generics: &'a [GenericParam],
         owner_name: &str,
         args: &[ExprId],
+        expected: Option<&Type>,
     ) -> Type {
         if args.len() != params.len() {
             self.error(err_at(
@@ -1115,6 +1140,10 @@ impl<'a> Checker<'a> {
             }
         }
 
+        if let Some(expected) = expected {
+            solve_from_expectation(ret, expected, owner, generics, &mut map);
+        }
+
         self.finish_generic_solution(span, owner, generics, owner_name, &mut map, &poisoned);
         self.check_constraints(span, owner, generics, &map);
 
@@ -1127,7 +1156,8 @@ impl<'a> Checker<'a> {
     }
 
     /// Reports `cannot infer type parameter` for every generic that
-    /// stayed unsolved and fills it with `Unknown`. Parameters whose
+    /// stayed unsolved — neither an argument nor the expected type
+    /// determined it — and fills it with `Unknown`. Parameters whose
     /// only evidence was a flexible (poisoned or `never`) type are
     /// filled silently: the cause was already reported.
     fn finish_generic_solution(
@@ -1150,7 +1180,7 @@ impl<'a> Checker<'a> {
                     codes::T_CANNOT_INFER_TYPE_PARAM,
                     span,
                     format!("cannot infer type parameter `{name}` of `{owner_name}`"),
-                    "no argument determines it",
+                    "no argument or expected type determines it",
                 ));
             }
             map.insert((owner, index), Type::Unknown);
@@ -1241,6 +1271,10 @@ impl<'a> Checker<'a> {
             .unwrap_or(Type::Unknown)
     }
 
+    /// Checks a member call. `expected` reaches only the generic-method
+    /// arm, the one place where the call's own result can still have
+    /// type parameters left to instantiate; builtin methods and module
+    /// members have closed signatures and never read it.
     fn check_method_call(
         &mut self,
         span: Span,
@@ -1248,6 +1282,7 @@ impl<'a> Checker<'a> {
         recv: ExprId,
         name: &str,
         args: &[ExprId],
+        expected: Option<&Type>,
     ) -> Type {
         if self.is_module_ref(recv) {
             self.type_module_handle(recv);
@@ -1315,6 +1350,7 @@ impl<'a> Checker<'a> {
                     &method.generics,
                     &method.name,
                     args,
+                    expected,
                 )
             }
             // A generic method's signature is a function type by
@@ -4108,6 +4144,69 @@ fn solve(
                     .all(|(a, b)| solve(a, b, owner, map, poisoned))
         }
         _ => unify(expected, found).is_some(),
+    }
+}
+
+/// Binds the type parameters of `owner` the arguments left unsolved by
+/// unifying the declared return type against the type the call site
+/// expects, so an annotation can instantiate a parameter the signature
+/// mentions only in its result (`def emptyOf<T>(): Vector<T>`).
+///
+/// Arguments always win. Only entries missing from `map` can appear
+/// here, and a return type that does not match the expectation leaves
+/// the solution completely untouched: the call keeps the instantiation
+/// the arguments chose, and the disagreement surfaces as the ordinary
+/// mismatch report where the expectation came from. Solving into a copy
+/// is what makes that true even for a composite return type, whose
+/// unification can bind a leading parameter before failing on a later
+/// one.
+fn solve_from_expectation(
+    ret: &Type,
+    expected: &Type,
+    owner: DefRef,
+    generics: &[GenericParam],
+    map: &mut HashMap<(DefRef, usize), Type>,
+) {
+    let all_solved = (0..generics.len()).all(|index| map.contains_key(&(owner, index)));
+    if all_solved || !instantiates(expected) {
+        return;
+    }
+
+    let mut candidate = map.clone();
+
+    // An expectation this function accepted carries no flexible type,
+    // so nothing here can poison a parameter and silence its report.
+    let mut unreachable_poison = HashSet::new();
+
+    if solve(
+        ret,
+        expected,
+        owner,
+        &mut candidate,
+        &mut unreachable_poison,
+    ) {
+        *map = candidate;
+    }
+}
+
+/// Whether an expectation says enough to instantiate a type parameter.
+/// `Unknown` and `Never` say nothing, and binding one would trade a real
+/// `cannot infer` report for silent poisoning. A `Generic` belongs to an
+/// enclosing definition whose own instantiation is not known here, the
+/// same reason [`contains_generic_of`] keeps a rigid `T` out of an
+/// argument's expectation.
+fn instantiates(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown | Type::Never | Type::Generic { .. } => false,
+        Type::Vector(inner) | Type::Set(inner) | Type::Option(inner) | Type::Task(inner) => {
+            instantiates(inner)
+        }
+        Type::Map(key, value) => instantiates(key) && instantiates(value),
+        Type::Tuple(elems) | Type::Struct(_, elems) | Type::Enum(_, elems) => {
+            elems.iter().all(instantiates)
+        }
+        Type::Fn { params, ret } => params.iter().all(instantiates) && instantiates(ret),
+        _ => true,
     }
 }
 

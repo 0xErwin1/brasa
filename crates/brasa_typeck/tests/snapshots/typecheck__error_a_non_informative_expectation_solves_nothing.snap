@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T026] Error: cannot infer type parameter `T` of `emptyOf`
+    ╭─[ error_a_non_informative_expectation_solves_nothing.bras:15:3 ]
+    │
+ 15 │   emptyOf()
+    │   ────┬────  
+    │       ╰────── no argument or expected type determines it
+────╯
+[T002] Error: invalid operands for `+`: `int` and `string`
+    ╭─[ error_a_non_informative_expectation_solves_nothing.bras:18:20 ]
+    │
+ 18 │ let mut poisoned = 1 + "x"
+    │                    ───┬───  
+    │                       ╰───── operands must be two `int`s or two `float`s
+────╯
+[T026] Error: cannot infer type parameter `T` of `bail`
+    ╭─[ error_a_non_informative_expectation_solves_nothing.bras:19:12 ]
+    │
+ 19 │ poisoned = bail()
+    │            ───┬──  
+    │               ╰──── no argument or expected type determines it
+────╯

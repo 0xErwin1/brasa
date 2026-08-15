@@ -1,0 +1,24 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 tagged -> (A) -> Map<A, B>
+  i1 counts -> Map<string, int>
+  i2 total -> int
+local types
+  l0 a -> A
+  l1 $tmp0 -> int
+expr types
+  e0 -> Map<A, B>
+  e1 -> (string) -> Map<string, int>
+  e2 -> string
+  e3 -> Map<string, int>
+  e4 -> Map<string, int>
+  e5 -> string
+  e6 -> Option<int>
+  e7 -> int
+  e8 -> int
+  e9 -> int
+  e10 -> int
+  e11 -> int

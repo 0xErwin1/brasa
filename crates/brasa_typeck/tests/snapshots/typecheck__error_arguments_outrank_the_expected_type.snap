@@ -1,0 +1,25 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T001] Error: mismatched types: expected `string`, found `int`
+    ╭─[ error_arguments_outrank_the_expected_type.bras:10:24 ]
+    │
+ 10 │ let mistyped: string = identity(1)
+    │                        ─────┬─────  
+    │                             ╰─────── expected `string`
+────╯
+[T026] Error: cannot infer type parameter `B` of `tagged`
+    ╭─[ error_arguments_outrank_the_expected_type.bras:11:34 ]
+    │
+ 11 │ let mismatched: Map<int, bool> = tagged("k")
+    │                                  ─────┬─────  
+    │                                       ╰─────── no argument or expected type determines it
+────╯
+[T001] Error: mismatched types: expected `Map<int, bool>`, found `Map<string, unknown>`
+    ╭─[ error_arguments_outrank_the_expected_type.bras:11:34 ]
+    │
+ 11 │ let mismatched: Map<int, bool> = tagged("k")
+    │                                  ─────┬─────  
+    │                                       ╰─────── expected `Map<int, bool>`
+────╯

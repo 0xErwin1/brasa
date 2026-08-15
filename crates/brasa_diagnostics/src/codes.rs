@@ -172,8 +172,8 @@ pub const T_WRONG_TYPE_ARG_COUNT: &str = "T024";
 /// An interface used in type position; interfaces only constrain
 /// generics in v1.
 pub const T_INTERFACE_AS_TYPE: &str = "T025";
-/// A generic call or literal where no argument determines some type
-/// parameter.
+/// A generic call or literal where neither an argument nor the expected
+/// type determines some type parameter.
 pub const T_CANNOT_INFER_TYPE_PARAM: &str = "T026";
 /// A solved type argument that does not satisfy its declared
 /// constraint.

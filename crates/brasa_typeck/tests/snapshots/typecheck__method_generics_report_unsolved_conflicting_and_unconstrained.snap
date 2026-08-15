@@ -7,7 +7,7 @@ expression: rendered
     │
  23 │ let unsolved = b.make()
     │                ────┬───  
-    │                    ╰───── no argument determines it
+    │                    ╰───── no argument or expected type determines it
 ────╯
 [T001] Error: mismatched types: expected `int`, found `string`
     ╭─[ method_generics_report_unsolved_conflicting_and_unconstrained.bras:24:29 ]

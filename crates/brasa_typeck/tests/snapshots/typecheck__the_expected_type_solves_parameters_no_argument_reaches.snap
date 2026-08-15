@@ -1,0 +1,70 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i1 emptyOf -> () -> Vector<T>
+  i2 takesInts -> (Vector<int>) -> int
+  i3 takesFloats -> (Vector<float>) -> int
+  i4 returnsInts -> () -> Vector<int>
+  i5 returnsFloats -> () -> Vector<float>
+  i6 annotated -> Vector<string>
+  i7 annotatedMethod -> Vector<bool>
+  i8 passed -> int
+  i9 passedMethod -> int
+  i10 returned -> Option<int>
+  i11 returnedMethod -> Option<float>
+  i12 sizes -> int
+local types
+  l0 v -> Vector<int>
+  l1 v -> Vector<float>
+expr types
+  e0 -> Vector<T>
+  e1 -> Vector<T>
+  e2 -> Vector<int>
+  e3 -> () -> int
+  e4 -> int
+  e5 -> Vector<float>
+  e6 -> () -> int
+  e7 -> int
+  e8 -> () -> Vector<int>
+  e9 -> Vector<int>
+  e10 -> int
+  e11 -> Box
+  e12 -> () -> Vector<float>
+  e13 -> Vector<float>
+  e14 -> () -> Vector<string>
+  e15 -> Vector<string>
+  e16 -> int
+  e17 -> Box
+  e18 -> () -> Vector<bool>
+  e19 -> Vector<bool>
+  e20 -> (Vector<int>) -> int
+  e21 -> () -> Vector<int>
+  e22 -> Vector<int>
+  e23 -> int
+  e24 -> (Vector<float>) -> int
+  e25 -> int
+  e26 -> Box
+  e27 -> () -> Vector<float>
+  e28 -> Vector<float>
+  e29 -> int
+  e30 -> () -> Vector<int>
+  e31 -> Vector<int>
+  e32 -> () -> Option<int>
+  e33 -> Option<int>
+  e34 -> () -> Vector<float>
+  e35 -> Vector<float>
+  e36 -> () -> Option<float>
+  e37 -> Option<float>
+  e38 -> Vector<string>
+  e39 -> () -> int
+  e40 -> int
+  e41 -> Vector<bool>
+  e42 -> () -> int
+  e43 -> int
+  e44 -> int
+  e45 -> int
+  e46 -> int
+  e47 -> int
+  e48 -> int

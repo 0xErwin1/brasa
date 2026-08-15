@@ -864,6 +864,72 @@ end
 "#
 );
 
+// A type parameter the arguments cannot reach is solved from the type
+// the call site expects, in every position an expectation exists:
+// against an annotation, as an argument to a declared parameter, and as
+// the answer of a function with a declared return type. Free functions
+// and generic struct methods go through the same solver, so both are
+// pinned here. Each result is then USED at its instantiation — `.len()`
+// on the wrong element type, or a `Vector<float>` where `Vector<int>`
+// was asked for, would not survive a wrong solution.
+typecheck_test!(
+    the_expected_type_solves_parameters_no_argument_reaches,
+    r#"
+struct Box
+  value: int
+
+  def make<T>(self): Vector<T>
+    []
+  end
+end
+
+def emptyOf<T>(): Vector<T>
+  []
+end
+
+def takesInts(v: Vector<int>): int
+  v.len()
+end
+
+def takesFloats(v: Vector<float>): int
+  v.len()
+end
+
+def returnsInts(): Vector<int>
+  emptyOf()
+end
+
+def returnsFloats(): Vector<float>
+  Box { value: 0 }.make()
+end
+
+let annotated: Vector<string> = emptyOf()
+let annotatedMethod: Vector<bool> = Box { value: 0 }.make()
+
+let passed = takesInts(emptyOf())
+let passedMethod = takesFloats(Box { value: 0 }.make())
+
+let returned = returnsInts().first()
+let returnedMethod = returnsFloats().first()
+
+let sizes = annotated.len() + annotatedMethod.len() + passed + passedMethod
+"#
+);
+
+// One argument determines one parameter and the expectation determines
+// the other: the two sources compose within a single call.
+typecheck_test!(
+    an_argument_and_the_expectation_solve_different_parameters,
+    r#"
+def tagged<A: Hashable, B>(a: A): Map<A, B>
+  {}
+end
+
+let counts: Map<string, int> = tagged("k")
+let total = (counts["k"] ?? 0) + 1
+"#
+);
+
 typecheck_test!(
     generics_and_functions,
     r#"
@@ -1143,6 +1209,59 @@ end
 let clash = maxOf(Box { value: 1 }, Box { value: 2 })
 let nothing = emptyOf()
 let conflict = maxOf(1, "x")
+"#
+);
+
+// Arguments decide first and the expectation only fills what they left
+// open. `identity` and `tagged` are both instantiated by their
+// argument, so an annotation asking for something else is a plain
+// mismatch against the call's result — never a second, quieter
+// instantiation that would make the annotation come true. `tagged`
+// additionally shows that a failed expectation binds NOTHING: `B` is
+// left for the cannot-infer report rather than half-solved from the
+// half of the return type that did match.
+typecheck_error_test!(
+    error_arguments_outrank_the_expected_type,
+    r#"
+def identity<T>(x: T): T
+  x
+end
+
+def tagged<A: Hashable, B>(a: A): Map<A, B>
+  {}
+end
+
+let mistyped: string = identity(1)
+let mismatched: Map<int, bool> = tagged("k")
+"#
+);
+
+// An expectation that says nothing cannot instantiate anything. A rigid
+// parameter of the ENCLOSING function is not an instantiation, it is the
+// same unknown one level up; `Unknown` is the checker's poison value and
+// binding it would replace a real report with a silent wrong answer.
+// Both keep their T026.
+typecheck_error_test!(
+    error_a_non_informative_expectation_solves_nothing,
+    r#"
+struct Boom
+  detail: string
+end
+
+def emptyOf<T>(): Vector<T>
+  []
+end
+
+def bail<T>(): T
+  throw Boom { detail: "no" }
+end
+
+def relay<U>(): Vector<U>
+  emptyOf()
+end
+
+let mut poisoned = 1 + "x"
+poisoned = bail()
 "#
 );
 
