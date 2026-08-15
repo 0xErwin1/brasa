@@ -58,14 +58,14 @@
 //! - E004/E005/E007 point at the declaring function's name
 //!   (spec: 06 — Diagnósticos, span rules).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use brasa_diagnostics::{Diagnostic, Severity, codes};
 use brasa_hir::{CatchArm, CatchType, ExprId, FuncDef, Hir, Item, Throws, ThrowsType};
 use brasa_resolver::{DefRef, Resolutions};
 use brasa_source::Span;
 
-use crate::collect::{arm_tag, throws_tag};
+use crate::collect::{arm_tag, caught_tag, throws_tag};
 use crate::dump::{def_ref_name, tag_name};
 use crate::{ErrorSet, ErrorTag};
 
@@ -417,4 +417,131 @@ fn func_of(hir: &Hir, def: DefRef) -> Option<&FuncDef> {
             _ => None,
         },
     }
+}
+
+/// E008: a struct accepted as satisfying an interface has a method that
+/// throws more than the member it satisfies declares (BRS-141).
+///
+/// Structural satisfaction compares SIGNATURES — parameters and result
+/// — so a method whose shape matches passes even when its error-set
+/// does not fit the contract the member states. Nothing else catches
+/// it: interfaces have no conformance declarations
+/// (spec: 03 — Sistema de tipos), so a struct has no site of its own
+/// where its promises could be read.
+///
+/// The subject is the pairing rather than either half, so the span is
+/// the call that demanded it — the place where a reader can see both
+/// the concrete type and the constraint it was passed to. A struct
+/// whose method throws freely is not wrong on its own; it becomes
+/// wrong when someone passes it where a narrower contract was promised.
+///
+/// An open set is reported like a mismatched one, for the reason E004
+/// gives: the rule is a "throws at most" claim, and an incomplete list
+/// cannot support one.
+pub(crate) fn iface_throws_contracts(
+    hir: &Hir,
+    res: &Resolutions,
+    types: &brasa_typeck::TypeTables,
+    sets: &HashMap<DefRef, ErrorSet>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut seen = HashSet::new();
+
+    for &(struct_item, iface_item, span) in &types.iface_uses {
+        // One report per pairing, not per call: the mismatch is a
+        // property of the two declarations, and a struct used through
+        // an interface in a loop is still one thing to fix.
+        if !seen.insert((struct_item, iface_item)) {
+            continue;
+        }
+
+        let (Item::StructDef(struct_def), Item::InterfaceDef(iface)) =
+            (hir.item(struct_item), hir.item(iface_item))
+        else {
+            continue;
+        };
+
+        for (index, member) in iface.methods.iter().enumerate() {
+            // A member with no clause promises nothing, so nothing to
+            // hold the method to. `throws never` promises the most.
+            let declared: BTreeSet<ErrorTag> = match &member.throws {
+                None => continue,
+                Some(Throws::Never) => BTreeSet::new(),
+                Some(Throws::Types(names)) => (0..names.len())
+                    .filter_map(|name_index| {
+                        iface_member_tag(hir, res, iface_item, index, name_index)
+                    })
+                    .collect(),
+            };
+
+            let Some(method_index) = struct_def
+                .methods
+                .iter()
+                .position(|m| m.name == member.name)
+            else {
+                continue;
+            };
+            let Some(set) = sets.get(&DefRef::Method {
+                owner: struct_item,
+                index: method_index,
+            }) else {
+                continue;
+            };
+
+            let struct_name = &struct_def.name;
+            let iface_name = &iface.name;
+            let member_name = &member.name;
+
+            for tag in &set.tags {
+                if !declared.contains(tag) {
+                    let tag = tag_name(hir, tag);
+                    diagnostics.push(err(
+                        codes::E_IFACE_THROWS_VIOLATED,
+                        span,
+                        format!(
+                            "`{struct_name}.{member_name}` throws `{tag}`, which \
+                             `{iface_name}.{member_name}` does not declare"
+                        ),
+                        &format!("`{struct_name}` is used as `{iface_name}` here"),
+                    ));
+                }
+            }
+
+            if set.open {
+                diagnostics.push(
+                    err(
+                        codes::E_IFACE_THROWS_VIOLATED,
+                        span,
+                        format!(
+                            "cannot verify `{iface_name}.{member_name}`'s contract: \
+                             `{struct_name}.{member_name}`'s error-set is open"
+                        ),
+                        &format!("`{struct_name}` is used as `{iface_name}` here"),
+                    )
+                    .with_note(OPEN_SET_NOTE.to_string()),
+                );
+            }
+        }
+    }
+}
+
+/// The tag one name of an interface member's `throws` clause stands
+/// for — [`crate::collect::throws_tag`]'s twin over the resolver's
+/// interface tables, which are keyed by the member's position rather
+/// than by a `DefRef` an interface member does not have.
+fn iface_member_tag(
+    hir: &Hir,
+    res: &Resolutions,
+    iface: brasa_hir::ItemId,
+    member: usize,
+    name: usize,
+) -> Option<ErrorTag> {
+    if let Some(&native) = res.iface_member_throws_natives.get(&(iface, member, name)) {
+        return Some(ErrorTag::Opaque(native));
+    }
+
+    res.iface_member_throws
+        .get(&(iface, member))
+        .and_then(|declared| declared.get(name).copied().flatten())
+        .and_then(|type_res| caught_tag(hir, type_res))
 }

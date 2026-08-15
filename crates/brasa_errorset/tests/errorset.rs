@@ -1548,3 +1548,94 @@ def read(): int
 end
 "#
 );
+
+// BRS-141: structural satisfaction compares signatures, so a method
+// that matches the shape while throwing more than the member declares
+// used to pass unnoticed. Interfaces have no conformance declarations
+// (spec: 03 — Sistema de tipos), so the struct has no site of its own
+// where the promise could be read — the pairing exists only where a
+// constraint is solved, which is where this reports.
+errorset_error_test!(
+    a_satisfying_method_cannot_throw_more_than_the_member_declares,
+    r#"
+struct NetError
+  code: int
+end
+
+struct Other
+  code: int
+end
+
+interface Fetcher
+  def fetch(self): string throws NetError
+end
+
+struct Bad
+  url: string
+
+  def fetch(self): string
+    throw Other { code: 1 }
+  end
+end
+
+def use<T: Fetcher>(f: T): string
+  f.fetch() catch (e)
+    _ => "fallback"
+  end
+end
+
+let out = use(Bad { url: "x" })
+"#
+);
+
+// The same shape honouring the contract reports nothing, and a member
+// that declares no clause promises nothing — so a method under it may
+// throw freely. Both directions in one fixture, since the check is only
+// worth having if it stays quiet here.
+errorset_test!(
+    a_satisfying_method_within_its_contract_is_accepted,
+    r#"
+struct NetError
+  code: int
+end
+
+interface Fetcher
+  def fetch(self): string throws NetError
+end
+
+interface Loose
+  def peek(self): int
+end
+
+struct Good
+  url: string
+
+  def fetch(self): string
+    throw NetError { code: 1 }
+  end
+end
+
+struct Free
+  n: int
+
+  def peek(self): int
+    throw NetError { code: 2 }
+  end
+end
+
+def fetchWith<T: Fetcher>(f: T): string
+  f.fetch() catch (e)
+    NetError => "handled"
+  end
+end
+
+def peekWith<T: Loose>(p: T): int
+  p.peek() catch (e)
+    _ => 0
+  end
+end
+
+let a = fetchWith(Good { url: "x" })
+let b = peekWith(Free { n: 1 })
+"#
+);

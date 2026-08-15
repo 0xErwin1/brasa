@@ -1999,8 +1999,22 @@ impl<'a> Checker<'a> {
             };
 
             let solved = solved.clone();
-            if let Err(reason) = self.satisfies(&solved, &kind) {
-                self.report_constraint_violation(span, &solved, &kind, generic, reason);
+            match self.satisfies(&solved, &kind) {
+                Err(reason) => {
+                    self.report_constraint_violation(span, &solved, &kind, generic, reason)
+                }
+                // Structural satisfaction compares SIGNATURES only, so a
+                // method that matches while throwing more than the
+                // member declares still lands here (BRS-141). Recording
+                // the pairing is what lets `brasa_errorset` hold it to
+                // the contract once the sets exist.
+                Ok(()) => {
+                    if let (Type::Struct(item, _), ConstraintKind::Iface(iface, _)) =
+                        (&solved, &kind)
+                    {
+                        self.tables.iface_uses.push((*item, *iface, span));
+                    }
+                }
             }
         }
     }

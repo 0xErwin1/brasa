@@ -1,0 +1,11 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: rendered
+---
+[E008] Error: `Bad.fetch` throws `Other`, which `Fetcher.fetch` does not declare
+    ╭─[ a_satisfying_method_cannot_throw_more_than_the_member_declares.bras:28:11 ]
+    │
+ 28 │ let out = use(Bad { url: "x" })
+    │           ──────────┬──────────  
+    │                     ╰──────────── `Bad` is used as `Fetcher` here
+────╯

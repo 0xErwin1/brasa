@@ -229,6 +229,17 @@ pub const E_PANIC_IN_THROWS: &str = "E006";
 /// check cannot see.
 pub const E_TO_STRING_CAN_THROW: &str = "E007";
 
+/// A struct accepted as satisfying an interface has a method that
+/// throws more than the interface member declares (BRS-141).
+///
+/// Satisfaction is structural (spec: 03 — Sistema de tipos): a struct
+/// never declares that it implements an interface, so there is no
+/// declaration site at which to hold it to the contract. The check
+/// happens where the pairing is first demanded — a call that solves a
+/// constrained generic — because that is both the only moment the two
+/// halves are known and the only moment the mismatch can hurt anyone.
+pub const E_IFACE_THROWS_VIOLATED: &str = "E008";
+
 // --- code generation (C) ---
 
 /// A call with more arguments than an instruction's `argc` operand can
@@ -327,6 +338,7 @@ mod tests {
         super::E_THROWS_NEVER_VIOLATED,
         super::E_PANIC_IN_THROWS,
         super::E_TO_STRING_CAN_THROW,
+        super::E_IFACE_THROWS_VIOLATED,
         super::C_TOO_MANY_ARGUMENTS,
         super::C_TOO_MANY_PARAMETERS,
         super::C_TOO_MANY_ELEMENTS,

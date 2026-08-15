@@ -561,8 +561,8 @@ impl<'h> Resolver<'h> {
                 Item::InterfaceDef(def) => {
                     self.push_generic_frame(DefRef::Item(root), &def.generics, span, true);
 
-                    for member in &def.methods {
-                        self.resolve_iface_member(member);
+                    for (index, member) in def.methods.iter().enumerate() {
+                        self.resolve_iface_member(Some(root), index, member);
                     }
 
                     self.type_frames.pop();
@@ -676,8 +676,8 @@ impl<'h> Resolver<'h> {
                     self.type_frames.push(self_frame);
 
                     self.check_member_hygiene(members);
-                    for member in members {
-                        self.resolve_iface_member(member);
+                    for (index, member) in members.iter().enumerate() {
+                        self.resolve_iface_member(None, index, member);
                     }
 
                     self.type_frames.pop();
@@ -700,7 +700,17 @@ impl<'h> Resolver<'h> {
     /// satisfying method must not throw more than the member declares —
     /// needs interface-satisfaction integration (typeck would have to
     /// record which method satisfied which member), deferred to M3+.
-    fn resolve_iface_member(&mut self, member: &'h IfaceMember) {
+    /// `owner` is `None` for an inline constraint's members
+    /// (spec: 01 — Sintaxis): those are anonymous, so there is no
+    /// interface item to key their contracts by — and nothing needs
+    /// them, since only a NAMED interface can be recorded as satisfied
+    /// (BRS-141).
+    fn resolve_iface_member(
+        &mut self,
+        owner: Option<ItemId>,
+        index: usize,
+        member: &'h IfaceMember,
+    ) {
         for param in &member.params {
             if let Param::Named { ty, .. } = param {
                 self.resolve_type(*ty);
@@ -710,9 +720,30 @@ impl<'h> Resolver<'h> {
             self.resolve_type(ret);
         }
 
+        // The same classification a function's clause gets, recorded
+        // rather than dropped: the contract is only checkable once
+        // error sets exist (BRS-141).
         if let Some(Throws::Types(types)) = &member.throws {
-            for throws_type in types {
-                self.resolve_throws_name(throws_type);
+            let mut resolved = Vec::with_capacity(types.len());
+            for (name_index, throws_type) in types.iter().enumerate() {
+                match self.resolve_throws_name(throws_type) {
+                    ThrowsName::Type(res) => resolved.push(Some(res)),
+                    ThrowsName::Native(error) => {
+                        if let Some(owner) = owner {
+                            self.res
+                                .iface_member_throws_natives
+                                .insert((owner, index, name_index), error);
+                        }
+                        resolved.push(None);
+                    }
+                    ThrowsName::None => resolved.push(None),
+                }
+            }
+
+            if let Some(owner) = owner {
+                self.res
+                    .iface_member_throws
+                    .insert((owner, index), resolved);
             }
         }
     }

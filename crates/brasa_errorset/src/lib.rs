@@ -242,6 +242,8 @@ pub fn infer(
     };
     collector.top_level(roots);
 
+    check::iface_throws_contracts(hir, resolutions, types, &sets, &mut diagnostics);
+
     ErrorSetResult {
         sets,
         lambda_sets,

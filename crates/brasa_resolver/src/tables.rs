@@ -376,6 +376,21 @@ pub struct Resolutions {
     /// subtract from error-sets and count toward `catch!`
     /// exhaustiveness, panics do neither).
     pub catch_arm_native_errors: HashMap<(ExprId, usize, usize), &'static str>,
+    /// An interface member's declared `throws`, keyed by `(interface,
+    /// member index)` and aligned with the names it lists — the same
+    /// shape [`Resolutions::throws_types`] has for a function, and a
+    /// separate table for the same reason `catch_arm_native_errors` is:
+    /// an interface member has no [`DefRef`], since it is a signature
+    /// rather than a definition.
+    ///
+    /// Resolved but unused until BRS-141: satisfaction is structural
+    /// (spec: 03 — Sistema de tipos), so nothing checks that a method
+    /// matching a member honours the contract that member states. That
+    /// check needs error sets, which arrive a pass later.
+    pub iface_member_throws: HashMap<(ItemId, usize), Vec<Option<TypeRes>>>,
+    /// The native-error half of [`Resolutions::iface_member_throws`],
+    /// keyed by `(interface, member index, name index)`.
+    pub iface_member_throws_natives: HashMap<(ItemId, usize, usize), &'static str>,
     /// Resolved `throws Type | ...` declaration lists, aligned with the
     /// declaring function/method's `Throws::Types` names; `None` marks a
     /// name that resolved to no type in scope — an unknown name

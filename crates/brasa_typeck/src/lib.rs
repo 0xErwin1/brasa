@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use brasa_diagnostics::Diagnostic;
 use brasa_hir::{ExprId, Hir, ItemId, SugarOrigin};
 use brasa_resolver::{LocalId, Resolutions};
+use brasa_source::Span;
 
 /// Every table produced by [`check`], keyed by HIR arena IDs like the
 /// resolver's tables.
@@ -45,6 +46,22 @@ pub struct TypeTables {
     /// The flatten decision for every `Expr::OptionWrap` whose operand
     /// type is known; nodes inside deferred constructs stay absent.
     pub wrap_decisions: HashMap<ExprId, WrapDecision>,
+    /// Every place a concrete struct was accepted as satisfying a user
+    /// interface, as `(struct, interface)` plus the span that demanded
+    /// it (BRS-141).
+    ///
+    /// Interfaces are STRUCTURAL (spec: 03 — Sistema de tipos): a struct
+    /// never declares that it implements one, so there is no
+    /// declaration site at which to check the members against their
+    /// contracts. The only moment the pairing exists is here, when a
+    /// constraint is solved — which is also the only moment it can
+    /// matter, since a struct nobody uses through an interface cannot
+    /// break anyone.
+    ///
+    /// Recorded rather than checked here because the contract is about
+    /// ERROR SETS, and those are inferred by `brasa_errorset` after
+    /// this pass has finished.
+    pub iface_uses: Vec<(ItemId, ItemId, Span)>,
 }
 
 /// The output of type checking one module: the type tables and every

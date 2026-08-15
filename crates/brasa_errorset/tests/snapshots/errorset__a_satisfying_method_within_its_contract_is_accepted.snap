@@ -1,0 +1,9 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  Good.fetch -> {NetError}
+  Free.peek -> {NetError}
+  fetchWith -> {} (open)
+  peekWith -> {}
