@@ -46,6 +46,53 @@ pub fn sleep_ms(ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
 }
 
+/// The local UTC offset in milliseconds **at `epoch_millis`**
+/// (spec: 05 — Stdlib de scripting, BRS-147).
+///
+/// `std` cannot answer this: it has no notion of a zone, only of
+/// instants. `localtime_r` is the C library call that resolves one
+/// against the system zone, and taking the instant rather than
+/// answering "now" is what makes a historical timestamp convert with
+/// the offset that was in force THEN — a report that crosses a
+/// daylight-saving change lands on the right days.
+///
+/// Reading the zone means reading the process environment, which is
+/// only safe while nothing writes it. Nothing in this workspace does:
+/// `env.set` records an overlay and leaves the host process's own
+/// environment block untouched (`brasa_vm::Vm::env_overlay`), and no
+/// `set_var` exists anywhere in the tree. That is what allows a plain
+/// call here instead of a value cached before the VM's threads start.
+///
+/// Answers zero — UTC — where the platform has no `localtime_r`, and
+/// where the call fails.
+pub fn local_offset_millis(epoch_millis: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        let seconds = epoch_millis.div_euclid(1000);
+
+        // SAFETY: `localtime_r` writes through the out pointer and
+        // reads the environment, which nothing in this process
+        // mutates (see above). The `tm` is fully owned here and
+        // nothing borrowed from it escapes: only the integer offset
+        // field is copied out.
+        unsafe {
+            let mut parts: libc::tm = std::mem::zeroed();
+
+            if libc::localtime_r(&seconds, &mut parts).is_null() {
+                return 0;
+            }
+
+            parts.tm_gmtoff as i64 * 1000
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = epoch_millis;
+        0
+    }
+}
+
 /// Formats an epoch-millisecond timestamp as basic UTC ISO-8601.
 pub fn iso_utc(epoch_millis: i64) -> String {
     let days = epoch_millis.div_euclid(86_400_000);

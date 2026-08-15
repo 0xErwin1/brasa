@@ -1016,6 +1016,9 @@ impl Vm<'_> {
                 Ok(Value::Unit)
             }
             (TimeMember::Iso, [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
+            (TimeMember::LocalOffsetMillis, [Value::Int(millis)]) => {
+                Ok(Value::Int(time_glue::local_offset_millis(*millis)))
+            }
 
             // No `check_cancelled` here, and none on `iso`: neither
             // one suspends, so neither is a point cancellation is

@@ -15,6 +15,14 @@ regex = "1.13"
 # `fs.glob` (spec: 05 — Stdlib de scripting, BRS-33): the rust-lang glob
 # crate, pinned to the 0.3 line — dependency-free and boring.
 glob = "0.3"
+# `time.localOffsetMillis` (spec: 05 — Stdlib de scripting, BRS-147):
+# the local UTC offset, which `std` cannot answer at all — it has no
+# notion of a zone. `localtime_r` is the C library call every platform
+# already carries, so the runtime depends on the primitive rather than
+# on a Rust datetime crate: a second implementation of this language
+# reaches the same call, where a crate would be Rust-specific baggage
+# to reimplement.
+libc = "0.2"
 # `std::json` (spec: 05 — Stdlib de scripting, BRS-34): serde_json's parser
 # and serializer over its own `Value` tree, pinned to the 1.x line. No
 # derive/serde features: the runtime only needs the boring, correct

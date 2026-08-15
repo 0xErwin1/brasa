@@ -265,6 +265,8 @@ pub const BUILTINS: &[BuiltinDef] = &[
     // (BRS-135), declared apart from `message` because only that error
     // carries one.
     method("output"),
+    // The local UTC offset behind `std::time`'s day bucketing (BRS-147).
+    free("time.localOffsetMillis"),
 ];
 
 /// Looks up a builtin by its stable name.

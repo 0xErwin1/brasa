@@ -184,6 +184,7 @@ const PINNED: &[(u16, &str, bool)] = &[
     (156, "isSymlink?", true),
     (157, "time.parseIso", false),
     (158, "output", true),
+    (159, "time.localOffsetMillis", false),
 ];
 
 #[test]

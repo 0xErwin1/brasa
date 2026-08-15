@@ -5773,6 +5773,14 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             format!("{time}puts time.parseIso(\"2023-11-14T22:13:20.123Z\") catch (e)\n  time.ParseError => 0\nend\n"),
             "1700000000123\n",
         ),
+        (
+            // The zone is the machine's, so the snippet pins an
+            // invariant rather than a value: every real offset is a
+            // whole number of minutes.
+            "time.localOffsetMillis",
+            format!("{time}puts time.localOffsetMillis(0) % 60000 == 0\n"),
+            "true\n",
+        ),
         // std::rand. Seeded or single-outcome, so every leg agrees.
         (
             "rand.seed",
@@ -6553,5 +6561,45 @@ end
 puts out
 "##,
         "caught fast\n",
+    );
+}
+
+/// The local offset (BRS-147) cannot be pinned to a value — it is
+/// whatever zone the machine running the suite is in — so what is
+/// pinned is what has to hold in every zone.
+///
+/// Found by dogfooding: reimplementing the bar's cost scan bucketed
+/// events by UTC day where the original bucketed by local day, which
+/// moved evening turns across the window edge and threw one model
+/// tier off by 15%. "Today" is the unit almost every report a script
+/// writes is grouped by.
+#[test]
+fn the_local_offset_holds_in_every_zone() {
+    assert_success(
+        r##"
+import std::time
+
+let now = time.nowMillis()
+let offset = time.localOffsetMillis(now)
+
+# A whole number of minutes, and inside the range zones actually span
+# (-12 through +14).
+puts offset % 60000 == 0
+puts offset >= -43200000 && offset <= 50400000
+
+# Applying it yields a timestamp that still round-trips, so the local
+# rendering is a real instant rather than a mangled string.
+let local = time.iso(now + offset)
+let parsed = time.parseIso(local) catch (e)
+  time.ParseError => -1
+end
+puts parsed == now + offset
+
+# The offset is a function of the INSTANT, not of when it is asked:
+# the same instant answers the same twice, which is what lets a report
+# convert its older rows with the offset that was in force then.
+puts time.localOffsetMillis(0) == time.localOffsetMillis(0)
+"##,
+        "true\ntrue\ntrue\ntrue\n",
     );
 }

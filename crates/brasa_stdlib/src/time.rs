@@ -39,6 +39,24 @@ crate::module_table! {
         /// does not name an instant has no epoch millisecond, and
         /// guessing one would be a wrong answer rather than a failure.
         ParseIso  "parseIso"  (string) -> int throws PARSE_ERRORS;
+
+        /// The local UTC offset in milliseconds AT the given instant,
+        /// so `time.iso(stamp + time.localOffsetMillis(stamp))` renders
+        /// a local wall clock and its first ten characters are the
+        /// local DAY — the unit almost every report a script writes is
+        /// grouped by.
+        ///
+        /// It takes the instant rather than answering "now" because a
+        /// report that crosses a daylight-saving change would
+        /// otherwise put its older rows on the wrong day. Zero on a
+        /// platform without a system zone, which is UTC and is the
+        /// honest answer rather than a guess.
+        ///
+        /// This is the whole of the timezone story: no datetime type,
+        /// no calendar arithmetic, no zone names. The one question a
+        /// scripting language has to answer about zones is what day it
+        /// is where the script runs.
+        LocalOffsetMillis "localOffsetMillis" (int) -> int;
     }
 }
 
