@@ -325,6 +325,35 @@ fn struct_field_index(f: &FuncCx, item: ItemId, name: &str) -> Option<u16> {
     Some(u16::try_from(index).unwrap_or(u16::MAX))
 }
 
+/// Whether the member behind `recv` has to be resolved from the runtime
+/// value instead of from the receiver's static type.
+///
+/// Two very different situations answer yes. A receiver typed as a
+/// generic parameter — `Type::Generic`, and the `Type::Common` join a
+/// grouped `catch` arm produces — names a member that is a different
+/// function at every instantiation while the body stays shared (no
+/// monomorphization, spec: 03 — Sistema de tipos), so only the value
+/// knows the target.
+///
+/// A receiver the checker never settled answers yes for a sharper
+/// reason. The by-name builtin shortcut both member paths end in reads
+/// the global builtin registry, which knows nothing about the program's
+/// own structs; it is sound ONLY where the checker has proven the
+/// receiver cannot be a struct, and the absence of a known type is not
+/// that proof. Taking the shortcut on `Type::Unknown` binds a receiver
+/// builtin whenever a struct field happens to share its name — `size`,
+/// `code`, `message`, `status` are all live record accessors — and the
+/// program then runs to completion on the wrong value. The runtime
+/// lookup asks the value itself: struct methods, then struct fields,
+/// then the builtin, which is also why a receiver that turns out to be
+/// a `Vector` still finds `len`.
+fn dynamic_receiver(f: &FuncCx, recv: ExprId) -> bool {
+    matches!(
+        f.cx.types.expr_types.get(&recv),
+        Some(Type::Generic { .. } | Type::Common(_) | Type::Unknown) | None
+    )
+}
+
 pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) {
     match f.cx.hir.expr(callee).clone() {
         // `assert`/`assertEq` compile to a conditional raise of the
@@ -507,14 +536,7 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
         return;
     }
 
-    // A receiver typed as a generic parameter: the constraint's method
-    // is a different function at every instantiation and the body is
-    // shared (no monomorphization, spec: 03 — Sistema de tipos), so the
-    // target comes from the runtime value's method table.
-    if matches!(
-        f.cx.types.expr_types.get(&recv),
-        Some(Type::Generic { .. } | Type::Common(_))
-    ) {
+    if dynamic_receiver(f, recv) {
         compile_expr(f, recv);
         for &arg in args {
             compile_expr(f, arg);
@@ -674,12 +696,7 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
         return;
     }
 
-    // A generic receiver, as in `method_call`: the member is whatever
-    // the runtime value carries.
-    if matches!(
-        f.cx.types.expr_types.get(&recv),
-        Some(Type::Generic { .. } | Type::Common(_))
-    ) {
+    if dynamic_receiver(f, recv) {
         compile_expr(f, recv);
         let name = f.cx.const_str(name);
         f.emit(Op::BindMethodDyn(name), span);

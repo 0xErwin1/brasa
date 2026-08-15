@@ -1992,6 +1992,157 @@ puts total([1, -2, 3])
     );
 }
 
+// --- a wildcard `catch` binding is a receiver nobody typed ------------
+//
+// `_ => ...` is the catch-everything arm, so the value it binds carries
+// no type the checker can name. Reading a member off it must still ask
+// the value what it holds: resolving the name against the builtin
+// registry instead answers from a table that has never heard of this
+// program's structs, and the run then completes on the wrong value.
+
+#[test]
+fn a_wildcard_catch_binding_reads_the_struct_field_that_shares_a_builtin_name() {
+    assert_success(
+        r##"
+struct TooBig
+  size: int
+end
+
+def risky(): int throws TooBig
+  throw TooBig { size: 99 }
+end
+
+let n = risky() catch (e)
+  _ => e.size
+end
+puts n
+"##,
+        "99\n",
+    );
+}
+
+#[test]
+fn a_wildcard_catch_binding_calls_the_struct_method_that_shares_a_builtin_name() {
+    assert_success(
+        r##"
+struct TooBig
+  limit: int
+
+  def size(self): int
+    self.limit
+  end
+end
+
+def risky(): int throws TooBig
+  throw TooBig { limit: 99 }
+end
+
+let n = risky() catch (e)
+  _ => e.size()
+end
+puts n
+"##,
+        "99\n",
+    );
+}
+
+/// Every field name here is also a live record accessor — `Stat.size`,
+/// `Output.code`, `NativeError.message`, `Response.status` — so a new
+/// accessor cannot quietly reopen the shortcut on one of them.
+#[test]
+fn a_wildcard_catch_binding_prefers_fields_over_every_receiver_builtin_of_the_same_name() {
+    assert_success(
+        r##"
+struct SizeError
+  size: int
+end
+
+struct CodeError
+  code: int
+end
+
+struct MessageError
+  message: string
+end
+
+struct StatusError
+  status: int
+end
+
+def tooBig(): int throws SizeError
+  throw SizeError { size: 1 }
+end
+
+def failed(): int throws CodeError
+  throw CodeError { code: 2 }
+end
+
+def broke(): int throws MessageError
+  throw MessageError { message: "explained" }
+end
+
+def refused(): int throws StatusError
+  throw StatusError { status: 4 }
+end
+
+let size = tooBig() catch (e)
+  _ => e.size
+end
+puts size
+
+let code = failed() catch (e)
+  _ => e.code
+end
+puts code
+
+let message = broke() catch (e)
+  _ => e.message
+end
+puts message
+
+let status = refused() catch (e)
+  _ => e.status
+end
+puts status
+"##,
+        "1\n2\nexplained\n4\n",
+    );
+}
+
+/// The other half of the contract: an untyped receiver that turns out
+/// NOT to be a struct still reaches the builtin, because the runtime
+/// lookup falls through to it.
+#[test]
+fn an_untyped_receiver_holding_a_vector_still_finds_the_builtin() {
+    assert_success(
+        r##"
+struct Boom
+  rows: Vector<int>
+end
+
+def risky(): int throws Boom
+  throw Boom { rows: [1, 2, 3] }
+end
+
+let n = risky() catch (e)
+  _ => e.rows.len()
+end
+puts n
+
+let joined = risky() catch (e)
+  _ => e.rows.join("-")
+end
+puts joined
+
+let found = risky() catch (e)
+  _ => e.rows.contains?(2)
+end
+puts found
+"##,
+        "3\n1-2-3\ntrue\n",
+    );
+}
+
 // --- unwinding edge cases ---------------------------------------------
 
 #[test]

@@ -318,3 +318,43 @@ puts maybe ?? 0
 "##,
     );
 }
+
+/// A receiver the checker never settled — the wildcard `catch` arm's
+/// binding — must reach `bind_method_dyn`/`call_method_dyn`, never the
+/// by-name builtin shortcut. `size` and `code` are both live record
+/// accessors, so the shortcut would emit `bind_builtin`/`call_builtin`
+/// against a table that cannot see `TooBig` at all. The last two lines
+/// pin the other side: a receiver the checker DID settle keeps its
+/// direct opcode.
+#[test]
+fn untyped_receiver_members_dispatch_dynamically() {
+    assert_compiles(
+        "untyped_receiver_members_dispatch_dynamically",
+        r##"
+struct TooBig
+  size: int
+
+  def code(self): int
+    self.size * 2
+  end
+end
+
+def risky(): int throws TooBig
+  throw TooBig { size: 99 }
+end
+
+let field = risky() catch (e)
+  _ => e.size
+end
+puts field
+
+let called = risky() catch (e)
+  _ => e.code()
+end
+puts called
+
+let rows = [1, 2, 3]
+puts rows.len()
+"##,
+    );
+}

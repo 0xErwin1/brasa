@@ -1,0 +1,76 @@
+---
+source: crates/brasa_codegen/tests/codegen.rs
+expression: "compile_source(name, source)"
+---
+== constants ==
+  c0  str "size"
+  c1  str "code"
+  c2  int 1
+  c3  int 2
+  c4  int 3
+  c5  int 99
+
+== struct TooBig (fields: [size]; methods: [fn1]; toString: derived) ==
+
+== globals ==
+  g0  field
+  g1  called
+  g2  rows
+
+== fn0 <toplevel> arity=0 captures=0 locals=2 max_stack=3 ==
+     0  call fn2, 0                 ; risky
+     1  jump 10
+     2  jump_if_panic 9
+     3  caught_value
+     4  store_local 0
+     5  pop
+     6  load_local 0
+     7  bind_method_dyn c0          ; str "size"
+     8  jump 10
+     9  rethrow
+    10  store_global g0             ; field
+    11  load_global g0              ; field
+    12  call_builtin b0, 1          ; puts
+    13  pop
+    14  call fn2, 0                 ; risky
+    15  jump 24
+    16  jump_if_panic 23
+    17  caught_value
+    18  store_local 1
+    19  pop
+    20  load_local 1
+    21  call_method_dyn c1, 1       ; str "code"
+    22  jump 24
+    23  rethrow
+    24  store_global g1             ; called
+    25  load_global g1              ; called
+    26  call_builtin b0, 1          ; puts
+    27  pop
+    28  const c2                    ; int 1
+    29  const c3                    ; int 2
+    30  const c4                    ; int 3
+    31  make_vector 3
+    32  store_global g2             ; rows
+    33  load_global g2              ; rows
+    34  call_builtin b13, 1         ; len
+    35  call_builtin b0, 1          ; puts
+    36  pop
+    37  load_unit
+    38  ret
+  handlers:
+    0..1 -> 2 depth=0
+    14..15 -> 16 depth=0
+
+== fn1 code arity=1 captures=0 locals=1 max_stack=2 ==
+     0  load_local 0
+     1  get_field 0
+     2  const c3                    ; int 2
+     3  mul_int
+     4  ret
+
+== fn2 risky arity=0 captures=0 locals=0 max_stack=1 ==
+     0  const c5                    ; int 99
+     1  make_struct s0              ; TooBig
+     2  throw
+     3  load_unit
+     4  ret
