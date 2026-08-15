@@ -653,6 +653,7 @@ mod stdlib_declaration_tests {
         "read",
         "write",
         "append",
+        "stat",
         "ls",
         "glob",
         "walk",
@@ -667,6 +668,7 @@ mod stdlib_declaration_tests {
         "cd",
         "abs",
         "cwd",
+        "parseIso",
     ];
 
     /// The list above must name every throwing member, so the check
@@ -693,6 +695,7 @@ mod stdlib_declaration_tests {
             "isFile?",
             "isDir?",
             "isSymlink?",
+            "stat",
             "ls",
             "glob",
             "walk",
@@ -727,6 +730,7 @@ mod stdlib_declaration_tests {
             "now",
             "nowMillis",
             "iso",
+            "parseIso",
             "sleep",
             "seed",
             "int",

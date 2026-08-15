@@ -980,9 +980,10 @@ impl Vm<'_> {
     }
 
     /// The `std::time` members (BRS-35), ported from the walker's
-    /// `time_call`; all clock and formatting behavior lives in the
-    /// shared `brasa_runtime::time_glue`. A negative `sleep` duration
-    /// panics with `panics.AssertionFailed`.
+    /// `time_call`; all clock, formatting, and parsing behavior lives
+    /// in the shared `brasa_runtime::time_glue`. A negative `sleep`
+    /// duration panics with `panics.AssertionFailed`; an unparseable
+    /// timestamp throws `time.ParseError`.
     fn time_call(&mut self, name: &str, args: Vec<Value>) -> VmResult {
         let Some(member) = TimeMember::from_name(name) else {
             return Err(unknown_module_member(TimeMember::MODULE, name));
@@ -1015,6 +1016,14 @@ impl Vm<'_> {
                 Ok(Value::Unit)
             }
             (TimeMember::Iso, [Value::Int(millis)]) => Ok(Value::str(time_glue::iso_utc(*millis))),
+
+            // No `check_cancelled` here, and none on `iso`: neither
+            // one suspends, so neither is a point cancellation is
+            // allowed to surface at.
+            (TimeMember::ParseIso, [Value::Str(text)]) => match time_glue::parse_iso(text) {
+                Ok(millis) => Ok(Value::Int(millis)),
+                Err(err) => Err(native_error(err.name, err.message)),
+            },
             _ => Err(invalid()),
         }
     }

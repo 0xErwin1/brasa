@@ -4268,6 +4268,65 @@ puts time.iso(-1)
     );
 }
 
+/// The round trip through the language, which is what the pair is for:
+/// a rendered timestamp read back is the number it was, so a window
+/// length is a subtraction.
+#[test]
+fn time_parse_iso_round_trips_through_the_renderer() {
+    assert_success(
+        r##"
+import std::time
+
+def millis(text: string): int throws time.ParseError
+  time.parseIso(text)
+end
+
+puts millis(time.iso(1700000000123))
+puts millis(time.iso(-1))
+puts millis("2023-11-14T14:13:20.000-08:00") - millis("2023-11-14T22:13:20.000Z")
+"##,
+        "1700000000123\n-1\n0\n",
+    );
+}
+
+#[test]
+fn time_parse_iso_errors_are_catchable() {
+    assert_success(
+        r##"
+import std::time
+
+def normalize(text: string): string
+  time.iso(time.parseIso(text)) catch (e)
+    time.ParseError => e.message
+  end
+end
+
+puts normalize("2023-11-14T14:13:20.000-08:00")
+puts normalize("2024-01-01T00:00:00")
+puts normalize("2023-02-29T00:00:00Z")
+"##,
+        concat!(
+            "2023-11-14T22:13:20.000Z\n",
+            "cannot parse timestamp \"2024-01-01T00:00:00\": expected a `Z` or a `+HH:MM` offset ",
+            "(a timestamp without an offset does not name an instant)\n",
+            "cannot parse timestamp \"2023-02-29T00:00:00Z\": day 29 does not exist in month 2 of year 2023\n",
+        ),
+    );
+}
+
+#[test]
+fn time_uncaught_parse_error_message_matches() {
+    let (outcome, stdout) = assert_parity("import std::time\ntime.parseIso(\"nope\")\n");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        outcome,
+        Outcome::Error {
+            message: "error: time.ParseError: cannot parse timestamp \"nope\": expected a four-digit year"
+                .to_string()
+        }
+    );
+}
+
 #[test]
 fn time_clock_properties_hold() {
     assert_success(
@@ -5488,6 +5547,11 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "time.iso",
             format!("{time}puts time.iso(0)\n"),
             "1970-01-01T00:00:00.000Z\n",
+        ),
+        (
+            "time.parseIso",
+            format!("{time}puts time.parseIso(\"2023-11-14T22:13:20.123Z\") catch (e)\n  time.ParseError => 0\nend\n"),
+            "1700000000123\n",
         ),
         // std::rand. Seeded or single-outcome, so every leg agrees.
         (

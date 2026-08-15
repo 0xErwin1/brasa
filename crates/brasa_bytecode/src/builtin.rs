@@ -260,6 +260,7 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("isFile?"),
     method("isDir?"),
     method("isSymlink?"),
+    free("time.parseIso"),
 ];
 
 /// Looks up a builtin by its stable name.

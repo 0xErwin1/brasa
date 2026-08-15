@@ -225,6 +225,13 @@ pub const CONCURRENT_SCOPE_EXITED: &str = "concurrent.ScopeExited";
 /// points is never interrupted.
 pub const CONCURRENT_CANCELLED: &str = "concurrent.Cancelled";
 
+/// The canonical qualified name of the native `time` parse error
+/// (spec: 05 — Stdlib de scripting, BRS-35): `time.parseIso` throws it for a
+/// string that is not an RFC 3339 timestamp — a malformed shape, a field
+/// outside the calendar, or a missing UTC offset. Reading the clock still
+/// cannot fail; reading a string can.
+pub const TIME_PARSE_ERROR: &str = "time.ParseError";
+
 /// The canonical qualified name of the native `cli` usage error
 /// (spec: 05 — Stdlib de scripting, BRS-112): a command line the declaration
 /// does not accept. Catchable rather than a panic, because the script
@@ -255,6 +262,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     CLI_USAGE_ERROR,
     CONCURRENT_SCOPE_EXITED,
     CONCURRENT_CANCELLED,
+    TIME_PARSE_ERROR,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace

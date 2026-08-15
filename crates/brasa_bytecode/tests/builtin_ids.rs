@@ -182,6 +182,7 @@ const PINNED: &[(u16, &str, bool)] = &[
     (154, "isFile?", true),
     (155, "isDir?", true),
     (156, "isSymlink?", true),
+    (157, "time.parseIso", false),
 ];
 
 #[test]
