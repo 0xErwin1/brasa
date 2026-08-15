@@ -4,13 +4,11 @@
 //! spec: 06 — Diagnósticos; the spec table and these constants must
 //! stay in sync. Codes follow `<PhaseLetter><3 digits>` (`L` lexer, `P`
 //! parser, `M` module loading, `R` resolver, `T` type checker, `E`
-//! error-sets, `C` code
-//! generation; `X` is
-//! reserved), are append-only, and are never renumbered or reused after
-//! removal. Every
-//! emission site names one of these constants instead of writing the code
-//! inline; a code identifies an error kind, so one code may back several
-//! wordings and spans.
+//! error-sets, `C` code generation; `X` is reserved), are append-only,
+//! and are never renumbered or reused after removal. Every emission
+//! site names one of these constants instead of writing the code
+//! inline; a code identifies an error kind, so one code may back
+//! several wordings and spans.
 
 // --- lexer (L) ---
 
