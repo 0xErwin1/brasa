@@ -1,0 +1,34 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i2 risky -> (bool) -> int
+  i3 shared -> int
+  i4 rendered -> int
+local types
+  l0 flag -> bool
+  l1 e -> A | B
+  l2 e -> A | B
+expr types
+  e0 -> bool
+  e1 -> int
+  e2 -> string
+  e3 -> A
+  e4 -> int
+  e5 -> B
+  e6 -> (bool) -> int
+  e7 -> bool
+  e8 -> int
+  e9 -> A | B
+  e10 -> int
+  e11 -> int
+  e12 -> (bool) -> int
+  e13 -> bool
+  e14 -> int
+  e15 -> A | B
+  e16 -> () -> string
+  e17 -> string
+  e18 -> () -> int
+  e19 -> int
+  e20 -> int

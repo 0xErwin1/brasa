@@ -511,7 +511,10 @@ fn method_call(f: &mut FuncCx, recv: ExprId, name: &str, args: &[ExprId], span: 
     // is a different function at every instantiation and the body is
     // shared (no monomorphization, spec: 03 — Sistema de tipos), so the
     // target comes from the runtime value's method table.
-    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::Generic { .. })) {
+    if matches!(
+        f.cx.types.expr_types.get(&recv),
+        Some(Type::Generic { .. } | Type::Common(_))
+    ) {
         compile_expr(f, recv);
         for &arg in args {
             compile_expr(f, arg);
@@ -673,7 +676,10 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
 
     // A generic receiver, as in `method_call`: the member is whatever
     // the runtime value carries.
-    if matches!(f.cx.types.expr_types.get(&recv), Some(Type::Generic { .. })) {
+    if matches!(
+        f.cx.types.expr_types.get(&recv),
+        Some(Type::Generic { .. } | Type::Common(_))
+    ) {
         compile_expr(f, recv);
         let name = f.cx.const_str(name);
         f.emit(Op::BindMethodDyn(name), span);

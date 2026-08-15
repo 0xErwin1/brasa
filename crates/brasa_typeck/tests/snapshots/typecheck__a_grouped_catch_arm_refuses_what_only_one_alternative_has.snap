@@ -1,0 +1,18 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T007] Error: no method `only_a` on `A | B`
+    ╭─[ a_grouped_catch_arm_refuses_what_only_one_alternative_has.bras:19:12 ]
+    │
+ 19 │   A | B => e.only_a.len()
+    │            ────┬───  
+    │                ╰───── unknown method
+────╯
+[T007] Error: no method `totallyMadeUp` on `A | B`
+    ╭─[ a_grouped_catch_arm_refuses_what_only_one_alternative_has.bras:23:12 ]
+    │
+ 23 │   A | B => e.totallyMadeUp()
+    │            ────────┬────────  
+    │                    ╰────────── unknown method
+────╯

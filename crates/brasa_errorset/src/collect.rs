@@ -454,6 +454,29 @@ impl<'a> Collector<'a> {
                     set.tags.insert(ErrorTag::Opaque(error));
                 }
             }
+            // A grouped `catch` binding (BRS-141): the member is one
+            // every alternative offers, so the call can throw whatever
+            // ANY of them throws. Under-approximating here would be the
+            // one place a narrowed binding could hide an error the arm
+            // itself made reachable.
+            Some(Type::Common(alts)) => {
+                let alts = alts.clone();
+                set.union_with(&self.args(args));
+
+                for alt in &alts {
+                    match alt {
+                        Type::Struct(item, _) => {
+                            let item = *item;
+                            set.union_with(&self.struct_method(item, name));
+                        }
+                        _ => {
+                            for error in brasa_typeck::builtins::method_throws(alt, name) {
+                                set.tags.insert(ErrorTag::Opaque(error));
+                            }
+                        }
+                    }
+                }
+            }
             // Builtin receivers: primitives, containers, ranges,
             // options, tuples, enums (whose only member is the derived
             // `toString`), the `proc` `Output`, `http` `Response`,

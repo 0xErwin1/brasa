@@ -1722,6 +1722,55 @@ impl<'a> Checker<'a> {
             && matches!(self.res.expr_res.get(&expr), Some(Res::Module(_)))
     }
 
+    /// A member of a grouped `catch` binding: one every alternative
+    /// offers, with a signature they agree on
+    /// (spec: 04 — Sistema de errores: "dentro, `e` solo permite lo
+    /// común a ambos").
+    ///
+    /// Agreement is unification of the member's type across the
+    /// alternatives, so `A.code: int` and `B.code: int` is a member
+    /// while `A.code: int` and `B.code: string` is not. A member only
+    /// some of them have is missing, which is the whole point: before
+    /// this the binding was `Unknown`, so `e.typo()` compiled and died
+    /// at run time.
+    ///
+    /// `Member::Value` is what a struct field and a plain method both
+    /// arrive as, so the two need no distinction here; a builtin
+    /// signature (`Member::Sig`) is compared by the function type it
+    /// stands for, the same comparison `member_matches` uses for
+    /// interface satisfaction.
+    fn lookup_common_member(&mut self, alts: &[Type], name: &str) -> Member {
+        let mut agreed: Option<Type> = None;
+
+        for alt in alts {
+            let found = match self.lookup_member(alt, name) {
+                Member::Value(ty) => ty,
+                Member::Sig(sig) => fn_of_sig(sig),
+                // A deferred alternative cannot confirm the member, and
+                // confirming it anyway is how the permissive binding
+                // this replaces went wrong.
+                Member::Deferred | Member::Missing | Member::GenericMethod { .. } => {
+                    return Member::Missing;
+                }
+            };
+
+            agreed = match agreed {
+                None => Some(found),
+                Some(previous) => match unify(&previous, &found) {
+                    Some(agreed) => Some(agreed),
+                    // The alternatives disagree about what this name
+                    // means, so nothing common is on offer.
+                    None => return Member::Missing,
+                },
+            };
+        }
+
+        match agreed {
+            Some(ty) => Member::Value(ty),
+            None => Member::Missing,
+        }
+    }
+
     fn lookup_member(&mut self, recv: &Type, name: &str) -> Member {
         if recv.is_flexible() {
             return Member::Deferred;
@@ -1733,6 +1782,10 @@ impl<'a> Checker<'a> {
         }
         if let Type::Generic { owner, index } = recv {
             return self.lookup_generic_member(*owner, *index, recv, name);
+        }
+        if let Type::Common(alts) = recv {
+            let alts = alts.clone();
+            return self.lookup_common_member(&alts, name);
         }
         // The stdlib records — `Output`, `Response`, `Args`, `Walk` —
         // whose closed member sets are declared once in `brasa_stdlib`
@@ -3129,18 +3182,52 @@ impl<'a> Checker<'a> {
     /// - `_`, dotted names in namespaces that have not landed, and
     ///   unresolved names → `Unknown`.
     fn catch_arm_binding_type(&self, id: ExprId, arm_index: usize, arm: &CatchArm) -> Type {
-        let [CatchType::Named { .. }] = arm.types.as_slice() else {
+        if !arm
+            .types
+            .iter()
+            .all(|ty| matches!(ty, CatchType::Named { .. }))
+        {
             return Type::Unknown;
-        };
+        }
 
-        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0)) {
+        let mut alternatives: Vec<Type> = (0..arm.types.len())
+            .map(|which| self.catch_arm_alternative_type(id, arm_index, which))
+            .collect();
+
+        // An alternative the checker cannot name would make the group
+        // permissive again — `Unknown` unifies with everything — so one
+        // unknown alternative gives up on the whole group rather than
+        // narrowing to a lie.
+        if alternatives.contains(&Type::Unknown) {
+            return Type::Unknown;
+        }
+
+        alternatives.dedup();
+        match alternatives.len() {
+            0 => Type::Unknown,
+            1 => alternatives.remove(0),
+            _ => Type::Common(alternatives),
+        }
+    }
+
+    /// One alternative of a `catch` arm's type list, by position.
+    fn catch_arm_alternative_type(&self, id: ExprId, arm_index: usize, which: usize) -> Type {
+        if self
+            .res
+            .catch_arm_panics
+            .contains_key(&(id, arm_index, which))
+        {
             return Type::String;
         }
-        if let Some(&error) = self.res.catch_arm_native_errors.get(&(id, arm_index, 0)) {
+        if let Some(&error) = self
+            .res
+            .catch_arm_native_errors
+            .get(&(id, arm_index, which))
+        {
             return builtins::native_error_type(error);
         }
 
-        match self.res.catch_arm_types.get(&(id, arm_index, 0)) {
+        match self.res.catch_arm_types.get(&(id, arm_index, which)) {
             Some(&res) => self.catch_type_res_to_type(res),
             None => Type::Unknown,
         }

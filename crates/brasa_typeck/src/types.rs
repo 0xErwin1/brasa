@@ -88,6 +88,18 @@ pub enum Type {
     /// a script can ask about a file's metadata at all: the predicates
     /// answer what a path IS and nothing about its size or its age.
     Stat,
+    /// The binding of a `catch` arm that groups types with `|`
+    /// (spec: 04 — Sistema de errores: "dentro, `e` solo permite lo
+    /// común a ambos"). Not writable in an annotation and never
+    /// inferred anywhere else: it exists only so a grouped arm can
+    /// offer what every alternative offers.
+    ///
+    /// Without it the binding was `Unknown`, which unifies with
+    /// everything — so `e.typo()` in a grouped arm compiled and died at
+    /// run time with a fatal. The alternatives are held in source
+    /// order; the checker never reorders them, so a diagnostic reads
+    /// back the way the arm was written.
+    Common(Vec<Type>),
     /// The compiler-known `NativeError` record a `catch` arm binds for a
     /// stdlib error name (spec: 04 — Sistema de errores, BRS-135):
     /// `message: string`, plus whatever fields the error itself
@@ -195,6 +207,11 @@ impl Type {
             Type::CliArgs => "Args".to_string(),
             Type::Walk => "Walk".to_string(),
             Type::Stat => "Stat".to_string(),
+            Type::Common(alts) => alts
+                .iter()
+                .map(|alt| alt.display(hir))
+                .collect::<Vec<_>>()
+                .join(" | "),
             Type::NativeError => "NativeError".to_string(),
             Type::ProcNonZeroExit => "NonZeroExit".to_string(),
             Type::Json => "Json".to_string(),

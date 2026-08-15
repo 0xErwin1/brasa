@@ -37,11 +37,11 @@ expr types
   e23 -> string
   e24 -> () -> int
   e25 -> int
-  e26 -> unknown
-  e27 -> unknown
-  e28 -> unknown
-  e29 -> unknown
-  e30 -> unknown
+  e26 -> ParseError | IoError
+  e27 -> () -> string
+  e28 -> string
+  e29 -> () -> int
+  e30 -> int
   e31 -> string
   e32 -> () -> int
   e33 -> int

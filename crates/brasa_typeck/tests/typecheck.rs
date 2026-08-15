@@ -1868,3 +1868,69 @@ def labels(names: Vector<string>): Vector<string>
 end
 "##
 );
+
+// BRS-141: a `|` arm binds what every alternative offers, not
+// `unknown` (spec: 04 — Sistema de errores: "dentro, `e` solo permite
+// lo común a ambos"). A shared field with a shared type is a member;
+// the universal `toString` is always one.
+typecheck_test!(
+    a_grouped_catch_arm_binds_what_the_alternatives_share,
+    r#"
+struct A
+  code: int
+  only_a: string
+end
+
+struct B
+  code: int
+end
+
+def risky(flag: bool): int
+  if flag
+    throw A { code: 1, only_a: "x" }
+  end
+  throw B { code: 2 }
+end
+
+let shared = risky(true) catch (e)
+  A | B => e.code
+end
+
+let rendered = risky(false) catch (e)
+  A | B => e.toString().len()
+end
+"#
+);
+
+// The point of narrowing is what it REFUSES. A member only one
+// alternative has is not common, and before this the binding was
+// `unknown` — so both of these compiled and died at run time with a
+// fatal instead of reporting here.
+typecheck_error_test!(
+    a_grouped_catch_arm_refuses_what_only_one_alternative_has,
+    r#"
+struct A
+  code: int
+  only_a: string
+end
+
+struct B
+  code: int
+end
+
+def risky(flag: bool): int
+  if flag
+    throw A { code: 1, only_a: "x" }
+  end
+  throw B { code: 2 }
+end
+
+let a = risky(true) catch (e)
+  A | B => e.only_a.len()
+end
+
+let b = risky(false) catch (e)
+  A | B => e.totallyMadeUp()
+end
+"#
+);
