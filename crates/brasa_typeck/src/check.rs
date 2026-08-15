@@ -96,13 +96,18 @@ enum Unsatisfied {
     Closed,
     /// No member of that name has a compatible signature.
     Missing(String),
-    /// The member is there with a compatible signature, but it declares
-    /// `throws`. Only builtin `Comparable` reports this: its member is
-    /// reached through `< <= > >=`, which have no channel to report a
-    /// failure on. A user interface may declare throwing members
-    /// (spec: 04 — Sistema de errores), so structural satisfaction never
-    /// fails this way.
-    Throwing(String),
+    /// The member is there with a compatible signature, but it throws
+    /// where the constraint cannot allow it. Two situations, and the
+    /// note differs because the reasons do:
+    ///
+    /// - builtin `Comparable`, whose member is reached through
+    ///   `< <= > >=` — operators with no channel to report a failure on;
+    /// - a user interface member whose `throws` a BUILTIN candidate's
+    ///   method exceeds (BRS-141). A user interface may declare throwing
+    ///   members (spec: 04 — Sistema de errores); what it may not do is
+    ///   promise less than a satisfying method delivers, because a call
+    ///   through the constraint charges what the member declared.
+    Throwing { member: String, operator: bool },
 }
 
 /// The span of a declared, non-`never` `throws` clause: the smallest
@@ -2066,7 +2071,10 @@ impl<'a> Checker<'a> {
                 // `throws` contract; conformance is where that is
                 // decided (spec: 03 — Sistema de tipos).
                 if self.member_declares_throws(candidate, "cmp") {
-                    return Err(Unsatisfied::Throwing("cmp".to_string()));
+                    return Err(Unsatisfied::Throwing {
+                        member: "cmp".to_string(),
+                        operator: true,
+                    });
                 }
 
                 Ok(())
@@ -2090,23 +2098,77 @@ impl<'a> Checker<'a> {
                 {
                     return Ok(());
                 }
-                self.satisfies_members(candidate, members)
+                self.satisfies_members(candidate, Some(*item), members)
             }
-            ConstraintKind::Inline(members) => self.satisfies_members(candidate, members),
+            ConstraintKind::Inline(members) => self.satisfies_members(candidate, None, members),
         }
     }
 
+    /// `iface` is `None` for an inline constraint, whose members are
+    /// anonymous: the resolver has nowhere to key their contracts by, so
+    /// the throws half below is skipped and `brasa_errorset` keeps
+    /// opening the set at a call through one.
     fn satisfies_members(
         &mut self,
         candidate: &Type,
+        iface: Option<ItemId>,
         members: &'a [IfaceMember],
     ) -> Result<(), Unsatisfied> {
-        for member in members {
+        for (index, member) in members.iter().enumerate() {
             if !self.member_satisfied(candidate, member) {
                 return Err(Unsatisfied::Missing(member.name.clone()));
             }
+
+            if let Some(iface) = iface
+                && !self.builtin_member_honours_throws(candidate, iface, index, member)
+            {
+                return Err(Unsatisfied::Throwing {
+                    member: member.name.clone(),
+                    operator: false,
+                });
+            }
         }
         Ok(())
+    }
+
+    /// Whether a BUILTIN method standing in for `member` throws only
+    /// what the member declares (BRS-141).
+    ///
+    /// The struct half of this contract is `E008`, checked in
+    /// `brasa_errorset` because it needs inferred sets. A builtin's
+    /// throws are declared data (`brasa_stdlib`), so they are knowable
+    /// here — and they have to be, because the two halves together are
+    /// what let a call through the constraint charge the member's
+    /// declared set instead of opening. `method_throws` answers empty
+    /// for a struct receiver, so this is a no-op on that path.
+    fn builtin_member_honours_throws(
+        &self,
+        candidate: &Type,
+        iface: ItemId,
+        index: usize,
+        member: &IfaceMember,
+    ) -> bool {
+        let thrown = builtins::method_throws(candidate, &member.name);
+        if thrown.is_empty() {
+            return true;
+        }
+
+        let names = match &member.throws {
+            // No clause promises nothing, so nothing can violate it.
+            None => return true,
+            // `throws never` promises the most, so any throw breaks it.
+            Some(Throws::Never) => return false,
+            Some(Throws::Types(names)) => names,
+        };
+
+        thrown.iter().all(|error| {
+            (0..names.len()).any(|name| {
+                self.res
+                    .iface_member_throws_natives
+                    .get(&(iface, index, name))
+                    == Some(error)
+            })
+        })
     }
 
     /// Whether the member `candidate` would supply for `name` declares a
@@ -2255,13 +2317,21 @@ impl<'a> Checker<'a> {
             Unsatisfied::Missing(member) => diag.with_note(format!(
                 "`{shown}` has no member `{member}` with a compatible signature"
             )),
-            Unsatisfied::Throwing(member) => diag
-                .with_note(format!(
-                    "`{shown}` has a member `{member}`, but it declares `throws`"
-                ))
-                .with_note(format!(
-                    "`< <= > >=` call `{member}` and compare its result against `0`; an operator has no way to report a failure, so a throwing `{member}` cannot satisfy `Comparable`"
-                )),
+            Unsatisfied::Throwing { member, operator } => {
+                let diag = diag.with_note(format!(
+                    "`{shown}` has a member `{member}`, but it throws more than the constraint allows"
+                ));
+
+                if operator {
+                    diag.with_note(format!(
+                        "`< <= > >=` call `{member}` and compare its result against `0`; an operator has no way to report a failure, so a throwing `{member}` cannot satisfy `Comparable`"
+                    ))
+                } else {
+                    diag.with_note(format!(
+                        "a call through the constraint charges what the member declares, so `{member}` cannot throw more than it"
+                    ))
+                }
+            }
         };
 
         self.error(diag);

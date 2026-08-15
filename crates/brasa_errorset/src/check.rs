@@ -65,7 +65,7 @@ use brasa_hir::{CatchArm, CatchType, ExprId, FuncDef, Hir, Item, Throws, ThrowsT
 use brasa_resolver::{DefRef, Resolutions};
 use brasa_source::Span;
 
-use crate::collect::{arm_tag, caught_tag, throws_tag};
+use crate::collect::{arm_tag, iface_member_tag, throws_tag};
 use crate::dump::{def_ref_name, tag_name};
 use crate::{ErrorSet, ErrorTag};
 
@@ -523,25 +523,4 @@ pub(crate) fn iface_throws_contracts(
             }
         }
     }
-}
-
-/// The tag one name of an interface member's `throws` clause stands
-/// for — [`crate::collect::throws_tag`]'s twin over the resolver's
-/// interface tables, which are keyed by the member's position rather
-/// than by a `DefRef` an interface member does not have.
-fn iface_member_tag(
-    hir: &Hir,
-    res: &Resolutions,
-    iface: brasa_hir::ItemId,
-    member: usize,
-    name: usize,
-) -> Option<ErrorTag> {
-    if let Some(&native) = res.iface_member_throws_natives.get(&(iface, member, name)) {
-        return Some(ErrorTag::Opaque(native));
-    }
-
-    res.iface_member_throws
-        .get(&(iface, member))
-        .and_then(|declared| declared.get(name).copied().flatten())
-        .and_then(|type_res| caught_tag(hir, type_res))
 }

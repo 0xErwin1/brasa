@@ -488,10 +488,25 @@ impl<'a> Collector<'a> {
                 | Type::ConcurrentScope
                 | Type::Task(_),
             ) => set.union_with(&self.hof_args(args)),
-            // A generic receiver dispatches through its constraint
-            // (indirect until BRS-25's per-call-site inheritance), and
-            // an unknown/absent receiver type is unknowable.
-            Some(Type::Fn { .. } | Type::Generic { .. } | Type::Unknown | Type::Never) | None => {
+            // A generic receiver dispatches through its constraint, and
+            // the constraint's own declaration bounds what that can
+            // throw (BRS-141). Charging the declared set needs the
+            // bound to be TRUE, which is what `E008` enforces for a
+            // struct candidate and `T027` for a builtin one — without
+            // both, this would infer `throws never` over a body that
+            // throws. The concrete method is still unknown and does not
+            // need to be: an upper bound is what inference wants.
+            Some(Type::Generic { owner, index }) => {
+                let (owner, index) = (*owner, *index);
+                set.union_with(&self.args(args));
+
+                match self.constraint_member_throws(owner, index, name) {
+                    Some(tags) => set.tags.extend(tags),
+                    None => set.open = true,
+                }
+            }
+            // An unknown/absent receiver type is unknowable.
+            Some(Type::Fn { .. } | Type::Unknown | Type::Never) | None => {
                 set.union_with(&self.args(args));
                 set.open = true;
             }
@@ -543,6 +558,45 @@ impl<'a> Collector<'a> {
         match self.res.expr_res.get(&recv) {
             Some(&Res::Local(local)) => self.tasks.by_local.get(&local).cloned(),
             _ => None,
+        }
+    }
+
+    /// What a call through a constrained generic receiver charges: the
+    /// tags the interface member declares (BRS-141).
+    ///
+    /// `None` means nothing bounds the call and the set opens, as it
+    /// always did — a builtin constraint, an inline one (anonymous, so
+    /// the resolver has nowhere to record its contracts), a member the
+    /// constraint does not declare, or a member with no `throws` clause
+    /// at all. A missing clause promises nothing, so a satisfying
+    /// method may throw anything and the caller must assume it does;
+    /// `throws never` promises the most and charges nothing.
+    fn constraint_member_throws(
+        &self,
+        owner: DefRef,
+        index: usize,
+        name: &str,
+    ) -> Option<std::collections::BTreeSet<ErrorTag>> {
+        let TypeRes::Item(iface) = self.res.constraint_res.get(&(owner, index)).copied()? else {
+            return None;
+        };
+        let Item::InterfaceDef(def) = self.hir.item(iface) else {
+            return None;
+        };
+
+        let member_index = def.methods.iter().position(|m| m.name == name)?;
+        let member = &def.methods[member_index];
+
+        match &member.throws {
+            None => None,
+            Some(brasa_hir::Throws::Never) => Some(std::collections::BTreeSet::new()),
+            Some(brasa_hir::Throws::Types(names)) => Some(
+                (0..names.len())
+                    .filter_map(|name_index| {
+                        iface_member_tag(self.hir, self.res, iface, member_index, name_index)
+                    })
+                    .collect(),
+            ),
         }
     }
 
@@ -736,4 +790,25 @@ pub(crate) fn caught_tag(hir: &Hir, res: TypeRes) -> Option<ErrorTag> {
         },
         TypeRes::GenericParam { .. } | TypeRes::SelfType => None,
     }
+}
+
+/// The tag one name of an interface member's `throws` clause stands
+/// for — [`crate::collect::throws_tag`]'s twin over the resolver's
+/// interface tables, which are keyed by the member's position rather
+/// than by a `DefRef` an interface member does not have.
+pub(crate) fn iface_member_tag(
+    hir: &Hir,
+    res: &Resolutions,
+    iface: brasa_hir::ItemId,
+    member: usize,
+    name: usize,
+) -> Option<ErrorTag> {
+    if let Some(&native) = res.iface_member_throws_natives.get(&(iface, member, name)) {
+        return Some(ErrorTag::Opaque(native));
+    }
+
+    res.iface_member_throws
+        .get(&(iface, member))
+        .and_then(|declared| declared.get(name).copied().flatten())
+        .and_then(|type_res| caught_tag(hir, type_res))
 }

@@ -5,5 +5,7 @@ expression: dump
 error sets
   Good.fetch -> {NetError}
   Free.peek -> {NetError}
-  fetchWith -> {} (open)
+  fetchWith -> {}
   peekWith -> {}
+  fetchRaw -> {NetError}
+  peekRaw -> {} (open)

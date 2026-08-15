@@ -1592,6 +1592,12 @@ let out = use(Bad { url: "x" })
 // that declares no clause promises nothing — so a method under it may
 // throw freely. Both directions in one fixture, since the check is only
 // worth having if it stays quiet here.
+//
+// The dump also shows what the check buys, and its limit. `fetchRaw`
+// calls through the bound without catching anything and its set is
+// exactly `{NetError}` — the member's contract bounds the call, where
+// before it opened. `peekRaw`'s member declares no clause, so a promise
+// nobody made cannot be charged and that one still opens.
 errorset_test!(
     a_satisfying_method_within_its_contract_is_accepted,
     r#"
@@ -1633,6 +1639,14 @@ def peekWith<T: Loose>(p: T): int
   p.peek() catch (e)
     _ => 0
   end
+end
+
+def fetchRaw<T: Fetcher>(f: T): string
+  f.fetch()
+end
+
+def peekRaw<T: Loose>(p: T): int
+  p.peek()
 end
 
 let a = fetchWith(Good { url: "x" })

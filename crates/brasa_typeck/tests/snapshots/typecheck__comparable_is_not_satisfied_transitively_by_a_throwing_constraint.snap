@@ -9,7 +9,7 @@ expression: rendered
     │   ─────┬─────  
     │        ╰─────── constraint not satisfied
     │ 
-    │ Note 1: `U` has a member `cmp`, but it declares `throws`
+    │ Note 1: `U` has a member `cmp`, but it throws more than the constraint allows
     │ 
     │ Note 2: `< <= > >=` call `cmp` and compare its result against `0`; an operator has no way to report a failure, so a throwing `cmp` cannot satisfy `Comparable`
 ────╯
