@@ -1880,8 +1880,9 @@ impl Vm<'_> {
     }
 
     /// `scope.spawn(block)`: registers the block and answers its task
-    /// handle. The block does NOT run here in this slice — see
-    /// [`Vm::run_task`] for the deferred-execution contract.
+    /// handle. The block does NOT run here: the scheduler starts it at
+    /// the next suspension point that drives this scope — see
+    /// [`Vm::begin_task`].
     fn spawn_task(&mut self, scope: GcRef, block: Value) -> VmResult {
         // `spawn` is a suspension point (spec: 08): a cancelled task
         // must not register work on a scope that is tearing down.

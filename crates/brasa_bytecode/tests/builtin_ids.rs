@@ -1,13 +1,26 @@
 //! The frozen `BuiltinId` assignment.
 //!
-//! `BuiltinId` values are positions in `brasa_bytecode::BUILTINS`, and
-//! every serialized module (`brasa bundle`) stores them, so the mapping
-//! is a wire format: appending is the only compatible change. This test
-//! carries the complete id-to-name mapping written out by hand, so a
-//! reordering, an insertion in the middle, or a removal fails here with
-//! the exact position that moved rather than at a user's next run.
+//! `BuiltinId` values are positions in `brasa_bytecode::BUILTINS`. This
+//! test carries the complete id-to-name mapping written out by hand, so
+//! a reordering, an insertion in the middle, or a removal fails here
+//! with the exact position that moved.
 //!
 //! Adding a builtin means appending one row at the end of both tables.
+//!
+//! What the pin actually defends, since the distinction decides how
+//! seriously to take a failure here:
+//!
+//! - **Not a wire format.** Bytecode is never serialized
+//!   (`brasa_bytecode::Module`, spec non-goal) and `brasa bundle` embeds
+//!   each module's SOURCE, recompiled at startup — so no id ever crosses
+//!   a process boundary. Within one build the code generator and the VM
+//!   read this same table, which makes any permutation internally
+//!   consistent: a reordering is a churn problem, not a correctness one.
+//! - **A review line per builtin.** Appending here is the diff that says
+//!   the surface grew, next to the registry row that grew it.
+//! - **Snapshot stability.** The disassembler prints the raw id
+//!   (`call_builtin b0, 1  ; puts`), so `brasa_bytecode` and
+//!   `brasa_codegen` goldens move with any renumbering.
 
 /// Every registered builtin: its id, its surface name, and whether the
 /// first pushed operand is the receiver.
