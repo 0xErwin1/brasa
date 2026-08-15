@@ -53,7 +53,7 @@ use std::rc::Rc;
 use brasa_bytecode::StructId;
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 
-use crate::value::{Caught, IterState, StructValue, Value};
+use crate::value::{Caught, IterState, ScopeState, StructValue, TaskState, Value};
 
 /// Default heap budget in bytes that arms the first collection; the
 /// bytes retained by each collection set the next budget via
@@ -107,6 +107,8 @@ fn cell_bytes(cell: &HeapCell) -> usize {
         HeapCell::Map(entries) => 2 * entries.borrow().len(),
         HeapCell::Struct(s) => s.fields.borrow().len(),
         HeapCell::Binding(_) => 1,
+        HeapCell::Scope(state) => state.borrow().tasks.len(),
+        HeapCell::Task(_) => 1,
         HeapCell::Free => return 0,
     };
 
@@ -167,6 +169,14 @@ pub(crate) enum HeapCell {
     /// binds it (module docs): rebinding the name writes here, so both
     /// sides read the same value.
     Binding(RefCell<Value>),
+    /// One `concurrent` scope (BRS-133): it GAINS a task handle on
+    /// every `spawn`, which is exactly the post-creation mutation that
+    /// puts a kind in the arena.
+    Scope(RefCell<ScopeState>),
+    /// One spawned task (BRS-133): its state mutates from the pending
+    /// block to the cached result or error, both arbitrary values the
+    /// tracer must reach.
+    Task(RefCell<TaskState>),
     Free,
 }
 
@@ -265,6 +275,14 @@ impl Heap {
         Value::Binding(self.alloc(HeapCell::Binding(RefCell::new(value))))
     }
 
+    pub(crate) fn alloc_scope(&mut self) -> Value {
+        Value::ConcurrentScope(self.alloc(HeapCell::Scope(RefCell::new(ScopeState::default()))))
+    }
+
+    pub(crate) fn alloc_task(&mut self, state: TaskState) -> Value {
+        Value::Task(self.alloc(HeapCell::Task(RefCell::new(state))))
+    }
+
     // --- access --------------------------------------------------------
 
     pub(crate) fn vector(&self, r: GcRef) -> &RefCell<Vec<Value>> {
@@ -299,6 +317,20 @@ impl Heap {
         match &self.cells[r.0 as usize] {
             HeapCell::Binding(value) => value,
             _ => unreachable!("GcRef kind mismatch: expected a binding"),
+        }
+    }
+
+    pub(crate) fn scope(&self, r: GcRef) -> &RefCell<ScopeState> {
+        match &self.cells[r.0 as usize] {
+            HeapCell::Scope(state) => state,
+            _ => unreachable!("GcRef kind mismatch: expected a scope"),
+        }
+    }
+
+    pub(crate) fn task(&self, r: GcRef) -> &RefCell<TaskState> {
+        match &self.cells[r.0 as usize] {
+            HeapCell::Task(state) => state,
+            _ => unreachable!("GcRef kind mismatch: expected a task"),
         }
     }
 
@@ -341,6 +373,22 @@ impl Heap {
         let result = edit(&mut cell.borrow_mut());
 
         self.recharge(2 * before, 2 * cell.borrow().len());
+        result
+    }
+
+    /// [`Heap::edit_vector`] for a scope cell, whose slot count is its
+    /// task list's length.
+    pub(crate) fn edit_scope<R>(
+        &self,
+        r: GcRef,
+        edit: impl FnOnce(&mut ScopeState) -> R,
+    ) -> R {
+        let cell = self.scope(r);
+        let before = cell.borrow().tasks.len();
+
+        let result = edit(&mut cell.borrow_mut());
+
+        self.recharge(before, cell.borrow().tasks.len());
         result
     }
 
@@ -419,7 +467,7 @@ impl Heap {
     /// their own slots or shared nodes — so the totals add up rather
     /// than double-counting a graph.
     pub(crate) fn census(&self) -> Vec<(&'static str, usize)> {
-        let mut counts = [0usize; 5];
+        let mut counts = [0usize; 7];
 
         for cell in &self.cells {
             match cell {
@@ -428,6 +476,8 @@ impl Heap {
                 HeapCell::Set(_) => counts[2] += 1,
                 HeapCell::Struct(_) => counts[3] += 1,
                 HeapCell::Binding(_) => counts[4] += 1,
+                HeapCell::Scope(_) => counts[5] += 1,
+                HeapCell::Task(_) => counts[6] += 1,
                 HeapCell::Free => {}
             }
         }
@@ -438,6 +488,8 @@ impl Heap {
             ("Set", counts[2]),
             ("struct", counts[3]),
             ("binding", counts[4]),
+            ("scope", counts[5]),
+            ("task", counts[6]),
         ]
         .into_iter()
         .filter(|(_, count)| *count > 0)
@@ -523,7 +575,9 @@ impl Heap {
             | Value::Map(r)
             | Value::Set(r)
             | Value::Struct(r)
-            | Value::Binding(r) => vec![*r],
+            | Value::Binding(r)
+            | Value::ConcurrentScope(r)
+            | Value::Task(r) => vec![*r],
             Value::Tuple(items) => items.iter().flat_map(Heap::cells_of).collect(),
             Value::Option(Some(inner)) => Heap::cells_of(inner),
             Value::Enum(e) => e.fields.iter().flat_map(Heap::cells_of).collect(),
@@ -543,6 +597,13 @@ impl Heap {
                 .collect(),
             HeapCell::Struct(s) => s.fields.borrow().clone(),
             HeapCell::Binding(value) => vec![value.borrow().clone()],
+            HeapCell::Scope(state) => state.borrow().tasks.clone(),
+            HeapCell::Task(state) => match &*state.borrow() {
+                TaskState::Pending(block) => vec![block.clone()],
+                TaskState::Running => Vec::new(),
+                TaskState::Done(value) => vec![value.clone()],
+                TaskState::Failed { error, .. } => vec![error.clone()],
+            },
             HeapCell::Free => Vec::new(),
         }
     }
@@ -666,7 +727,9 @@ impl Heap {
             | Value::Map(r)
             | Value::Set(r)
             | Value::Struct(r)
-            | Value::Binding(r) => {
+            | Value::Binding(r)
+            | Value::ConcurrentScope(r)
+            | Value::Task(r) => {
                 let slot = r.0 as usize;
 
                 if !mark.marked[slot] {
@@ -710,6 +773,17 @@ impl Heap {
                 }
             }
             HeapCell::Binding(value) => Heap::visit(mark, &value.borrow()),
+            HeapCell::Scope(state) => {
+                for task in &state.borrow().tasks {
+                    Heap::visit(mark, task);
+                }
+            }
+            HeapCell::Task(state) => match &*state.borrow() {
+                TaskState::Pending(block) => Heap::visit(mark, block),
+                TaskState::Running => {}
+                TaskState::Done(value) => Heap::visit(mark, value),
+                TaskState::Failed { error, .. } => Heap::visit(mark, error),
+            },
             HeapCell::Free => unreachable!("live values never reference a swept cell"),
         }
     }
@@ -798,7 +872,9 @@ fn shared_address(value: &Value) -> Option<usize> {
         | Value::Map(_)
         | Value::Set(_)
         | Value::Struct(_)
-        | Value::Binding(_) => return None,
+        | Value::Binding(_)
+        | Value::ConcurrentScope(_)
+        | Value::Task(_) => return None,
     };
 
     Some(address as usize)

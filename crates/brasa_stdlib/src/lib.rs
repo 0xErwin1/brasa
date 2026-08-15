@@ -135,6 +135,11 @@ pub enum RetDesc {
     /// the function argument, so it is known only after that argument is
     /// checked.
     VectorOfFnRet,
+    /// `Scope.spawn(fn() -> U) -> Task<U>` (BRS-133): the task's
+    /// element is the spawned block's return type — the same
+    /// argument-driven rule as [`RetDesc::VectorOfFnRet`], answering a
+    /// `Task` instead of a `Vector`.
+    TaskOfFnRet,
     /// The escape hatch: the checker owns both this member's result type
     /// AND whether it exists at all for a given receiver, because
     /// neither is expressible as data (`Vector.sort` exists only for
@@ -423,6 +428,9 @@ macro_rules! param {
 macro_rules! ret {
     (fnRetVector) => {
         $crate::RetDesc::VectorOfFnRet
+    };
+    (taskOfFnRet) => {
+        $crate::RetDesc::TaskOfFnRet
     };
     (custom) => {
         $crate::RetDesc::Custom
@@ -716,6 +724,7 @@ macro_rules! record_table {
 }
 
 pub mod cli;
+pub mod concurrent;
 pub mod env;
 pub mod fs;
 pub mod http;
@@ -731,6 +740,7 @@ pub mod string;
 pub mod time;
 pub mod vector;
 
+pub use concurrent::{SCOPE_METHODS, ScopeMember, TASK_METHODS, TaskMember};
 pub use map::{MAP_METHODS, MapMember};
 pub use num::{FLOAT_METHODS, FloatMember, INT_METHODS, IntMember};
 pub use set::{SET_METHODS, SetMember};
@@ -808,6 +818,8 @@ pub const RECEIVERS: &[(&str, RecvShape, &[MethodDecl])] = &[
     (MapMember::RECEIVER, MapMember::SHAPE, MAP_METHODS),
     (SetMember::RECEIVER, SetMember::SHAPE, SET_METHODS),
     (JsonAccessor::RECEIVER, JsonAccessor::SHAPE, JSON_ACCESSORS),
+    (ScopeMember::RECEIVER, ScopeMember::SHAPE, SCOPE_METHODS),
+    (TaskMember::RECEIVER, TaskMember::SHAPE, TASK_METHODS),
 ];
 
 /// Every stdlib record, by the name the checker displays.
@@ -942,18 +954,24 @@ mod tests {
     /// Only the receiver that declares a delegated row may have one.
     /// `RetDesc::Custom` hands the signature to a checker function that
     /// knows one receiver's rules, so a second table using it would
-    /// reach code written for the first.
+    /// reach code written for the first. The same holds per rule:
+    /// `TaskOfFnRet` is `Scope.spawn`'s (BRS-133), and a `Vector` row
+    /// using it would answer a `Task` from a vector method.
     #[test]
-    fn only_vector_delegates_a_method_signature() {
+    fn only_the_declaring_receiver_delegates_a_method_signature() {
         for (receiver, _, members) in RECEIVERS {
             for decl in *members {
-                if matches!(decl.ret, RetDesc::Custom | RetDesc::VectorOfFnRet) {
-                    assert_eq!(
-                        *receiver, "Vector",
-                        "`{receiver}.{}` delegates its signature, but only Vector's rules exist",
-                        decl.name
-                    );
-                }
+                let allowed = match decl.ret {
+                    RetDesc::Custom | RetDesc::VectorOfFnRet => "Vector",
+                    RetDesc::TaskOfFnRet => "Scope",
+                    RetDesc::Ty(_) => continue,
+                };
+
+                assert_eq!(
+                    *receiver, allowed,
+                    "`{receiver}.{}` delegates its signature, but only {allowed}'s rules exist",
+                    decl.name
+                );
             }
         }
     }
@@ -962,7 +980,7 @@ mod tests {
     /// than derived, because what `throws` decides is whether the
     /// checker accepts a caller's `throws` clause.
     #[test]
-    fn exactly_six_builtin_methods_throw() {
+    fn exactly_seven_builtin_methods_throw() {
         let throwing: Vec<_> = RECEIVERS
             .iter()
             .flat_map(|(receiver, _, members)| {
@@ -982,6 +1000,7 @@ mod tests {
                 "string.captures",
                 "string.replaceRe",
                 "string.scan",
+                "Scope.spawn",
             ],
             "the set of throwing builtin methods changed"
         );

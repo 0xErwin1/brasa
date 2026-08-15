@@ -911,6 +911,12 @@ impl<'a> Checker<'a> {
         }
 
         if let Expr::Ident(_) = hir.expr(callee)
+            && let Some(&Res::Builtin(BuiltinValue::Concurrent)) = self.res.expr_res.get(&callee)
+        {
+            return self.check_concurrent_call(span, callee, &args);
+        }
+
+        if let Expr::Ident(_) = hir.expr(callee)
             && let Some(Res::Builtin(builtin)) = self.res.expr_res.get(&callee)
         {
             // `puts`/`print` print any single value via the universal
@@ -1198,6 +1204,38 @@ impl<'a> Checker<'a> {
         Type::Unit
     }
 
+    /// `concurrent(fn(Scope) -> T) -> T` (spec: 08 — Concurrencia
+    /// estructurada, BRS-133): a prelude function whose one argument is
+    /// the scope body, and whose result is whatever that body answers —
+    /// the same argument-driven inference `Vector.map` uses for its
+    /// element.
+    fn check_concurrent_call(&mut self, span: Span, callee: ExprId, args: &[ExprId]) -> Type {
+        let body = Type::func(vec![Type::ConcurrentScope], Type::Unknown);
+
+        self.check_args(span, args, std::slice::from_ref(&body));
+
+        let ret = self.first_arg_fn_ret(args);
+        self.tables
+            .expr_types
+            .insert(callee, Type::func(vec![body], ret.clone()));
+
+        ret
+    }
+
+    /// The return type of a checked first argument that is a function,
+    /// or `Unknown`: what the argument-driven result rules
+    /// (`VectorOfFnRet`, `TaskOfFnRet`, `concurrent`) read after
+    /// [`Checker::check_args`] ran.
+    fn first_arg_fn_ret(&self, args: &[ExprId]) -> Type {
+        args.first()
+            .and_then(|arg| self.tables.expr_types.get(arg))
+            .and_then(|ty| match ty {
+                Type::Fn { ret, .. } => Some((**ret).clone()),
+                _ => None,
+            })
+            .unwrap_or(Type::Unknown)
+    }
+
     fn check_method_call(
         &mut self,
         span: Span,
@@ -1232,17 +1270,8 @@ impl<'a> Checker<'a> {
 
                 let ret = match sig.ret {
                     RetRule::Fixed(ty) => ty,
-                    RetRule::VectorOfFnRet => {
-                        let fn_ret = args
-                            .first()
-                            .and_then(|arg| self.tables.expr_types.get(arg))
-                            .and_then(|ty| match ty {
-                                Type::Fn { ret, .. } => Some((**ret).clone()),
-                                _ => None,
-                            })
-                            .unwrap_or(Type::Unknown);
-                        Type::vector(fn_ret)
-                    }
+                    RetRule::VectorOfFnRet => Type::vector(self.first_arg_fn_ret(args)),
+                    RetRule::TaskOfFnRet => Type::Task(Box::new(self.first_arg_fn_ret(args))),
                 };
 
                 self.tables
@@ -1616,6 +1645,7 @@ impl<'a> Checker<'a> {
                 let ret = match sig.ret {
                     RetRule::Fixed(ty) => ty,
                     RetRule::VectorOfFnRet => Type::vector(Type::Unknown),
+                    RetRule::TaskOfFnRet => Type::Task(Box::new(Type::Unknown)),
                 };
                 Type::func(sig.params, ret)
             }
@@ -4027,6 +4057,7 @@ fn fn_of_sig(sig: MethodSig) -> Type {
     let ret = match sig.ret {
         RetRule::Fixed(ty) => ty,
         RetRule::VectorOfFnRet => Type::vector(Type::Unknown),
+        RetRule::TaskOfFnRet => Type::Task(Box::new(Type::Unknown)),
     };
     Type::func(sig.params, ret)
 }

@@ -76,6 +76,11 @@ pub enum BuiltinValue {
     /// its own.
     Assert,
     AssertEq,
+    /// `concurrent(fn(Scope) -> T) -> T` (spec: 08 — Concurrencia
+    /// estructurada, BRS-133): a prelude function like `print` rather
+    /// than a module member, because it is language surface — opening a
+    /// scope reads like a control structure, not like a library call.
+    Concurrent,
 }
 
 impl BuiltinValue {
@@ -85,6 +90,7 @@ impl BuiltinValue {
             BuiltinValue::Print => "print",
             BuiltinValue::Assert => "assert",
             BuiltinValue::AssertEq => "assertEq",
+            BuiltinValue::Concurrent => "concurrent",
         }
     }
 }
@@ -201,6 +207,11 @@ pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 /// answer, not an error, so it is not here.
 pub const HTTP_REQUEST_ERROR: &str = "http.RequestError";
 
+/// The canonical qualified name of the native structured-concurrency
+/// scope error (spec: 08 — Concurrencia estructurada, BRS-133):
+/// `scope.spawn` after the scope's `concurrent` block returned.
+pub const CONCURRENT_SCOPE_EXITED: &str = "concurrent.ScopeExited";
+
 /// The canonical qualified name of the native `cli` usage error
 /// (spec: 05 — Stdlib de scripting, BRS-112): a command line the declaration
 /// does not accept. Catchable rather than a panic, because the script
@@ -228,6 +239,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     JSON_PARSE_ERROR,
     HTTP_REQUEST_ERROR,
     CLI_USAGE_ERROR,
+    CONCURRENT_SCOPE_EXITED,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace

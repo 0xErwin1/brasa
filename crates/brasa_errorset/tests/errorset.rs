@@ -1446,3 +1446,43 @@ struct Guarded
 end
 "##
 );
+
+// Structured concurrency (BRS-133): a spawned block's set surfaces at
+// the SPAWN site — the scope rethrows every unread failure before
+// `concurrent` returns, so the enclosing set is identical either way,
+// and the spawn site is where the lambda literal is syntactically
+// present. `spawn` itself contributes `concurrent.ScopeExited` from its
+// declaration, and the scope body's own set flows through the
+// `concurrent` call like any builtin HOF argument's.
+errorset_test!(
+    concurrent_and_spawn_flow_the_block_sets,
+    r#"
+struct TaskError
+  code: int
+end
+
+struct BodyError
+  code: int
+end
+
+def risky(): int
+  throw TaskError { code: 1 }
+end
+
+def viaTask(): int
+  concurrent do |scope|
+    let t = scope.spawn do risky() end
+    t.value()
+  end
+end
+
+def viaBody(flag: bool): int
+  concurrent do |scope|
+    if flag
+      throw BodyError { code: 2 }
+    end
+    7
+  end
+end
+"#
+);

@@ -28,6 +28,9 @@ pub enum RetRule {
     /// return type of the function argument, known only after the
     /// argument is checked.
     VectorOfFnRet,
+    /// `Scope.spawn(fn() -> U) -> Task<U>` (BRS-133): the same
+    /// argument-driven rule, answering a `Task` instead of a `Vector`.
+    TaskOfFnRet,
 }
 
 /// Whether `elem` can be a `sort` element or a `sortBy` key: the
@@ -73,6 +76,10 @@ pub fn method(recv: &Type, name: &str) -> Option<MethodSig> {
             params: params(),
             ret: RetRule::VectorOfFnRet,
         }),
+        RetDesc::TaskOfFnRet => Some(MethodSig {
+            params: params(),
+            ret: RetRule::TaskOfFnRet,
+        }),
         // The escape hatch: the checker owns both the signature AND
         // whether the member exists for this receiver at all.
         RetDesc::Custom => vector_custom_method(
@@ -109,6 +116,8 @@ fn receiver_table(recv: &Type) -> Option<(&'static [brasa_stdlib::MethodDecl], R
         Type::Option(inner) if **inner == Type::Json => {
             Some((brasa_stdlib::JSON_ACCESSORS, Recv::None))
         }
+        Type::ConcurrentScope => Some((brasa_stdlib::SCOPE_METHODS, Recv::None)),
+        Type::Task(elem) => Some((brasa_stdlib::TASK_METHODS, Recv::Elem(elem))),
         _ => None,
     }
 }

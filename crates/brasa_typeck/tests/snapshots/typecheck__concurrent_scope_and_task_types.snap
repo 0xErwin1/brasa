@@ -1,0 +1,59 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 total -> () -> int
+  i1 labels -> (Vector<string>) -> Vector<string>
+local types
+  l0 scope -> Scope
+  l1 t -> Task<int>
+  l2 spawner -> (() -> unknown) -> Task<unknown>
+  l3 reader -> () -> int
+  l4 names -> Vector<string>
+  l5 scope -> Scope
+  l6 name -> string
+  l7 tasks -> Vector<Task<string>>
+  l8 task -> Task<string>
+expr types
+  e0 -> ((Scope) -> unknown) -> int
+  e1 -> Scope
+  e2 -> (() -> unknown) -> Task<int>
+  e3 -> int
+  e4 -> () -> int
+  e5 -> Task<int>
+  e6 -> Scope
+  e7 -> (() -> unknown) -> Task<unknown>
+  e8 -> Task<int>
+  e9 -> () -> int
+  e10 -> Task<int>
+  e11 -> () -> int
+  e12 -> int
+  e13 -> Task<int>
+  e14 -> () -> int
+  e15 -> int
+  e16 -> int
+  e17 -> (Scope) -> int
+  e18 -> int
+  e19 -> ((Scope) -> unknown) -> Vector<string>
+  e20 -> Vector<string>
+  e21 -> ((string) -> unknown) -> Vector<Task<string>>
+  e22 -> Scope
+  e23 -> (() -> unknown) -> Task<string>
+  e24 -> string
+  e25 -> string
+  e26 -> string
+  e27 -> string
+  e28 -> () -> string
+  e29 -> Task<string>
+  e30 -> (string) -> Task<string>
+  e31 -> Vector<Task<string>>
+  e32 -> Vector<Task<string>>
+  e33 -> ((Task<string>) -> unknown) -> Vector<string>
+  e34 -> Task<string>
+  e35 -> () -> string
+  e36 -> string
+  e37 -> (Task<string>) -> string
+  e38 -> Vector<string>
+  e39 -> (Scope) -> Vector<string>
+  e40 -> Vector<string>

@@ -103,6 +103,57 @@ pub enum Value {
     /// plain pairs rather than as a `Map` value — so a plain [`Handle`]
     /// is a precise collector for it, exactly like [`Value::ProcOutput`].
     HttpResponse(Handle<ResponseValue>),
+    /// A structured-concurrency scope (spec: 08 — Concurrencia
+    /// estructurada, BRS-133): the value a `concurrent` block receives
+    /// and spawns through. An arena cell, NOT a frozen `Rc` record: it
+    /// gains a task handle on every `spawn`, and the tasks hold
+    /// arbitrary values the collector must trace — a frozen record here
+    /// would let a collection sweep a live task out from under the
+    /// scope.
+    ConcurrentScope(GcRef),
+    /// A spawned task handle (BRS-133): what `scope.spawn` answers and
+    /// `value()` reads through. An arena cell for the same reason the
+    /// scope is — its state MUTATES from pending block to cached
+    /// result, and both sides are arbitrary values the collector must
+    /// trace.
+    Task(GcRef),
+}
+
+/// The state of one spawned task (BRS-133), held in its arena cell.
+///
+/// In this slice the block runs lazily — at the first `value()` read,
+/// or at scope settling for never-read tasks. A later slice changes
+/// WHEN the transitions happen (a scheduler runs blocks eagerly), never
+/// what a reader observes: `value()` still answers the cached result or
+/// rethrows the cached error, at most one run per task.
+#[derive(Debug)]
+pub enum TaskState {
+    /// Registered but not run; holds the callable `spawn` was given.
+    Pending(Value),
+    /// The block is running right now (its callable taken out). A
+    /// `value()` read that finds this asked for a result that depends
+    /// on itself.
+    Running,
+    /// The block returned; every `value()` read answers this result.
+    Done(Value),
+    /// The block threw; every `value()` read rethrows this error.
+    /// `observed` records whether any read saw it — what scope settling
+    /// consults so no error is ever silently dropped.
+    Failed { error: Value, observed: bool },
+}
+
+/// The state of one `concurrent` scope (BRS-133), held in its arena
+/// cell: the task handles in spawn order, and whether the scope's
+/// block has already returned.
+#[derive(Debug, Default)]
+pub struct ScopeState {
+    /// Every spawned task, in spawn order — the order settling runs
+    /// them and picks the first unread failure to rethrow.
+    pub tasks: Vec<Value>,
+    /// Set when `concurrent` returns; a later `spawn` through a leaked
+    /// handle throws `concurrent.ScopeExited` instead of registering a
+    /// block nothing would ever settle.
+    pub exited: bool,
 }
 
 /// The payload of a [`Value::NativeError`]: the canonical qualified
@@ -436,6 +487,10 @@ fn eq(heap: &Heap, a: &Value, b: &Value, depth: usize, assumed: Option<&Assumed>
             x.name == y.name && x.message == y.message
         }
         (Value::Closure(x), Value::Closure(y)) => Rc::ptr_eq(x, y),
+        // Scope and task handles are identities, like closures: two
+        // handles are equal exactly when they name the same cell.
+        (Value::ConcurrentScope(x), Value::ConcurrentScope(y)) => x == y,
+        (Value::Task(x), Value::Task(y)) => x == y,
         (Value::BoundMethod(x), Value::BoundMethod(y)) => Rc::ptr_eq(x, y),
         (Value::BoundBuiltin(x), Value::BoundBuiltin(y)) => Rc::ptr_eq(x, y),
         (Value::ProcOutput(x), Value::ProcOutput(y)) => {

@@ -343,7 +343,10 @@ pub(crate) fn call(f: &mut FuncCx, callee: ExprId, args: &[ExprId], span: Span) 
             };
             assertion(f, builtin, args, span);
         }
-        // `puts`/`print` (spec: 05 — Stdlib de scripting).
+        // `puts`/`print` (spec: 05 — Stdlib de scripting) and
+        // `concurrent` (BRS-133): every remaining prelude function
+        // takes exactly one argument and compiles to its registered
+        // builtin.
         Expr::Ident(_) if matches!(f.cx.res.expr_res.get(&callee), Some(Res::Builtin(_))) => {
             let Some(Res::Builtin(builtin)) = f.cx.res.expr_res.get(&callee).copied() else {
                 unreachable!("guarded by the match arm");

@@ -1723,3 +1723,29 @@ let n = 1
 puts n.nope()
 "#
 );
+
+// Structured concurrency (BRS-133): `concurrent`'s result is the scope
+// body's return type, `spawn` answers a `Task` of its block's return
+// type, and `value()` unwraps it — the same argument-driven inference
+// `Vector.map` uses for its element. The bound reads pin the
+// value-position signatures too.
+typecheck_test!(
+    concurrent_scope_and_task_types,
+    r##"
+def total(): int
+  concurrent do |scope|
+    let t = scope.spawn do 21 end
+    let spawner = scope.spawn
+    let reader = t.value
+    t.value() + t.value()
+  end
+end
+
+def labels(names: Vector<string>): Vector<string>
+  concurrent do |scope|
+    let tasks = names.map(|name| scope.spawn do "#{name}!" end)
+    tasks.map(|task| task.value())
+  end
+end
+"##
+);

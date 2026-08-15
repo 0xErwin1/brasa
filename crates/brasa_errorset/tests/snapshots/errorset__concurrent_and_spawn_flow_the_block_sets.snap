@@ -1,0 +1,12 @@
+---
+source: crates/brasa_errorset/tests/errorset.rs
+expression: dump
+---
+error sets
+  risky -> {TaskError}
+  viaTask -> {TaskError, concurrent.ScopeExited}
+  viaBody -> {BodyError}
+lambda error sets
+  e7 -> {TaskError}
+  e12 -> {TaskError, concurrent.ScopeExited}
+  e19 -> {BodyError}

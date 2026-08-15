@@ -5107,6 +5107,24 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             format!("{rand}puts rand.shuffle([9])\n"),
             "[9]\n",
         ),
+        // Structured concurrency (BRS-133). Each snippet must reach its
+        // own entry, so `concurrent` alone leaves the scope unused.
+        (
+            "concurrent",
+            "puts concurrent(|scope| 5)\n".to_string(),
+            "5\n",
+        ),
+        (
+            "spawn",
+            "concurrent do |scope|\n  scope.spawn do puts \"spawned\" end\n  unit\nend\n"
+                .to_string(),
+            "spawned\n",
+        ),
+        (
+            "value",
+            "puts concurrent do |scope|\n  scope.spawn(|| 6).value()\nend\n".to_string(),
+            "6\n",
+        ),
     ]
 }
 
@@ -5220,4 +5238,264 @@ fn every_builtin_crosses_all_three_stdlib_layers() {
     }
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// --- structured concurrency (BRS-133) ----------------------------------
+//
+// This slice's scheduling is deferred execution: a spawned block runs
+// at its first `value()` read, or at scope settling for tasks never
+// read. A later slice replaces WHEN blocks run, never what these
+// programs observe — which is exactly why the observations are pinned
+// here.
+
+#[test]
+fn concurrent_spawn_and_value_happy_path() {
+    assert_success(
+        r##"
+let results = concurrent do |scope|
+  let a = scope.spawn do 1 + 2 end
+  let b = scope.spawn do "x".repeat(3) end
+  "#{a.value()} #{b.value()}"
+end
+puts results
+"##,
+        "3 xxx\n",
+    );
+}
+
+/// The block runs at most once: the second `value()` answers the
+/// cached result without rerunning it.
+#[test]
+fn value_read_twice_runs_the_block_once() {
+    assert_success(
+        r##"
+let n = concurrent do |scope|
+  let t = scope.spawn do
+    puts "ran"
+    21
+  end
+  t.value() + t.value()
+end
+puts n
+"##,
+        "ran\n42\n",
+    );
+}
+
+/// Tasks nobody read still run — at scope exit, in spawn order. A
+/// spawned block is work the program asked for, not a suggestion.
+#[test]
+fn never_read_tasks_run_at_scope_exit_in_spawn_order() {
+    assert_success(
+        r##"
+concurrent do |scope|
+  scope.spawn do puts "first" end
+  scope.spawn do puts "second" end
+  puts "body"
+end
+puts "after"
+"##,
+        "body\nfirst\nsecond\nafter\n",
+    );
+}
+
+/// Every task settles before the first unread failure (spawn order)
+/// rethrows out of `concurrent`: the second block still runs, and the
+/// FIRST error is the one that surfaces.
+#[test]
+fn unread_failures_rethrow_the_first_in_spawn_order() {
+    assert_success(
+        r##"
+struct FirstError
+  code: int
+end
+
+struct SecondError
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    puts "a"
+    throw FirstError { code: 1 }
+  end
+  scope.spawn do
+    puts "b"
+    throw SecondError { code: 2 }
+  end
+  "done"
+end catch (e)
+  FirstError => "caught first"
+  SecondError => "caught second"
+end
+puts out
+"##,
+        "a\nb\ncaught first\n",
+    );
+
+    // Uncaught, the same rethrow ends the run like any thrown error.
+    let outcome = assert_fails_silently(
+        r##"
+struct OnlyError
+  code: int
+end
+
+concurrent do |scope|
+  scope.spawn do throw OnlyError { code: 3 } end
+  unit
+end
+"##,
+    );
+    let Outcome::Error { message } = outcome else {
+        panic!("expected the task failure to propagate, got {outcome:?}");
+    };
+    assert_eq!(message, "error: OnlyError: OnlyError { code: 3 }");
+}
+
+/// `value()` on a failed task rethrows — the SAME error on every call —
+/// and a `catch` around the read observes it, which also marks it read:
+/// settling does not rethrow it again.
+///
+/// The arms are `_` on purpose. The error-set pass charges a spawned
+/// block's set at the SPAWN site (where the lambda is syntactically
+/// present), so a bare `value()` read contributes no named errors and a
+/// named arm around it is E001-unreachable; `_` catches what the read
+/// rethrows without claiming static knowledge the pass does not have.
+#[test]
+fn value_rethrows_the_same_error_on_every_read() {
+    assert_success(
+        r##"
+struct Boom
+  code: int
+end
+
+concurrent do |scope|
+  let t = scope.spawn do throw Boom { code: 7 } end
+  let first = t.value() catch (e)
+    _ => e.toString()
+  end
+  let second = t.value() catch (e)
+    _ => e.toString()
+  end
+  puts first
+  puts second
+end
+"##,
+        "Boom { code: 7 }\nBoom { code: 7 }\n",
+    );
+}
+
+/// A panic in a task is not an error: it propagates out of
+/// `concurrent` at the point the task runs, and the remaining unrun
+/// tasks are dropped.
+#[test]
+fn a_panic_in_a_task_propagates_and_drops_the_rest() {
+    let (outcome, stdout) = assert_parity(
+        r##"
+let z = 0
+concurrent do |scope|
+  scope.spawn do 1 / z end
+  scope.spawn do puts "never runs" end
+  puts "body done"
+end
+puts "after"
+"##,
+    );
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected the panic to propagate, got {outcome:?}");
+    };
+    assert!(
+        message.contains("panics.DivisionByZero"),
+        "unexpected panic: {message}"
+    );
+    assert_eq!(stdout, "body done\n");
+}
+
+/// A scope handle that escapes its `concurrent` block is harmless to
+/// hold, but spawning through it throws `concurrent.ScopeExited` —
+/// there is no scope left to ever settle the block.
+#[test]
+fn spawn_after_scope_exit_throws_scope_exited() {
+    assert_success(
+        r##"
+let s = concurrent do |scope| scope end
+let late = s.spawn(|| 1).value() catch (e)
+  concurrent.ScopeExited => -1
+end
+puts late
+"##,
+        "-1\n",
+    );
+
+    let outcome = assert_fails_silently(
+        r##"
+let s = concurrent do |scope| scope end
+s.spawn(|| 1)
+"##,
+    );
+    let Outcome::Error { message } = outcome else {
+        panic!("expected the late spawn to throw, got {outcome:?}");
+    };
+    assert_eq!(
+        message,
+        "error: concurrent.ScopeExited: cannot spawn on a scope whose `concurrent` block already returned"
+    );
+}
+
+/// A pending block and a cached result both live in arena cells the
+/// tracer walks through the scope and task. The hot-GC leg collects at
+/// essentially every allocation, so the churn on either side of the
+/// reads is what would sweep them if the trace arms were wrong.
+#[test]
+fn task_results_survive_collection() {
+    assert_success(
+        r##"
+struct Point
+  x: int
+  y: int
+end
+
+def churn(): int
+  let mut acc = 0
+  for i in 0..40
+    let garbage = [i, i, i]
+    acc = acc + garbage.len()
+  end
+  acc
+end
+
+let kept = concurrent do |scope|
+  let v = scope.spawn do [1, 2, 3] end
+  let p = scope.spawn do Point { x: 4, y: 5 } end
+  let before = churn()
+  let items = v.value()
+  let point = p.value()
+  let after = churn()
+  items.len() + point.x + point.y + before + after
+end
+puts kept
+"##,
+        "252\n",
+    );
+}
+
+/// Scopes nest: an inner `concurrent` settles inside the task of an
+/// outer one, and each scope settles only its own tasks.
+#[test]
+fn nested_concurrent_scopes() {
+    assert_success(
+        r##"
+let total = concurrent do |outer|
+  let t = outer.spawn do
+    concurrent do |inner|
+      let x = inner.spawn do 10 end
+      x.value() + 1
+    end
+  end
+  t.value() + 100
+end
+puts total
+"##,
+        "111\n",
+    );
 }

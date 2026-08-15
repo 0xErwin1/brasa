@@ -87,6 +87,7 @@ pub(crate) fn builtin_value(name: &str) -> Option<BuiltinValue> {
         "print" => Some(BuiltinValue::Print),
         "assert" => Some(BuiltinValue::Assert),
         "assertEq" => Some(BuiltinValue::AssertEq),
+        "concurrent" => Some(BuiltinValue::Concurrent),
         _ => None,
     }
 }
@@ -1789,6 +1790,10 @@ mod tests {
     fn prelude_values_resolve() {
         assert_eq!(builtin_value("puts"), Some(BuiltinValue::Puts));
         assert_eq!(builtin_value("print"), Some(BuiltinValue::Print));
+        assert_eq!(
+            builtin_value("concurrent"),
+            Some(BuiltinValue::Concurrent)
+        );
         assert_eq!(builtin_value("eval"), None);
     }
 

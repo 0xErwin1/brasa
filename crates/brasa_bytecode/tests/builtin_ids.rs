@@ -156,6 +156,9 @@ const PINNED: &[(u16, &str, bool)] = &[
     (141, "unreadable", true),
     (142, "fs.tryWalk", false),
     (143, "removePrefix", true),
+    (144, "concurrent", false),
+    (145, "spawn", true),
+    (146, "value", true),
 ];
 
 #[test]

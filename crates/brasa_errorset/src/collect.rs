@@ -30,7 +30,7 @@ use brasa_hir::{
     ArmBody, Block, CatchArm, CatchType, Expr, ExprId, Hir, IfNode, Item, ItemId, LambdaBody, Stmt,
     StmtId,
 };
-use brasa_resolver::{BuiltinType, DefRef, Res, Resolutions, TypeRes};
+use brasa_resolver::{BuiltinType, BuiltinValue, DefRef, Res, Resolutions, TypeRes};
 use brasa_typeck::{Type, TypeTables};
 
 use crate::{ErrorSet, ErrorTag, Primitive, check};
@@ -269,6 +269,22 @@ impl<'a> Collector<'a> {
 
         match self.hir.expr(callee) {
             Expr::Field { recv, name } => self.method_call(*recv, name, args),
+            // `concurrent(lambda)` is a builtin HOF in free-call
+            // position (BRS-133): the scope body runs inside the call,
+            // so its literal-lambda set flows here exactly as a
+            // `Vector.map` argument's does. Plain `args()` would record
+            // the lambda's set and drop it — a body that throws would
+            // escape `concurrent` invisibly. The pinned BRS-25 rule is
+            // untouched: it is about USER-defined callees, and
+            // `concurrent` is a builtin.
+            Expr::Ident(_)
+                if matches!(
+                    self.res.expr_res.get(&callee),
+                    Some(Res::Builtin(BuiltinValue::Concurrent))
+                ) =>
+            {
+                self.hof_args(args)
+            }
             Expr::Ident(_) => {
                 let mut set = self.args(args);
                 set.union_with(&self.ident_callee(callee));
@@ -344,17 +360,28 @@ impl<'a> Collector<'a> {
             // The throwing builtin methods, from the same declaration
             // their signatures come from (`brasa_stdlib`, BRS-96):
             // `string.toInt`/`toFloat` raise `string.ParseError`
-            // (BRS-41) and the regex four raise `string.RegexError`
-            // (BRS-31).
+            // (BRS-41), the regex four raise `string.RegexError`
+            // (BRS-31), and `Scope.spawn` raises
+            // `concurrent.ScopeExited` (BRS-133).
             //
             // This used to be two hand-written arms here, a table away
             // from the signatures they belong to. A method that started
             // throwing had to be remembered in both places, and
             // forgetting this one made `throws never` verifiable over a
             // body that throws.
+            //
+            // Arguments go through `hof_args`, not `args`: `spawn`'s
+            // literal lambda is INVOKED by the concurrency machinery,
+            // so its set must flow at this call site — the spawn site
+            // is where the lambda is syntactically present, and the
+            // scope rethrows every unread failure before `concurrent`
+            // returns, so the enclosing set is identical whether the
+            // block's errors are charged here or at `value()`. For the
+            // string methods the two are the same function: none takes
+            // a fn-typed argument.
             Some(recv) if !brasa_typeck::builtins::method_throws(recv, name).is_empty() => {
                 let recv = recv.clone();
-                set.union_with(&self.args(args));
+                set.union_with(&self.hof_args(args));
 
                 for error in brasa_typeck::builtins::method_throws(&recv, name) {
                     set.tags.insert(ErrorTag::Opaque(error));
@@ -386,7 +413,9 @@ impl<'a> Collector<'a> {
                 | Type::HttpResponse
                 | Type::CliArgs
                 | Type::Walk
-                | Type::Json,
+                | Type::Json
+                | Type::ConcurrentScope
+                | Type::Task(_),
             ) => set.union_with(&self.hof_args(args)),
             // A generic receiver dispatches through its constraint
             // (indirect until BRS-25's per-call-site inheritance), and

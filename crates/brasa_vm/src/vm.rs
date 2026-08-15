@@ -2219,6 +2219,8 @@ impl<'a> Vm<'a> {
             Value::CliArgs(_) => "Args".to_string(),
             Value::Walk(_) => "Walk".to_string(),
             Value::Json(_) => "Json".to_string(),
+            Value::ConcurrentScope(_) => "Scope".to_string(),
+            Value::Task(_) => "Task".to_string(),
             Value::Func(_) | Value::Closure(_) | Value::BoundMethod(_) | Value::BoundBuiltin(_) => {
                 "function".to_string()
             }

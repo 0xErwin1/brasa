@@ -15,11 +15,14 @@ use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
     ArgsMember, CliMember, EnvMember, FsMember, HttpMember, IoMember, JsonMember, MathMember,
-    OutputMember, ProcMember, RandMember, ResponseMember, TimeMember, VectorMember, WalkMember,
+    OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, TaskMember, TimeMember,
+    VectorMember, WalkMember,
 };
 
+use crate::heap::GcRef;
 use crate::value::{
-    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, Value, WalkValue, value_cmp, value_eq,
+    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, TaskState, Value, WalkValue,
+    value_cmp, value_eq,
 };
 use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
 
@@ -42,6 +45,7 @@ use brasa_stdlib::proc::{NON_ZERO_EXIT as PROC_NON_ZERO_EXIT, SPAWN_ERROR as PRO
 /// checker and the error-set pass read (BRS-96), for the reason the
 /// `proc` pair above gives.
 use brasa_stdlib::cli::USAGE_ERROR as CLI_USAGE_ERROR;
+use brasa_stdlib::concurrent::SCOPE_EXITED as CONCURRENT_SCOPE_EXITED;
 use brasa_stdlib::http::REQUEST_ERROR as HTTP_REQUEST_ERROR;
 
 impl Vm<'_> {
@@ -73,6 +77,7 @@ impl Vm<'_> {
                     ))),
                 }
             }
+            "concurrent" => self.concurrent_call(args),
             "<fatal>" => match args.into_iter().next() {
                 Some(Value::Str(message)) => Err(Signal::Fatal(message.to_string())),
                 _ => unreachable!("<fatal> always receives a message string"),
@@ -948,6 +953,8 @@ impl Vm<'_> {
                 let walk = walk.clone();
                 walk_builtin(&walk, name, &args)
             }
+            Value::ConcurrentScope(_) => self.scope_builtin(&recv, name, args),
+            Value::Task(_) => self.task_builtin(&recv, name, &args),
             Value::Json(tree) => {
                 let tree = tree.clone();
                 self.json_builtin(&tree, name, &args)
@@ -1603,6 +1610,229 @@ impl Vm<'_> {
                     .collect();
                 drop(other);
                 Ok(self.heap.alloc_set(OrderedSet::from_distinct_items(result)))
+            }
+            _ => Err(builtin_error(name)),
+        }
+    }
+
+    // --- structured concurrency (BRS-133) ------------------------------
+
+    /// `concurrent(fn(Scope) -> T) -> T` (spec: 08 — Concurrencia
+    /// estructurada): calls the body with a fresh scope, settles every
+    /// spawned task, and answers the body's result — after rethrowing
+    /// the first unread task failure, so no error is ever silently
+    /// dropped.
+    fn concurrent_call(&mut self, args: Vec<Value>) -> VmResult {
+        let mut args = args.into_iter();
+        let (Some(body), None) = (args.next(), args.next()) else {
+            return Err(Signal::Fatal(
+                "brasa: `concurrent` takes exactly 1 argument".to_string(),
+            ));
+        };
+
+        let scope = self.heap.alloc_scope();
+
+        // The scope is rooted for the whole call: the body and the
+        // settling both reenter compiled code, which can collect, and
+        // every task is reachable only through this cell.
+        let rooted = [scope.clone()];
+        let outcome = self.with_rooted(&rooted, |this| {
+            let result = this.call_callable(body, vec![scope.clone()])?;
+            this.settle_scope(&scope, result)
+        });
+
+        // Whatever happened — a settled scope, a body error that
+        // dropped its unrun tasks, a panic on the way out — the scope
+        // is over: a handle that escaped must fail a later `spawn`
+        // rather than register a block nothing would ever settle.
+        let Value::ConcurrentScope(cell) = &scope else {
+            unreachable!("alloc_scope answers a scope value");
+        };
+        self.heap.scope(*cell).borrow_mut().exited = true;
+
+        outcome
+    }
+
+    /// Settles a scope whose body answered `result` normally: runs
+    /// every task not yet run, in spawn order, then rethrows the FIRST
+    /// unread failure (spawn order) if any task failed without its
+    /// `value()` ever being called.
+    ///
+    /// Settling runs after all tasks have been given their run — a
+    /// failure does not cut the remaining tasks short, only a panic
+    /// does ([`Vm::run_task`]).
+    fn settle_scope(&mut self, scope: &Value, result: Value) -> VmResult {
+        let Value::ConcurrentScope(cell) = scope else {
+            unreachable!("settling reads a scope value");
+        };
+        let cell = *cell;
+
+        let rooted = [scope.clone(), result.clone()];
+        self.with_rooted(&rooted, |this| {
+            // By index rather than over a snapshot: the scope has not
+            // exited yet, so a settling block may spawn again, and
+            // those tasks must settle too.
+            let mut ix = 0;
+            loop {
+                let task = match this.heap.scope(cell).borrow().tasks.get(ix) {
+                    Some(task) => task.clone(),
+                    None => break,
+                };
+                ix += 1;
+
+                this.run_task(&task)?;
+            }
+
+            let tasks = this.heap.scope(cell).borrow().tasks.clone();
+            for task in &tasks {
+                let Value::Task(t) = task else {
+                    unreachable!("a scope holds task values only");
+                };
+
+                let mut state = this.heap.task(*t).borrow_mut();
+                if let TaskState::Failed { error, observed } = &mut *state
+                    && !*observed
+                {
+                    *observed = true;
+                    return Err(Signal::Error(error.clone()));
+                }
+            }
+
+            Ok(result.clone())
+        })
+    }
+
+    /// Runs a task's block if it has not run, caching the outcome; a
+    /// task that already settled is left as it is (the block runs at
+    /// most once).
+    ///
+    /// A thrown ERROR is cached as `Failed` and does not propagate from
+    /// here: `value()` rethrows it to its reader, and scope settling
+    /// rethrows the first unread one — an error never disappears, it
+    /// only waits for its surfacing point. A PANIC (or any other
+    /// signal) propagates immediately, and the remaining unrun tasks
+    /// are dropped with the scope.
+    ///
+    /// Deferred execution IS this slice's scheduling
+    /// (spec: 08 — Concurrencia estructurada, BRS-133): the block runs
+    /// at the first `value()` read, or at scope settling for tasks
+    /// never read — exactly the suspension points this slice has. A
+    /// later slice replaces WHEN blocks run (a scheduler may start them
+    /// eagerly and park readers), never what a reader observes.
+    fn run_task(&mut self, task: &Value) -> VmResult<()> {
+        let Value::Task(t) = task else {
+            unreachable!("running reads a task value");
+        };
+        let t = *t;
+
+        let block = {
+            let mut state = self.heap.task(t).borrow_mut();
+            match &*state {
+                TaskState::Done(_) | TaskState::Failed { .. } => return Ok(()),
+                TaskState::Running => {
+                    return Err(Signal::Fatal(
+                        "brasa: a task's value depends on itself".to_string(),
+                    ));
+                }
+                TaskState::Pending(_) => {
+                    let TaskState::Pending(block) =
+                        std::mem::replace(&mut *state, TaskState::Running)
+                    else {
+                        unreachable!("just matched Pending");
+                    };
+                    block
+                }
+            }
+        };
+
+        // The task cell is rooted across the run: the receiver was
+        // popped off the value stack before this builtin ran, and the
+        // block reenters compiled code, which can collect.
+        let rooted = [task.clone()];
+        let outcome = self.with_rooted(&rooted, |this| this.call_callable(block, vec![]));
+
+        match outcome {
+            Ok(value) => {
+                *self.heap.task(t).borrow_mut() = TaskState::Done(value);
+                Ok(())
+            }
+            Err(Signal::Error(error)) => {
+                *self.heap.task(t).borrow_mut() = TaskState::Failed {
+                    error,
+                    observed: false,
+                };
+                Ok(())
+            }
+            Err(other) => Err(other),
+        }
+    }
+
+    /// The `Scope` methods (BRS-133), dispatched through the declared
+    /// member enum like every receiver's.
+    fn scope_builtin(&mut self, recv: &Value, name: &str, args: Vec<Value>) -> VmResult {
+        let Value::ConcurrentScope(scope) = recv else {
+            return Err(builtin_error(name));
+        };
+        let scope = *scope;
+
+        let Some(member) = ScopeMember::from_name(name) else {
+            return Err(builtin_error(name));
+        };
+
+        match member {
+            ScopeMember::Spawn => match args.as_slice() {
+                [block] => self.spawn_task(scope, block.clone()),
+                _ => Err(builtin_error(name)),
+            },
+        }
+    }
+
+    /// `scope.spawn(block)`: registers the block and answers its task
+    /// handle. The block does NOT run here in this slice — see
+    /// [`Vm::run_task`] for the deferred-execution contract.
+    fn spawn_task(&mut self, scope: GcRef, block: Value) -> VmResult {
+        if self.heap.scope(scope).borrow().exited {
+            return Err(native_error(
+                CONCURRENT_SCOPE_EXITED,
+                "cannot spawn on a scope whose `concurrent` block already returned".to_string(),
+            ));
+        }
+
+        let task = self.heap.alloc_task(TaskState::Pending(block));
+        self.heap
+            .edit_scope(scope, |state| state.tasks.push(task.clone()));
+
+        Ok(task)
+    }
+
+    /// The `Task<T>` methods (BRS-133): `value` runs the block if it
+    /// has not run, then answers the cached result or rethrows the
+    /// cached error — the same error on every call.
+    fn task_builtin(&mut self, recv: &Value, name: &str, args: &[Value]) -> VmResult {
+        let Value::Task(t) = recv else {
+            return Err(builtin_error(name));
+        };
+        let t = *t;
+
+        let Some(member) = TaskMember::from_name(name) else {
+            return Err(builtin_error(name));
+        };
+
+        match (member, args) {
+            (TaskMember::Value, []) => {
+                self.run_task(recv)?;
+
+                let mut state = self.heap.task(t).borrow_mut();
+                match &mut *state {
+                    TaskState::Done(value) => Ok(value.clone()),
+                    TaskState::Failed { error, observed } => {
+                        *observed = true;
+                        Err(Signal::Error(error.clone()))
+                    }
+                    TaskState::Pending(_) | TaskState::Running => {
+                        unreachable!("run_task settled the task or reported")
+                    }
+                }
             }
             _ => Err(builtin_error(name)),
         }

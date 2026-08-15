@@ -86,6 +86,18 @@ pub enum Type {
     /// Opaque in v1 — no constructors and no patterns; access goes
     /// through Option-yielding indexing and the `as*` accessors.
     Json,
+    /// The compiler-known `Scope` a `concurrent` block receives
+    /// (spec: 08 — Concurrencia estructurada, BRS-133). Concrete like
+    /// the native records — not user-constructible, not a pattern, and
+    /// not annotatable: values only come from `concurrent` calling the
+    /// block.
+    ConcurrentScope,
+    /// The compiler-known `Task<T>` handle `scope.spawn` answers
+    /// (BRS-133): generic over the spawned block's return type, like
+    /// `Vector<T>` over its element. Not user-constructible, not a
+    /// pattern, and not annotatable in this slice — the element is
+    /// always inferred from the `spawn` argument.
+    Task(Box<Type>),
 }
 
 /// How one `Expr::OptionWrap` node resolved: `?.` flattens, so the
@@ -163,6 +175,8 @@ impl Type {
             Type::CliArgs => "Args".to_string(),
             Type::Walk => "Walk".to_string(),
             Type::Json => "Json".to_string(),
+            Type::ConcurrentScope => "Scope".to_string(),
+            Type::Task(elem) => format!("Task<{}>", elem.display(hir)),
         }
     }
 }
@@ -221,6 +235,7 @@ pub fn unify(a: &Type, b: &Type) -> Option<Type> {
         (Type::Never, other) | (other, Type::Never) => Some(other.clone()),
         (Type::Vector(x), Type::Vector(y)) => Some(Type::Vector(Box::new(unify(x, y)?))),
         (Type::Set(x), Type::Set(y)) => Some(Type::Set(Box::new(unify(x, y)?))),
+        (Type::Task(x), Type::Task(y)) => Some(Type::Task(Box::new(unify(x, y)?))),
         (Type::Option(x), Type::Option(y)) => Some(Type::Option(Box::new(unify(x, y)?))),
         (Type::Map(ka, va), Type::Map(kb, vb)) => Some(Type::Map(
             Box::new(unify(ka, kb)?),
@@ -284,6 +299,7 @@ pub(crate) fn substitute(ty: &Type, map: &HashMap<(DefRef, usize), Type>) -> Typ
             .unwrap_or_else(|| ty.clone()),
         Type::Vector(elem) => Type::Vector(Box::new(substitute(elem, map))),
         Type::Set(elem) => Type::Set(Box::new(substitute(elem, map))),
+        Type::Task(elem) => Type::Task(Box::new(substitute(elem, map))),
         Type::Option(inner) => Type::Option(Box::new(substitute(inner, map))),
         Type::Map(key, value) => Type::Map(
             Box::new(substitute(key, map)),

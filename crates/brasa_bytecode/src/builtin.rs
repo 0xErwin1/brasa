@@ -233,6 +233,12 @@ pub const BUILTINS: &[BuiltinDef] = &[
     // Vector arm rather than a new entry — ids are shared across
     // receiver kinds — so only the new string method lands here.
     method("removePrefix"),
+    // Structured concurrency (BRS-133): appended, never reordered.
+    // `concurrent` is a prelude-style free builtin like `print`;
+    // `spawn` and `value` are the `Scope`/`Task` receiver methods.
+    free("concurrent"),
+    method("spawn"),
+    method("value"),
 ];
 
 /// Looks up a builtin by its stable name.

@@ -305,7 +305,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Dot => {
                     self.bump();
-                    let name = self.expect_ident_text("a field or method name");
+                    let name = self.expect_member_name();
 
                     if self.at(TokenKind::LParen) {
                         let callee = self.ast.alloc_expr(
@@ -337,7 +337,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::QuestionDot => {
                     self.bump();
-                    let name = self.expect_ident_text("a field or method name");
+                    let name = self.expect_member_name();
 
                     let args = if self.at(TokenKind::LParen) {
                         Some(self.parse_call_args_with_optional_do())
@@ -596,6 +596,21 @@ impl<'a> Parser<'a> {
                 self.ast.alloc_expr(Expr::Unit, start)
             }
         }
+    }
+
+    /// A member name after `.` or `?.`: an ordinary identifier, or the
+    /// reserved `spawn` keyword. The grammar reserves `spawn` for
+    /// structured concurrency, and its one surface position is exactly
+    /// a member name — `scope.spawn`
+    /// (spec: 08 — Concurrencia estructurada, BRS-133) — so member
+    /// position is the one place the keyword reads as a name.
+    fn expect_member_name(&mut self) -> String {
+        if self.at(TokenKind::Spawn) {
+            self.bump();
+            return "spawn".to_string();
+        }
+
+        self.expect_ident_text("a field or method name")
     }
 
     /// Whether the token after the cursor is a type name — the second

@@ -198,6 +198,11 @@ impl<'a> Vm<'a> {
             }
             Value::Func(func) => Ok(format!("<function {}>", self.function(*func).name)),
             Value::Closure(_) => Ok("<lambda>".to_string()),
+            // Handles render as markers, like the callables: a scope
+            // is machinery, and a task's result is read through
+            // `value()`, not through printing the handle (BRS-133).
+            Value::ConcurrentScope(_) => Ok("<scope>".to_string()),
+            Value::Task(_) => Ok("<task>".to_string()),
             Value::BoundMethod(_) | Value::BoundBuiltin(_) => Ok("<bound method>".to_string()),
             // Only the message: the uncaught-error path prepends the
             // nominal tag itself, producing `error: string.ParseError:
