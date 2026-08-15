@@ -29,6 +29,7 @@
 mod builtins;
 mod display;
 mod heap;
+mod json_build;
 mod value;
 mod vm;
 

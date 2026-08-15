@@ -3,9 +3,9 @@ source: crates/brasa_errorset/tests/errorset.rs
 expression: rendered
 ---
 [E001] Error: unreachable `catch` arm: `json.ParseError` is not in the error-set here
-   ╭─[ e001_unreachable_json_arm.bras:6:5 ]
+   ╭─[ e001_unreachable_json_arm.bras:7:5 ]
    │
- 6 │     json.ParseError => "unused"
+ 7 │     json.ParseError => "unused"
    │     ───────┬───────  
    │            ╰───────── this expression cannot throw `json.ParseError`
 ───╯

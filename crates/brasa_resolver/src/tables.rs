@@ -201,6 +201,12 @@ pub const FS_IO_ERROR: &str = "fs.IoError";
 /// input is not valid JSON).
 pub const JSON_PARSE_ERROR: &str = "json.ParseError";
 
+/// The canonical qualified name of the native `json` value error
+/// (spec: 05 — Stdlib de scripting, BRS-34: `json.of` and
+/// `json.stringify` throw it for a language value that has no JSON
+/// representation).
+pub const JSON_VALUE_ERROR: &str = "json.ValueError";
+
 /// The canonical qualified name of the native `http` request error
 /// (spec: 05 — Stdlib de scripting, BRS-113): a request that never produced a
 /// response — DNS, connection, TLS, or timeout. A non-2xx status is an
@@ -244,6 +250,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     FS_DENIED,
     FS_IO_ERROR,
     JSON_PARSE_ERROR,
+    JSON_VALUE_ERROR,
     HTTP_REQUEST_ERROR,
     CLI_USAGE_ERROR,
     CONCURRENT_SCOPE_EXITED,

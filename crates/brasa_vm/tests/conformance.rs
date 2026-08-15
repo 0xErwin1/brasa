@@ -3912,6 +3912,142 @@ fn json_uncaught_parse_error_message_matches() {
     );
 }
 
+/// The write side (`json.of`) over a nested value, and the equivalence
+/// that widening `stringify` buys: `stringify(x)` is
+/// `stringify(of(x))`. Object members come out bytewise-sorted whatever
+/// order the value held them in, exactly as they do after a `parse`.
+#[test]
+fn json_of_builds_a_tree_from_a_nested_value() {
+    assert_success(
+        r##"
+import std::json
+
+struct Point
+  x: int
+  y: float
+end
+
+struct Report
+  at: Point
+  tags: Set<string>
+  note: string
+end
+
+let scores: Map<string, Vector<int>> = { "b": [2, 3], "a": [1] }
+puts json.of(scores)
+puts json.stringify(scores) == json.stringify(json.of(scores))
+
+let report = Report { at: Point { x: 0, y: 1.5 }, tags: Set(["z", "a"]), note: "ok" }
+puts json.stringify(report)
+"##,
+        "{\"a\":[1],\"b\":[2,3]}\ntrue\n\
+         {\"at\":{\"x\":0,\"y\":1.5},\"note\":\"ok\",\"tags\":[\"z\",\"a\"]}\n",
+    );
+}
+
+/// Every scalar the mapping accepts, including the three that JSON has
+/// no kind of its own for: a char is a one-character string, and both
+/// `unit` and `None` are `null`.
+#[test]
+fn json_of_maps_every_scalar_kind() {
+    assert_success(
+        r##"
+import std::json
+
+let absent: Option<int> = None
+puts json.stringify([1, 2])
+puts json.stringify(2.5)
+puts json.stringify(true)
+puts json.stringify("a \"quoted\" line\n")
+puts json.stringify('c')
+puts json.stringify(unit)
+puts json.stringify(absent)
+puts json.stringify(Some(7))
+puts json.stringify((1, "a"))
+puts json.stringify(json.parse("{\"k\": [1]}"))
+"##,
+        "[1,2]\n2.5\ntrue\n\"a \\\"quoted\\\" line\\n\"\n\"c\"\nnull\nnull\n7\n[1,\"a\"]\n{\"k\":[1]}\n",
+    );
+}
+
+/// The four rejections, each catchable as `json.ValueError` and each
+/// naming what it refused.
+#[test]
+fn json_of_rejects_values_without_a_representation() {
+    assert_success(
+        r##"
+import std::json
+
+enum Color
+  Red
+  Green
+end
+
+def noop()
+end
+
+let keyed: Map<int, string> = { 1: "a" }
+
+puts json.stringify(1.0 / 0.0) catch (e)
+  json.ValueError => e.message
+end
+puts json.stringify(keyed) catch (e)
+  json.ValueError => e.message
+end
+puts json.stringify(noop) catch (e)
+  json.ValueError => e.message
+end
+puts json.stringify(Red) catch (e)
+  json.ValueError => e.message
+end
+"##,
+        "cannot convert to JSON: `inf` is not a finite number\n\
+         cannot convert to JSON: a Map keyed by `int` has no JSON representation, \
+         because JSON object keys are strings\n\
+         cannot convert to JSON: a value of type `function` has no JSON representation\n\
+         cannot convert to JSON: a value of type `Color` has no JSON representation\n",
+    );
+}
+
+/// A value that reaches itself is refused instead of taking the host
+/// stack down: the walk is depth-bounded, since a JSON tree is finite
+/// by construction and there is nothing to render in a cycle's place.
+#[test]
+fn json_of_refuses_a_self_referencing_value() {
+    assert_success(
+        r##"
+import std::json
+
+struct Node
+  v: Vector<Node>
+end
+
+let a = Node { v: [] }
+a.v.push(a)
+
+puts json.stringify(a) catch (e)
+  json.ValueError => e.message
+end
+"##,
+        "cannot convert to JSON: value nested deeper than 128 levels\n",
+    );
+}
+
+/// An uncaught rejection carries the nominal tag, like an uncaught
+/// parse failure does.
+#[test]
+fn json_uncaught_value_error_message_matches() {
+    let (outcome, stdout) = assert_parity("import std::json\njson.of(1.0 / 0.0)\n");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        outcome,
+        Outcome::Error {
+            message: "error: json.ValueError: cannot convert to JSON: `inf` is not a finite number"
+                .to_string()
+        }
+    );
+}
+
 // --- BRS-35: collection surfaces, math/time/rand closure --------------
 
 #[test]
@@ -5149,6 +5285,11 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "json.parse",
             format!("{json}puts json.parse(\"1\")\n"),
             "1\n",
+        ),
+        (
+            "json.of",
+            format!("{json}puts json.of([1, 2])\n"),
+            "[1,2]\n",
         ),
         (
             "json.stringify",

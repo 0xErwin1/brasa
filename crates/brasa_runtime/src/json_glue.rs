@@ -17,8 +17,11 @@
 //!   `stringify`, `toString`, and `asObject` iteration. The source
 //!   document's member order is not preserved (deterministic output
 //!   was ruled more valuable than input fidelity).
-//! - `stringify` emits compact JSON (no whitespace). It never fails:
-//!   a parsed tree contains no non-finite numbers.
+//! - `stringify` emits compact JSON (no whitespace). It never fails,
+//!   because no tree can hold a non-finite number: `parse` cannot read
+//!   one, and the builders below refuse to make one. That invariant
+//!   used to be a property of parsing alone; since `json.of` builds
+//!   trees out of language values, it is the builders that maintain it.
 //! - Indexing is TOTAL: a missing key, an out-of-range or negative
 //!   position, or a receiver of the wrong JSON kind is `None`, never a
 //!   panic — the Option-yielding chain is the module's whole point.
@@ -28,10 +31,15 @@
 //!   semantics). A JSON `2.0` is a float, not an int — no coercions.
 //! - `parse` failures raise the native `json.ParseError`; the message
 //!   carries serde_json's rendering, which includes line and column.
+//! - A value that has no JSON representation raises the native
+//!   `json.ValueError`. Deciding WHICH values those are needs a
+//!   backend's value representation, so the walk lives in the backend;
+//!   what lives here is the node construction it walks into, and the
+//!   one rejection the tree type itself imposes (non-finite numbers).
 
 use std::rc::Rc;
 
-use brasa_resolver::JSON_PARSE_ERROR;
+use brasa_resolver::{JSON_PARSE_ERROR, JSON_VALUE_ERROR};
 
 /// The shared JSON tree node both backends wrap in their `Value::Json`
 /// variant.
@@ -41,7 +49,8 @@ pub type JsonValue = serde_json::Value;
 pub type JsonRef = Rc<JsonValue>;
 
 /// One failed JSON operation: the qualified native-error name
-/// (`json.ParseError`) and its message.
+/// (`json.ParseError` reading, `json.ValueError` writing) and its
+/// message.
 #[derive(Debug)]
 pub struct JsonError {
     pub name: &'static str,
@@ -57,8 +66,66 @@ pub fn parse(text: &str) -> Result<JsonRef, JsonError> {
         })
 }
 
+/// Renders a tree as compact JSON.
+///
+/// The `expect` is discharged by the module invariant: serialization
+/// can only fail on a non-finite number, and no tree holds one —
+/// [`parse`] cannot read one and [`from_float`] refuses to build one.
+/// Every other node kind serializes unconditionally.
 pub fn stringify(value: &JsonValue) -> String {
-    serde_json::to_string(value).expect("a parsed JSON tree always serializes")
+    serde_json::to_string(value).expect("no JSON tree holds a non-finite number")
+}
+
+/// A `json.ValueError` a backend's walk raises for a value it has no
+/// mapping for. The name is fixed here so both sides of the module
+/// spell it once.
+pub fn value_error(message: String) -> JsonError {
+    JsonError {
+        name: JSON_VALUE_ERROR,
+        message,
+    }
+}
+
+pub fn null() -> JsonValue {
+    JsonValue::Null
+}
+
+pub fn from_bool(value: bool) -> JsonValue {
+    JsonValue::Bool(value)
+}
+
+pub fn from_int(value: i64) -> JsonValue {
+    JsonValue::Number(value.into())
+}
+
+/// A JSON number from a float, rejecting the non-finite ones.
+///
+/// This is the guard that keeps [`stringify`] infallible: JSON has no
+/// spelling for `NaN` or an infinity, so `serde_json::Number` refuses
+/// to hold one and a tree that contained one could not be rendered.
+pub fn from_float(value: f64) -> Result<JsonValue, JsonError> {
+    serde_json::Number::from_f64(value)
+        .map(JsonValue::Number)
+        .ok_or_else(|| {
+            value_error(format!(
+                "cannot convert to JSON: `{value}` is not a finite number"
+            ))
+        })
+}
+
+pub fn from_string(text: &str) -> JsonValue {
+    JsonValue::String(text.to_string())
+}
+
+pub fn from_items(items: Vec<JsonValue>) -> JsonValue {
+    JsonValue::Array(items)
+}
+
+/// A JSON object from `(key, member)` pairs. The pairs land in the
+/// sorted map the module docs describe, so the emitted member order is
+/// bytewise regardless of the order they arrive in.
+pub fn from_members(members: Vec<(String, JsonValue)>) -> JsonValue {
+    JsonValue::Object(members.into_iter().collect())
 }
 
 /// Object member lookup: `Some` copy of the member subtree, `None` for
@@ -115,7 +182,10 @@ pub fn is_null(value: &JsonValue) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{as_float, as_int, index_key, index_position, parse, stringify};
+    use super::{
+        as_float, as_int, from_bool, from_float, from_int, from_items, from_members, from_string,
+        index_key, index_position, null, parse, stringify,
+    };
 
     #[test]
     fn stringify_is_compact_with_sorted_keys() {
@@ -160,5 +230,56 @@ mod tests {
         let float_node = index_position(&tree, 1).expect("element exists");
         assert_eq!(as_int(&float_node), None);
         assert_eq!(as_float(&float_node), Some(2.0));
+    }
+
+    /// A built tree renders exactly like a parsed one, sorted members
+    /// included: the two sides of the module produce the same trees.
+    #[test]
+    fn built_trees_render_like_parsed_ones() {
+        let tree = from_members(vec![
+            ("b".to_string(), from_int(1)),
+            (
+                "a".to_string(),
+                from_items(vec![from_bool(true), null(), from_string("x")]),
+            ),
+        ]);
+
+        assert_eq!(stringify(&tree), r#"{"a":[true,null,"x"],"b":1}"#);
+        assert_eq!(
+            stringify(&tree),
+            stringify(&parse(r#"{"a": [true, null, "x"], "b": 1}"#).expect("valid JSON"))
+        );
+    }
+
+    /// An int and a float stay different numbers on the way in, the
+    /// way `numbers_do_not_coerce` shows they do on the way out.
+    #[test]
+    fn built_numbers_keep_their_kind() {
+        assert_eq!(stringify(&from_int(2)), "2");
+        assert_eq!(
+            stringify(&from_float(2.0).expect("finite")),
+            stringify(&parse("2.0").expect("valid JSON"))
+        );
+    }
+
+    /// The invariant `stringify`'s `expect` rests on: a non-finite
+    /// number is refused at build time, so no tree can hold one.
+    #[test]
+    fn non_finite_floats_are_refused_at_build_time() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err = from_float(value).expect_err("not representable");
+
+            assert_eq!(err.name, "json.ValueError");
+            assert!(
+                err.message.starts_with("cannot convert to JSON: "),
+                "unexpected message: {}",
+                err.message
+            );
+        }
+
+        assert_eq!(
+            from_float(f64::NAN).expect_err("not representable").message,
+            "cannot convert to JSON: `NaN` is not a finite number"
+        );
     }
 }

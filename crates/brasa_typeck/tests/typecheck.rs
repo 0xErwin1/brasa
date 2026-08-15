@@ -1475,7 +1475,7 @@ import std::json
 import std::io
 
 json.parse(42)
-json.stringify("not json")
+json.stringify()
 json.decode("typed bridge is v2")
 io.readLine("no args")
 io.nope()

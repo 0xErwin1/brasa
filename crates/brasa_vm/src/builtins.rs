@@ -753,9 +753,11 @@ impl Vm<'_> {
     }
 
     /// The `std::json` members, dispatched through the declaration in
-    /// `brasa_stdlib::json` (BRS-96, BRS-34); all JSON behavior lives
-    /// in the shared `brasa_runtime::json_glue`, only value
-    /// construction happens here.
+    /// `brasa_stdlib::json` (BRS-96, BRS-34); JSON behavior lives in
+    /// the shared `brasa_runtime::json_glue`, only value construction
+    /// happens here. The one exception is the write side's walk
+    /// ([`Self::json_of`], `crate::json_build`), which reads arena
+    /// handles no backend-agnostic crate can see.
     ///
     /// Exhaustive over the declared surface like [`Self::fs_call`], so
     /// a member added to the table does not compile until it is
@@ -776,8 +778,23 @@ impl Vm<'_> {
                 },
                 _ => Err(invalid()),
             },
+            JsonMember::Of => match args.as_slice() {
+                [value] => {
+                    let value = value.clone();
+                    Ok(Value::Json(Rc::new(self.json_of(&value)?)))
+                }
+                _ => Err(invalid()),
+            },
             JsonMember::Stringify => match args.as_slice() {
+                // A tree renders straight: building it again would deep
+                // copy a document only to render the copy.
                 [Value::Json(tree)] => Ok(Value::str(json_glue::stringify(tree))),
+                [value] => {
+                    let value = value.clone();
+                    let tree = self.json_of(&value)?;
+
+                    Ok(Value::str(json_glue::stringify(&tree)))
+                }
                 _ => Err(invalid()),
             },
         }

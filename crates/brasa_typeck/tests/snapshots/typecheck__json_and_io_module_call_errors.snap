@@ -9,12 +9,12 @@ expression: rendered
    │            ─┬  
    │             ╰── expected `string`
 ───╯
-[T001] Error: mismatched types: expected `Json`, found `string`
-   ╭─[ json_and_io_module_call_errors.bras:6:16 ]
+[T005] Error: wrong number of arguments: expected 1, found 0
+   ╭─[ json_and_io_module_call_errors.bras:6:1 ]
    │
- 6 │ json.stringify("not json")
-   │                ─────┬────  
-   │                     ╰────── expected `Json`
+ 6 │ json.stringify()
+   │ ────────┬───────  
+   │         ╰───────── expected 1 argument(s)
 ───╯
 [T007] Error: module `json` has no member `decode`
    ╭─[ json_and_io_module_call_errors.bras:7:1 ]

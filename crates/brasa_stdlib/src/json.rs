@@ -1,7 +1,21 @@
 //! The `std::json` member surface (spec: 05 — Stdlib de scripting, BRS-34).
 //!
-//! A free module like [`crate::fs`], and the smallest one: two members
-//! that convert between a `string` and the compiler-known `Json` tree.
+//! A free module like [`crate::fs`], and one of the smallest: three
+//! members that convert between the language's values, a `string`, and
+//! the compiler-known `Json` tree.
+//!
+//! The module reads AND writes. `parse` is the read side; `of` is its
+//! mirror, building a `Json` tree out of a language value, and
+//! `stringify` renders one. Because `of` exists, `stringify` takes any
+//! value rather than only a `Json`: `stringify(x)` is `stringify(of(x))`
+//! for everything that is not already a tree, so a script that produces
+//! JSON never has to hand-roll escaping.
+//!
+//! Not every language value has a JSON representation, so both writers
+//! raise [`VALUE_ERROR`]. What converts and what does not is fixed by
+//! the backend that implements the walk (`brasa_vm`), which is the only
+//! layer that can read a value's contents; this table only declares
+//! that the two members can fail.
 //!
 //! The `Json` ACCESSORS are methods on a `Json` receiver rather than
 //! members of the module, so they are a second table below.
@@ -15,19 +29,33 @@
 /// `json.ParseError`: the input is not valid JSON.
 pub const PARSE_ERROR: &str = "json.ParseError";
 
-/// The one error this module raises, spelled as a list so a row can
-/// name it the way the `fs` rows name theirs.
+/// The read side's error, spelled as a list so a row can name it the
+/// way the `fs` rows name theirs.
 pub const PARSE_ERRORS: &[&str] = &[PARSE_ERROR];
+
+/// `json.ValueError`: a language value that has no JSON representation.
+pub const VALUE_ERROR: &str = "json.ValueError";
+
+/// The write side's error, as a list for the reason [`PARSE_ERRORS`] is
+/// one.
+pub const VALUE_ERRORS: &[&str] = &[VALUE_ERROR];
 
 crate::module_table! {
     /// Every `std::json` member, in declaration order.
     JsonMember => JSON_MEMBERS, module "json" {
-        Parse     "parse"     (string) -> json   throws PARSE_ERRORS;
+        Parse     "parse"     (string)  -> json   throws PARSE_ERRORS;
 
-        /// Takes a `Json` value rather than an arbitrary language value:
-        /// serializing a struct or a vector is a v2 design, so this
-        /// cannot fail — every `Json` tree renders.
-        Stringify "stringify" (json)   -> string;
+        /// The write-side mirror of `parse`: builds a tree out of a
+        /// language value. `unknown` because the accepted set is a
+        /// runtime question — the mapping covers whole families
+        /// (`Vector`, `Map`, `Struct`) whose element types the table
+        /// has no way to constrain.
+        Of        "of"        (unknown) -> json   throws VALUE_ERRORS;
+
+        /// Takes any value, not only a `Json`: a tree renders as it
+        /// always did, and anything else is built first, so this can
+        /// fail exactly where `of` does.
+        Stringify "stringify" (unknown) -> string throws VALUE_ERRORS;
     }
 }
 
@@ -59,7 +87,7 @@ crate::method_table! {
 
 #[cfg(test)]
 mod tests {
-    use super::{JSON_MEMBERS, JsonMember, PARSE_ERRORS};
+    use super::{JSON_MEMBERS, JsonMember, PARSE_ERRORS, VALUE_ERRORS};
 
     /// `decl` indexes the table by the variant's position, so a row and
     /// its variant must stay in the same order.
@@ -78,12 +106,30 @@ mod tests {
         assert_eq!(JsonMember::from_name("asInt"), None);
     }
 
-    /// `stringify` is the module's only infallible member, and `parse`
-    /// its only thrower. A row that acquired the other's column would
-    /// be changing a contract the spec states.
+    /// The read side raises the read side's error and the write side
+    /// the write side's: a row that acquired the other's column would
+    /// be changing a contract the spec states, and would put a name in
+    /// a caller's error-set that the member can never raise.
     #[test]
-    fn only_parse_throws() {
+    fn each_side_throws_its_own_error() {
         assert_eq!(JsonMember::Parse.decl().throws, PARSE_ERRORS);
-        assert!(JsonMember::Stringify.decl().throws.is_empty());
+        assert_eq!(JsonMember::Of.decl().throws, VALUE_ERRORS);
+        assert_eq!(JsonMember::Stringify.decl().throws, VALUE_ERRORS);
+    }
+
+    /// Every declared error is one of this module's own, so a member
+    /// cannot name an error `catch` is unable to reach under `json.`
+    /// (the `fs` table guards its two lists the same way).
+    #[test]
+    fn every_declared_error_belongs_to_this_module() {
+        for decl in JSON_MEMBERS {
+            assert!(
+                decl.throws.is_empty()
+                    || decl.throws == PARSE_ERRORS
+                    || decl.throws == VALUE_ERRORS,
+                "`json.{}` declares an error list this module does not define",
+                decl.name
+            );
+        }
     }
 }

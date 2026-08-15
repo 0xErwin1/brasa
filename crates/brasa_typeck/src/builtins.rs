@@ -646,6 +646,8 @@ mod stdlib_declaration_tests {
         "get",
         "post",
         "parse",
+        "of",
+        "stringify",
         "read",
         "write",
         "append",
@@ -706,6 +708,7 @@ mod stdlib_declaration_tests {
             "base",
             "ext",
             "parse",
+            "of",
             "stringify",
             "puts",
             "print",
@@ -765,7 +768,6 @@ mod stdlib_declaration_tests {
 
     #[test]
     fn a_member_that_cannot_fail_declares_nothing() {
-        assert!(module_throws("json", "stringify").is_empty());
         assert!(module_throws("fs", "exists?").is_empty());
         assert!(module_throws("fs", "join").is_empty());
         assert!(module_throws("cli", "help").is_empty());
@@ -1060,14 +1062,22 @@ mod stdlib_declaration_tests {
     }
 
     /// The `json` and `io` contributions, pinned the way the `fs` ones
-    /// are: `parse` is the one thrower on either surface.
+    /// are: the read side raises the read error, the two writers raise
+    /// the write one, and `io` throws nothing at all.
     #[test]
     fn json_and_io_contribute_from_their_declarations() {
         assert_eq!(
             module_throws("json", "parse"),
             &[brasa_resolver::JSON_PARSE_ERROR]
         );
-        assert!(module_throws("json", "stringify").is_empty());
+
+        for name in ["of", "stringify"] {
+            assert_eq!(
+                module_throws("json", name),
+                &[brasa_resolver::JSON_VALUE_ERROR],
+                "`json.{name}` no longer contributes the write-side error"
+            );
+        }
 
         for name in ["puts", "print", "eprint", "readLine", "readAll"] {
             assert!(
@@ -1088,10 +1098,19 @@ mod stdlib_declaration_tests {
         ));
         assert_eq!(parse.ret, Type::Json);
 
+        let of = module_member("json", "of").expect("of exists");
+        assert!(matches!(
+            of.required.as_slice(),
+            [ModuleParam::Ty(Type::Unknown)]
+        ));
+        assert_eq!(of.ret, Type::Json);
+
+        // `unknown`, not `Json`: the writers take any value, and which
+        // ones have a representation is settled at run time.
         let stringify = module_member("json", "stringify").expect("stringify exists");
         assert!(matches!(
             stringify.required.as_slice(),
-            [ModuleParam::Ty(Type::Json)]
+            [ModuleParam::Ty(Type::Unknown)]
         ));
         assert_eq!(stringify.ret, Type::String);
 

@@ -1266,6 +1266,7 @@ end
 def decoded(text: string): string
   json.stringify(json.parse(text)) catch (e)
     json.ParseError => e.message
+    json.ValueError => e.message
   end
 end
 
@@ -1284,6 +1285,7 @@ import std::json
 
 def frozen(data: Json): string
   json.stringify(data) catch (e)
+    json.ValueError => "handled"
     json.ParseError => "unused"
   end
 end

@@ -245,6 +245,10 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("http.postWith"),
     // The `NativeError` record a `catch` arm binds (BRS-135).
     method("message"),
+    // The `std::json` write side (BRS-34): appended, never reordered.
+    // `json.stringify` widened its parameter rather than gaining a
+    // second entry — a signature change is not an id change.
+    free("json.of"),
 ];
 
 /// Looks up a builtin by its stable name.
