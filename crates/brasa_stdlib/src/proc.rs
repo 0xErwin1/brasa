@@ -67,6 +67,23 @@ crate::record_table! {
     }
 }
 
+crate::record_table! {
+    /// What a `proc.NonZeroExit` arm binds (BRS-135): the error, with
+    /// the child that produced it.
+    ///
+    /// This is the reason native errors stopped binding a bare message.
+    /// The exit code and the child's stderr are the two things a caller
+    /// reaches for after a failed command, and the v1 error could only
+    /// spell them into English — so recovering them meant parsing the
+    /// message back apart. `message` is still here, and still says the
+    /// same sentence, so an arm that only reported the failure is
+    /// unaffected.
+    NonZeroExitMember => NON_ZERO_EXIT_MEMBERS, record "NonZeroExit" {
+        Message "message" -> string;
+        Output  "output"  -> procOutput;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PROC_MEMBERS, ProcMember};

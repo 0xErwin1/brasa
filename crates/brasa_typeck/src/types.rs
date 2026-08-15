@@ -95,6 +95,12 @@ pub enum Type {
     /// pattern, and not writable in an annotation: it is only ever the
     /// type of a binding the runtime produced.
     NativeError,
+    /// The compiler-known `NonZeroExit` record a `proc.NonZeroExit`
+    /// arm binds (BRS-135): a `NativeError` that also carries the
+    /// `Output` of the child that failed. A second error type rather
+    /// than an optional member on the first, so reaching `output` is
+    /// only possible in an arm that proved which error it caught.
+    ProcNonZeroExit,
     /// The compiler-known `Json` document type (spec: 05 — Stdlib de scripting,
     /// BRS-34): an immutable parsed JSON tree produced by `json.parse`.
     /// Opaque in v1 — no constructors and no patterns; access goes
@@ -190,6 +196,7 @@ impl Type {
             Type::Walk => "Walk".to_string(),
             Type::Stat => "Stat".to_string(),
             Type::NativeError => "NativeError".to_string(),
+            Type::ProcNonZeroExit => "NonZeroExit".to_string(),
             Type::Json => "Json".to_string(),
             Type::ConcurrentScope => "Scope".to_string(),
             Type::Task(elem) => format!("Task<{}>", elem.display(hir)),

@@ -760,7 +760,10 @@ pub use http::{HTTP_MEMBERS, HttpMember, RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
 pub use json::{JSON_ACCESSORS, JSON_MEMBERS, JsonAccessor, JsonMember};
 pub use math::{MATH_MEMBERS, MathMember};
-pub use proc::{OUTPUT_MEMBERS, OutputMember, PROC_MEMBERS, ProcMember};
+pub use proc::{
+    NON_ZERO_EXIT_MEMBERS, NonZeroExitMember, OUTPUT_MEMBERS, OutputMember, PROC_MEMBERS,
+    ProcMember,
+};
 pub use rand::{RAND_MEMBERS, RandMember};
 pub use time::{TIME_MEMBERS, TimeMember};
 pub use vector::{VECTOR_METHODS, VectorMember};
@@ -843,6 +846,7 @@ pub const RECORDS: &[(&str, &[RecordDecl])] = &[
     (WalkMember::RECORD, WALK_MEMBERS),
     (ErrorMember::RECORD, ERROR_MEMBERS),
     (StatMember::RECORD, STAT_MEMBERS),
+    (NonZeroExitMember::RECORD, NON_ZERO_EXIT_MEMBERS),
 ];
 
 #[cfg(test)]

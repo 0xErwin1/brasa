@@ -3015,6 +3015,7 @@ impl<'a> Vm<'a> {
         Value::NativeError(Rc::new(crate::value::NativeErrorValue {
             name: brasa_stdlib::concurrent::CANCELLED,
             message: Rc::from("the task was cancelled: its scope is unwinding"),
+            payload: crate::value::ErrorPayload::None,
         }))
     }
 

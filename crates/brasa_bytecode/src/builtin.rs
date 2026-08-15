@@ -261,6 +261,10 @@ pub const BUILTINS: &[BuiltinDef] = &[
     method("isDir?"),
     method("isSymlink?"),
     free("time.parseIso"),
+    // The child a `proc.NonZeroExit` arm reaches through its binding
+    // (BRS-135), declared apart from `message` because only that error
+    // carries one.
+    method("output"),
 ];
 
 /// Looks up a builtin by its stable name.

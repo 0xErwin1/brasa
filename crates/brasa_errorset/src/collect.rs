@@ -416,6 +416,7 @@ impl<'a> Collector<'a> {
                 | Type::Walk
                 | Type::Stat
                 | Type::NativeError
+                | Type::ProcNonZeroExit
                 | Type::Json
                 | Type::ConcurrentScope
                 | Type::Task(_),

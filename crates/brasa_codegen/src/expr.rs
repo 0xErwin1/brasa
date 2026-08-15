@@ -660,6 +660,7 @@ fn field(f: &mut FuncCx, id: ExprId, recv: ExprId, name: &str, span: Span) {
         Some(Type::HttpResponse) => matches!(name, "status" | "body"),
         Some(Type::CliArgs) => name == "rest",
         Some(Type::NativeError) => name == "message",
+        Some(Type::ProcNonZeroExit) => matches!(name, "message" | "output"),
         _ => false,
     };
 

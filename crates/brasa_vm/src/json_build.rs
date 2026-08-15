@@ -42,7 +42,7 @@ use std::rc::Rc;
 
 use brasa_runtime::json_glue::{self, JsonValue};
 
-use crate::value::{NativeErrorValue, Value};
+use crate::value::{ErrorPayload, NativeErrorValue, Value};
 use crate::vm::{Signal, Vm, VmResult};
 
 /// How deep a value the walk descends, a bound on the host stack.
@@ -233,5 +233,6 @@ fn glue_error(err: &json_glue::JsonError) -> Signal {
     Signal::Error(Value::NativeError(Rc::new(NativeErrorValue {
         name: err.name,
         message: Rc::from(err.message.as_str()),
+        payload: ErrorPayload::None,
     })))
 }

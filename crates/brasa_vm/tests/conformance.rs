@@ -1720,6 +1720,64 @@ puts same
     );
 }
 
+/// `proc.NonZeroExit` carries the child that failed (BRS-135): the arm
+/// reads the exit code and the streams instead of parsing them back out
+/// of the message, which is the whole reason a native error stopped
+/// being a string.
+///
+/// Both raise paths are pinned, because they build the error
+/// independently: the synchronous one inside `proc_call`, and the
+/// offloaded one that rebuilds it from a pool worker's result when the
+/// task parked on the child (BRS-133).
+#[test]
+fn a_non_zero_exit_arm_reaches_the_child_that_failed() {
+    assert_success(
+        r##"
+import std::proc
+
+let reported = proc.shell("printf oops 1>&2; exit 7").stdout catch (e)
+  proc.NonZeroExit => "#{e.output.code} #{e.output.stderr}"
+end
+puts reported
+
+let parked = concurrent do |scope|
+  let t = scope.spawn do
+    proc.shell("exit 3").stdout catch (e)
+      proc.NonZeroExit => "#{e.output.code}"
+    end
+  end
+  t.value()
+end
+puts parked
+"##,
+        "7 oops\n3\n",
+    );
+}
+
+/// The message did not change when the payload arrived: the same arm
+/// can read either, and rendering the binding still yields exactly the
+/// message — which is what let every existing arm keep working.
+#[test]
+fn a_non_zero_exit_still_reports_the_message_it_always_did() {
+    assert_success(
+        r##"
+import std::proc
+
+let shown = proc.shell("exit 4").stdout catch (e)
+  proc.NonZeroExit => "#{e}"
+end
+puts shown
+
+let same = proc.shell("exit 4").stdout catch (e)
+  proc.NonZeroExit => e.message
+end
+puts same
+"##,
+        "command `exit 4` exited with code 4\n\
+         command `exit 4` exited with code 4\n",
+    );
+}
+
 /// The caught arm is reachable (the callee's error-set holds both
 /// types) but the raised signal is the OTHER one, so it escapes the
 /// handler. Every arm must stay in the inferred error-set: an arm that
@@ -5242,6 +5300,17 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "code",
             format!("{proc}let o = proc.shell(\"true\")\nputs o.code\n"),
             "0\n",
+        ),
+        (
+            // The child a `proc.NonZeroExit` arm reaches through its
+            // binding (BRS-135) — the payload, not the message.
+            "output",
+            format!(
+                "{proc}puts(proc.shell(\"exit 7\").stdout catch (e)\n\
+                 \x20 proc.NonZeroExit => e.output.code.toString()\n\
+                 end)\n"
+            ),
+            "7\n",
         ),
         // std::env. `env.cd` targets the current directory so the
         // process cwd never moves: this binary runs its tests in

@@ -3016,12 +3016,8 @@ impl<'a> Checker<'a> {
         if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0)) {
             return Type::String;
         }
-        if self
-            .res
-            .catch_arm_native_errors
-            .contains_key(&(id, arm_index, 0))
-        {
-            return Type::NativeError;
+        if let Some(&error) = self.res.catch_arm_native_errors.get(&(id, arm_index, 0)) {
+            return builtins::native_error_type(error);
         }
 
         match self.res.catch_arm_types.get(&(id, arm_index, 0)) {

@@ -222,6 +222,20 @@ pub enum RecordMemberSig {
 /// This is the one place a `Type` is matched against a record, because
 /// `brasa_stdlib` does not know what a `Type` is — it names its records
 /// and the checker owns which of its own types each name denotes.
+/// The record a `catch` arm naming `error` binds (BRS-135).
+///
+/// Every native error binds a record carrying `message`; an error that
+/// declares more of its own binds the richer one. Keyed by the
+/// canonical name the resolver already validated, so an error whose
+/// record has not been declared reads as the shared one rather than
+/// needing a row here.
+pub fn native_error_type(error: &str) -> Type {
+    match error {
+        brasa_stdlib::proc::NON_ZERO_EXIT => Type::ProcNonZeroExit,
+        _ => Type::NativeError,
+    }
+}
+
 fn record_table(recv: &Type) -> Option<&'static [brasa_stdlib::RecordDecl]> {
     match recv {
         Type::ProcOutput => Some(brasa_stdlib::OUTPUT_MEMBERS),
@@ -230,6 +244,7 @@ fn record_table(recv: &Type) -> Option<&'static [brasa_stdlib::RecordDecl]> {
         Type::Walk => Some(brasa_stdlib::WALK_MEMBERS),
         Type::Stat => Some(brasa_stdlib::STAT_MEMBERS),
         Type::NativeError => Some(brasa_stdlib::ERROR_MEMBERS),
+        Type::ProcNonZeroExit => Some(brasa_stdlib::NON_ZERO_EXIT_MEMBERS),
         _ => None,
     }
 }
@@ -915,6 +930,7 @@ mod stdlib_declaration_tests {
             "Walk" => Type::Walk,
             "Stat" => Type::Stat,
             "NativeError" => Type::NativeError,
+            "NonZeroExit" => Type::ProcNonZeroExit,
             other => panic!("`{other}` has no checker type; add it to `record_table`"),
         };
 

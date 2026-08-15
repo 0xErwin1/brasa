@@ -10,20 +10,21 @@ use std::rc::Rc;
 
 use brasa_runtime::offload::{Job, JobOutcome};
 use brasa_runtime::proc_env::{
-    env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv, valid_env_name,
+    RawOutput, env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv,
+    valid_env_name,
 };
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
     ArgsMember, CliMember, EnvMember, ErrorMember, FsMember, HttpMember, IoMember, JsonMember,
-    MathMember, OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, StatMember,
-    TaskMember, TimeMember, VectorMember, WalkMember,
+    MathMember, NonZeroExitMember, OutputMember, ProcMember, RandMember, ResponseMember,
+    ScopeMember, StatMember, TaskMember, TimeMember, VectorMember, WalkMember,
 };
 
 use crate::heap::GcRef;
 use crate::value::{
-    ArgsValue, NativeErrorValue, OutputValue, ResponseValue, StatValue, TaskState, Value,
-    WalkValue, value_cmp, value_eq,
+    ArgsValue, ErrorPayload, NativeErrorValue, OutputValue, ResponseValue, StatValue, TaskState,
+    Value, WalkValue, value_cmp, value_eq,
 };
 use crate::vm::{
     ASSERTION_FAILED, DriveGoal, INTEGER_OVERFLOW, JobResume, Signal, Step, Vm, VmResult, Wait,
@@ -193,8 +194,7 @@ impl Vm<'_> {
             .map_err(|message| native_error(PROC_SPAWN_ERROR, message))?;
 
         if strict && output.code != 0 {
-            let message = non_zero_exit_message(&shown, &output);
-            return Err(native_error(PROC_NON_ZERO_EXIT, message));
+            return Err(Signal::Error(non_zero_exit_value(&shown, output)));
         }
 
         Ok(Value::ProcOutput(Rc::new(OutputValue {
@@ -1883,8 +1883,7 @@ impl Vm<'_> {
                     result.map_err(|message| native_error_value(PROC_SPAWN_ERROR, message))?;
 
                 if *strict && output.code != 0 {
-                    let message = non_zero_exit_message(shown, &output);
-                    return Err(native_error_value(PROC_NON_ZERO_EXIT, message));
+                    return Err(non_zero_exit_value(shown, output));
                 }
 
                 Ok(Value::ProcOutput(Rc::new(OutputValue {
@@ -2034,13 +2033,31 @@ fn response_builtin(response: &ResponseValue, name: &str, args: &[Value]) -> VmR
 /// (`Vm::display`), which is what keeps an arm that only printed its
 /// binding reading the same after the binding became a record.
 fn native_error_builtin(error: &NativeErrorValue, name: &str, args: &[Value]) -> VmResult {
-    let Some(member) = ErrorMember::from_name(name) else {
-        return Err(builtin_error(name));
-    };
+    // Which record this value IS depends on what it carries, and the
+    // checker agreed at the arm: only a `proc.NonZeroExit` arm types
+    // its binding as the record that declares `output`.
+    match &error.payload {
+        ErrorPayload::None => {
+            let Some(member) = ErrorMember::from_name(name) else {
+                return Err(builtin_error(name));
+            };
 
-    match (member, args) {
-        (ErrorMember::Message, []) => Ok(Value::Str(error.message.clone())),
-        _ => Err(builtin_error(name)),
+            match (member, args) {
+                (ErrorMember::Message, []) => Ok(Value::Str(error.message.clone())),
+                _ => Err(builtin_error(name)),
+            }
+        }
+        ErrorPayload::ProcExit(output) => {
+            let Some(member) = NonZeroExitMember::from_name(name) else {
+                return Err(builtin_error(name));
+            };
+
+            match (member, args) {
+                (NonZeroExitMember::Message, []) => Ok(Value::Str(error.message.clone())),
+                (NonZeroExitMember::Output, []) => Ok(Value::ProcOutput(output.clone())),
+                _ => Err(builtin_error(name)),
+            }
+        }
     }
 }
 
@@ -2115,6 +2132,25 @@ fn native_error_value(name: &'static str, message: String) -> Value {
     Value::NativeError(Rc::new(NativeErrorValue {
         name,
         message: Rc::from(message),
+        payload: ErrorPayload::None,
+    }))
+}
+
+/// `proc.NonZeroExit` carrying the child that produced it (BRS-135), so
+/// an arm reads the code and the streams instead of parsing them back
+/// out of the message. The message says the same sentence it always
+/// did — it is what rendering the error yields.
+fn non_zero_exit_value(shown: &str, output: RawOutput) -> Value {
+    let message = non_zero_exit_message(shown, &output);
+
+    Value::NativeError(Rc::new(NativeErrorValue {
+        name: PROC_NON_ZERO_EXIT,
+        message: Rc::from(message),
+        payload: ErrorPayload::ProcExit(Rc::new(OutputValue {
+            stdout: Rc::from(output.stdout),
+            stderr: Rc::from(output.stderr),
+            code: output.code,
+        })),
     }))
 }
 

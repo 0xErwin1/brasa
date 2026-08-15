@@ -176,12 +176,33 @@ pub struct ScopeState {
     pub exited: bool,
 }
 
-/// The payload of a [`Value::NativeError`]: the canonical qualified
-/// name the `catch` tag matches and the message the binding sees.
+/// The contents of a [`Value::NativeError`]: the canonical qualified
+/// name the `catch` tag matches, the message the binding renders as,
+/// and what the error is about when it carries more than words.
 #[derive(Debug)]
 pub struct NativeErrorValue {
     pub name: &'static str,
     pub message: Handle<str>,
+    pub payload: ErrorPayload,
+}
+
+/// What a native error carries beyond its message (BRS-135).
+///
+/// One variant per error whose record declares more than `message`,
+/// typed concretely rather than as a bare [`Value`]: the collector
+/// treats a `NativeError` as free of arena references
+/// (`crate::heap::shared_address`), and a `Value` payload could hold a
+/// [`GcRef`] and quietly break that. Every variant here must hold only
+/// kinds the collector also treats as leaves — `Output` qualifies for
+/// the same reason the error itself does.
+#[derive(Debug)]
+pub enum ErrorPayload {
+    /// The error is only its message.
+    None,
+    /// `proc.NonZeroExit`: the child that ran and exited non-zero, so a
+    /// caller reads the code and the streams instead of parsing them
+    /// back out of the message.
+    ProcExit(Handle<OutputValue>),
 }
 
 /// The fields of a [`Value::ProcOutput`], in declaration order
