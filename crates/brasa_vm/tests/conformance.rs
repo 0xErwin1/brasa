@@ -2143,6 +2143,89 @@ puts found
     );
 }
 
+// --- a record's field behind an untyped receiver ----------------------
+//
+// Falling through to the builtin registry answers with a bound
+// callable, which is right for `v.len` and wrong for `e.message`: a
+// stdlib record's field is a read on the surface even though the
+// runtime implements it as a receiver-only accessor. Only the record
+// the value IS can tell the two apart, so the lookup asks it before it
+// asks the registry.
+
+/// The wildcard arm binds the raw thrown value, so a `fs` failure
+/// reaches `e.message` with nothing but the value to go on. The prefix
+/// is `fs`'s own wording; the OS half of the sentence is not pinned.
+#[test]
+fn an_untyped_receiver_reads_a_native_errors_message_field() {
+    assert_success(
+        r##"
+import std::fs
+import std::proc
+
+let m = fs.read("/definitely/missing") catch (e)
+  _ => e.message
+end
+puts m.startsWith?("cannot read `/definitely/missing`:")
+
+let empty = proc.tryRun("").stdout catch (e)
+  _ => e.message
+end
+puts empty
+"##,
+        "true\nempty command\n",
+    );
+}
+
+/// `proc.NonZeroExit` carries an `Output`, and reading it off an
+/// untyped receiver leaves the `Output` untyped in turn — so the same
+/// question is asked twice, once per record.
+#[test]
+fn an_untyped_receiver_reads_the_output_a_non_zero_exit_carries() {
+    assert_success(
+        r##"
+import std::proc
+
+let out = proc.run(["/bin/sh", "-c", "printf hi; printf oops 1>&2; exit 3"]).stdout catch (e)
+  _ => e.output.stdout + "|" + e.output.stderr + "|" + e.output.code.toString()
+end
+puts out
+
+let m = proc.run(["/bin/sh", "-c", "exit 3"]).stdout catch (e)
+  _ => e.message
+end
+puts m
+"##,
+        "hi|oops|3\ncommand `/bin/sh -c exit 3` exited with code 3\n",
+    );
+}
+
+/// The line the record rule must not cross: a member that is a genuine
+/// method still binds off an untyped receiver, and the value it binds
+/// is callable. A `Vector`'s `len` stands for every registry entry that
+/// is not a record field.
+#[test]
+fn an_untyped_receiver_still_binds_a_callable_for_a_real_method() {
+    assert_success(
+        r##"
+struct Boom
+  rows: Vector<int>
+end
+
+def risky(): int throws Boom
+  throw Boom { rows: [1, 2, 3] }
+end
+
+let n = risky() catch (e)
+  _ =>
+    let count = e.rows.len
+    count()
+end
+puts n
+"##,
+        "3\n",
+    );
+}
+
 // --- unwinding edge cases ---------------------------------------------
 
 #[test]

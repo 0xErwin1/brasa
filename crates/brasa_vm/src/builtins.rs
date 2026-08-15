@@ -17,8 +17,8 @@ use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
     ArgsMember, CliMember, EnvMember, ErrorMember, FsMember, HttpMember, IoMember, JsonMember,
-    MathMember, NonZeroExitMember, OutputMember, ProcMember, RandMember, ResponseMember,
-    ScopeMember, StatMember, TaskMember, TimeMember, VectorMember, WalkMember,
+    MathMember, NonZeroExitMember, OutputMember, ProcMember, RandMember, RecordKind,
+    ResponseMember, ScopeMember, StatMember, TaskMember, TimeMember, VectorMember, WalkMember,
 };
 
 use crate::heap::GcRef;
@@ -1074,6 +1074,10 @@ impl Vm<'_> {
 
     /// Method-style builtins, dispatched on the receiver's runtime
     /// kind.
+    ///
+    /// [`record_member_kind`] mirrors this same dispatch for the
+    /// question "is this member a field or a method?", and the two must
+    /// keep answering about the same receiver kinds.
     pub(crate) fn method_builtin(&mut self, name: &str, recv: Value, args: Vec<Value>) -> VmResult {
         // The universal derived `toString` applies to every type; a
         // struct's own method wins inside `display` via the shape.
@@ -1984,6 +1988,46 @@ impl Vm<'_> {
     }
 }
 
+/// How the record this value IS declares `name` to be reached, or
+/// `None` when the value is not a compiler-known record or that record
+/// declares no such member.
+///
+/// The dispatch is on the receiver's runtime kind first and the name
+/// second, never the other way round. Record member names are bare and
+/// deliberately shared across receiver kinds — `message`, `size`,
+/// `code`, `status` are each one registry id serving several
+/// receivers — so "is this name a field?" has no answer on its own: it
+/// is a field of `Stat` and nothing at all on a `Vector`. Only the
+/// value in hand selects the table that can answer.
+fn record_member_kind(recv: &Value, name: &str) -> Option<RecordKind> {
+    match recv {
+        Value::ProcOutput(_) => OutputMember::from_name(name).map(|m| m.decl().kind),
+        Value::HttpResponse(_) => ResponseMember::from_name(name).map(|m| m.decl().kind),
+        Value::CliArgs(_) => ArgsMember::from_name(name).map(|m| m.decl().kind),
+        Value::Walk(_) => WalkMember::from_name(name).map(|m| m.decl().kind),
+        Value::Stat(_) => StatMember::from_name(name).map(|m| m.decl().kind),
+        // Which record a `NativeError` IS depends on what it carries,
+        // exactly as `native_error_builtin` decides it.
+        Value::NativeError(error) => match error.payload {
+            ErrorPayload::None => ErrorMember::from_name(name).map(|m| m.decl().kind),
+            ErrorPayload::ProcExit(_) => NonZeroExitMember::from_name(name).map(|m| m.decl().kind),
+        },
+        _ => None,
+    }
+}
+
+/// Whether reading `recv.name` without parentheses has to yield the
+/// member's value rather than a callable bound to it.
+///
+/// A record's field is a read on the surface (`output.stdout`) even
+/// though the runtime implements it as a receiver-only accessor, so the
+/// bare member form has to invoke it; a record's method
+/// (`response.header("x")`) is only ever reached through a call, so the
+/// bare form binds it the way every other method reference does.
+pub(crate) fn is_record_field(recv: &Value, name: &str) -> bool {
+    matches!(record_member_kind(recv, name), Some(RecordKind::Field))
+}
+
 /// The `Output` record's field accessors (BRS-32,
 /// spec: 05 — Stdlib de scripting): receiver-only builtins that yield the
 /// field value, dispatched through the declared member enum
@@ -2182,4 +2226,165 @@ fn fs_stat(result: fs_glue::FsResult<fs_glue::RawStat>) -> VmResult {
         is_dir: raw.is_dir,
         is_symlink: raw.is_symlink,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use brasa_stdlib::{
+        ArgsMember, ErrorMember, NonZeroExitMember, OutputMember, RECORDS, RecordKind,
+        ResponseMember, StatMember, WalkMember,
+    };
+
+    use super::{is_record_field, record_member_kind};
+    use crate::value::{
+        ArgsValue, ErrorPayload, NativeErrorValue, OutputValue, ResponseValue, StatValue, Value,
+        WalkValue,
+    };
+
+    /// One runtime value per stdlib record, paired with the record name
+    /// the checker displays.
+    ///
+    /// Most of these records cannot be produced end to end behind a
+    /// receiver the checker failed to settle — their types are not
+    /// nameable, so nothing can carry one into an unsettled
+    /// expression — which is exactly why the classification is pinned
+    /// here instead: the day such a receiver becomes reachable, the
+    /// answer must already be right.
+    fn one_value_per_record() -> Vec<(&'static str, Value)> {
+        vec![
+            (
+                OutputMember::RECORD,
+                Value::ProcOutput(Rc::new(OutputValue {
+                    stdout: Rc::from("out"),
+                    stderr: Rc::from("err"),
+                    code: 0,
+                })),
+            ),
+            (
+                ResponseMember::RECORD,
+                Value::HttpResponse(Rc::new(ResponseValue {
+                    status: 200,
+                    body: Rc::from("body"),
+                    headers: Vec::new(),
+                })),
+            ),
+            (
+                ArgsMember::RECORD,
+                Value::CliArgs(Rc::new(ArgsValue {
+                    flags: Vec::new(),
+                    options: Vec::new(),
+                    rest: Vec::new(),
+                })),
+            ),
+            (
+                WalkMember::RECORD,
+                Value::Walk(Rc::new(WalkValue {
+                    paths: Value::Unit,
+                    unreadable: Value::Unit,
+                })),
+            ),
+            (
+                ErrorMember::RECORD,
+                Value::NativeError(Rc::new(NativeErrorValue {
+                    name: "fs.NotFound",
+                    message: Rc::from("missing"),
+                    payload: ErrorPayload::None,
+                })),
+            ),
+            (
+                StatMember::RECORD,
+                Value::Stat(Rc::new(StatValue {
+                    size: 1,
+                    modified_millis: 2,
+                    is_file: true,
+                    is_dir: false,
+                    is_symlink: false,
+                })),
+            ),
+            (
+                NonZeroExitMember::RECORD,
+                Value::NativeError(Rc::new(NativeErrorValue {
+                    name: "proc.NonZeroExit",
+                    message: Rc::from("exited 3"),
+                    payload: ErrorPayload::ProcExit(Rc::new(OutputValue {
+                        stdout: Rc::from("out"),
+                        stderr: Rc::from("err"),
+                        code: 3,
+                    })),
+                })),
+            ),
+        ]
+    }
+
+    /// A record whose runtime value nothing here names would be
+    /// classified as "not a record at all", and every one of its fields
+    /// would silently bind instead of being read.
+    #[test]
+    fn every_declared_record_has_a_runtime_value_here() {
+        let covered = one_value_per_record();
+
+        for (record, _) in RECORDS {
+            assert!(
+                covered.iter().any(|(name, _)| name == record),
+                "`{record}` has no runtime value in this test"
+            );
+        }
+    }
+
+    /// The classification the bare member form depends on: every member
+    /// the record declares must come back with the kind the table
+    /// declares for it, off that record's own runtime value.
+    #[test]
+    fn every_record_member_is_classified_as_its_table_declares() {
+        for (record, value) in one_value_per_record() {
+            let (_, members) = RECORDS
+                .iter()
+                .find(|(name, _)| *name == record)
+                .unwrap_or_else(|| panic!("`{record}` is a declared record"));
+
+            for decl in *members {
+                assert_eq!(
+                    record_member_kind(&value, decl.name),
+                    Some(decl.kind),
+                    "`{record}.{}`",
+                    decl.name
+                );
+
+                assert_eq!(
+                    is_record_field(&value, decl.name),
+                    decl.kind == RecordKind::Field,
+                    "`{record}.{}`",
+                    decl.name
+                );
+            }
+        }
+    }
+
+    /// The other half of the rule: a name is never a field on its own.
+    /// `len`, `size` and `code` are all live registry ids, and on a
+    /// receiver that is not the record declaring them they must not be
+    /// read — a `Vector`'s `len` is a method reference.
+    #[test]
+    fn a_shared_member_name_is_not_a_field_off_the_wrong_receiver() {
+        let strings = Value::str("alpha");
+
+        for name in ["len", "size", "code", "message", "status", "rest"] {
+            assert!(
+                record_member_kind(&strings, name).is_none(),
+                "`string.{name}` is not a record member"
+            );
+        }
+
+        let stat = one_value_per_record()
+            .into_iter()
+            .find(|(record, _)| *record == StatMember::RECORD)
+            .map(|(_, value)| value)
+            .unwrap_or_else(|| panic!("the `Stat` value is present"));
+
+        assert!(is_record_field(&stat, "size"));
+        assert!(record_member_kind(&stat, "len").is_none());
+        assert!(record_member_kind(&stat, "code").is_none());
+    }
 }

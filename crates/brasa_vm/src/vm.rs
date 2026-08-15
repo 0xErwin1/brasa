@@ -28,6 +28,7 @@ use brasa_runtime::Outcome;
 use brasa_runtime::offload::{Job, JobId, OffloadPool};
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 
+use crate::builtins::is_record_field;
 use crate::heap::{GcRef, Heap, Interner};
 use crate::value::{
     BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, TaskState,
@@ -1913,6 +1914,18 @@ impl<'a> Vm<'a> {
     /// are ONE member namespace (spec: 06 — Diagnósticos, R006),
     /// so no checked program can hold a name that both would find. Two
     /// orders for one concept is still a defect, whoever implements it.
+    ///
+    /// The builtin registry cannot close this lookup on its own,
+    /// because binding is the wrong answer for half of what it holds. A
+    /// compiler-known record's field is a read on the surface —
+    /// `e.message` is the message, not a callable that would produce it
+    /// — while a record's method is only ever reached through a call.
+    /// The registry stores both as receiver builtins and cannot tell
+    /// them apart, so the record's own member table decides, selected
+    /// by the value in hand rather than by the member's name: a bare
+    /// name like `size` or `message` means different things on
+    /// different receivers, which is exactly the confusion that sends a
+    /// name-first lookup to the wrong table.
     fn bind_member_by_name(&mut self, recv: Value, name: &str) -> VmResult {
         if let Value::Struct(s) = recv {
             let shape = self.module_struct(self.heap.struct_value(s).shape);
@@ -1927,6 +1940,13 @@ impl<'a> Vm<'a> {
             if let Some(ix) = shape.fields.iter().position(|field| field == name) {
                 return Ok(self.heap.struct_value(s).fields.borrow()[ix].clone());
             }
+        }
+
+        // Through `method_builtin`, so the accessor a field reaches is
+        // the very one the typed path reaches; a second dispatch here
+        // could drift away from it.
+        if is_record_field(&recv, name) {
+            return self.method_builtin(name, recv, Vec::new());
         }
 
         match builtin_id(name).filter(|&id| builtin_def(id).is_some_and(|def| def.has_receiver)) {
