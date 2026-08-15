@@ -1660,7 +1660,11 @@ impl<'a> Vm<'a> {
                     unreachable!("caught_detail peeks the caught signal");
                 };
                 let bound = match &**caught {
-                    Caught::Error(Value::NativeError(error)) => Value::Str(error.message.clone()),
+                    // A native error binds the VALUE (BRS-135): the
+                    // `NativeError` record, whose `message` member is
+                    // what this arm used to collapse it to. A panic
+                    // still binds its detail string — the asymmetry is
+                    // the point, since a panic carries nothing else.
                     Caught::Error(value) => value.clone(),
                     Caught::Panic(panic) => Value::str(&panic.detail),
                 };

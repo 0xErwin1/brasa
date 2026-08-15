@@ -431,7 +431,7 @@ let ok = "abc".match?("[") catch (e)
 end
 puts ok
 let n = "abc".scan("(").len() catch (e)
-  string.RegexError => e.len()
+  string.RegexError => e.message.len()
 end
 puts n
 "##,
@@ -454,7 +454,7 @@ let f = "1.5".toFloat()
 puts n
 puts f
 let bad = "abc".toInt() catch (e)
-  string.ParseError => e.len()
+  string.ParseError => e.message.len()
 end
 puts bad
 let alsobad = "1.5x".toFloat() catch (e)
@@ -1691,16 +1691,32 @@ puts out
     );
 }
 
+/// A native-error arm binds the error VALUE (BRS-135), so the arm
+/// reaches its parts by name. The three readings are pinned together
+/// because the whole point of the record is that they agree: `message`
+/// is the same text rendering the binding yields, which is what keeps
+/// an arm that only printed it unchanged from before the record
+/// existed.
 #[test]
-fn catch_native_error_arm_binds_the_message() {
+fn catch_native_error_arm_binds_the_error_record() {
     assert_success(
         r##"
 let n = "abc".toInt() catch (e)
-  string.ParseError => e.len()
+  string.ParseError => e.message.len()
 end
 puts n
+
+let shown = "abc".toInt().toString() catch (e)
+  string.ParseError => "#{e}"
+end
+puts shown
+
+let same = "abc".toInt().toString() catch (e)
+  string.ParseError => e.message
+end
+puts same
 "##,
-        "25\n",
+        "25\ncannot parse \"abc\" as int\ncannot parse \"abc\" as int\n",
     );
 }
 
@@ -2932,7 +2948,7 @@ fn proc_run_non_zero_exit_throws_a_catchable_native_error() {
         r##"
 import std::proc
 let message = proc.run(["/bin/sh", "-c", "printf boom 1>&2; exit 3"]).stdout catch (e)
-  proc.NonZeroExit => e
+  proc.NonZeroExit => e.message
 end
 puts message
 "##,
@@ -2998,7 +3014,7 @@ let missing = proc.run(["/definitely/not/a/real/brasa-binary"]).stdout catch (e)
 end
 puts missing
 let empty = proc.tryRun("").stdout catch (e)
-  proc.SpawnError => e
+  proc.SpawnError => e.message
 end
 puts empty
 "##,
@@ -3692,7 +3708,7 @@ def reach(path: string): string
 end
 
 puts(reach("{t}/does-not-exist") catch (e)
-  fs.NotFound => e.startsWith?("cannot tryWalk ").toString()
+  fs.NotFound => e.message.startsWith?("cannot tryWalk ").toString()
 end)
 "##
         ),
@@ -3875,7 +3891,7 @@ fn json_parse_errors_are_catchable_with_position() {
         r##"
 import std::json
 let bad = json.stringify(json.parse("{\n  \"a\": }")) catch (e)
-  json.ParseError => e
+  json.ParseError => e.message
 end
 puts bad
 "##,
@@ -4913,6 +4929,15 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             // be too.
             format!("{http}puts http.get(\"{probe}\").header(\"Content-Type\") ?? \"missing\"\n"),
             "text/plain\n",
+        ),
+        (
+            // The `NativeError` record a native-error arm binds
+            // (BRS-135); the subject is rendered so both sides of the
+            // `catch` are the same type.
+            "message",
+            "puts(\"abc\".toInt().toString() catch (e)\n\x20 string.ParseError => e.message\nend)"
+                .to_string(),
+            "cannot parse \"abc\" as int\n",
         ),
         (
             "proc.tryRunAll",

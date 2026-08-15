@@ -1126,14 +1126,14 @@ end
 
 def caught(): string
   proc.run(["true"]).stdout catch (e)
-    proc.NonZeroExit => e
+    proc.NonZeroExit => e.message
   end
 end
 
 def fullyCaught(): string
   proc.shell("true").stdout catch (e)
-    proc.NonZeroExit => e
-    proc.SpawnError => e
+    proc.NonZeroExit => e.message
+    proc.SpawnError => e.message
   end
 end
 "#
@@ -1166,7 +1166,7 @@ def loaded(path: string): string
   fs.read(path) catch (e)
     fs.NotFound => "missing"
     fs.Denied => "denied"
-    fs.IoError => e
+    fs.IoError => e.message
   end
 end
 
@@ -1265,7 +1265,7 @@ end
 
 def decoded(text: string): string
   json.stringify(json.parse(text)) catch (e)
-    json.ParseError => e
+    json.ParseError => e.message
   end
 end
 

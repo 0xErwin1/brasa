@@ -13,15 +13,16 @@ expr types
   e0 -> string
   e1 -> () -> int
   e2 -> int
-  e3 -> string
-  e4 -> () -> int
-  e5 -> int
+  e3 -> NativeError
+  e4 -> string
+  e5 -> () -> int
   e6 -> int
   e7 -> int
   e8 -> int
-  e9 -> string
-  e10 -> () -> float
-  e11 -> float
-  e12 -> (string) -> int
-  e13 -> string
-  e14 -> int
+  e9 -> int
+  e10 -> string
+  e11 -> () -> float
+  e12 -> float
+  e13 -> (string) -> int
+  e14 -> string
+  e15 -> int

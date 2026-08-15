@@ -253,8 +253,10 @@ pub enum Op {
     JumpIfTagNe { tag: ConstId, target: CodeIx },
     /// `sig -> sig v`: push the caught error value (user arms and `_`).
     CaughtValue,
-    /// `sig -> sig s`: push the detail/message string (arms naming a
-    /// panic or a native error).
+    /// `sig -> sig v`: the binding for an arm naming a panic or a
+    /// native error. A panic arm gets its detail string; a native-error
+    /// arm gets the error value itself, a `NativeError` record
+    /// (BRS-135).
     CaughtDetail,
     /// `sig ->`: pop the caught signal and resignal it unchanged
     /// (non-exhaustive `catch` propagates what it does not handle).

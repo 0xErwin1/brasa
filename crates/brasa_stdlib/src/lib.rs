@@ -726,6 +726,7 @@ macro_rules! record_table {
 pub mod cli;
 pub mod concurrent;
 pub mod env;
+pub mod error;
 pub mod fs;
 pub mod http;
 pub mod io;
@@ -748,6 +749,7 @@ pub use string::{STRING_METHODS, StringMember};
 
 pub use cli::{ARGS_MEMBERS, ArgsMember, CLI_MEMBERS, CliMember};
 pub use env::{ENV_MEMBERS, EnvMember};
+pub use error::{ERROR_MEMBERS, ErrorMember};
 pub use fs::{FS_MEMBERS, FsMember, WALK_MEMBERS, WalkMember};
 pub use http::{HTTP_MEMBERS, HttpMember, RESPONSE_MEMBERS, ResponseMember};
 pub use io::{IO_MEMBERS, IoMember};
@@ -834,6 +836,7 @@ pub const RECORDS: &[(&str, &[RecordDecl])] = &[
     (ResponseMember::RECORD, RESPONSE_MEMBERS),
     (ArgsMember::RECORD, ARGS_MEMBERS),
     (WalkMember::RECORD, WALK_MEMBERS),
+    (ErrorMember::RECORD, ERROR_MEMBERS),
 ];
 
 #[cfg(test)]

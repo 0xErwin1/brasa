@@ -227,6 +227,7 @@ fn record_table(recv: &Type) -> Option<&'static [brasa_stdlib::RecordDecl]> {
         Type::HttpResponse => Some(brasa_stdlib::RESPONSE_MEMBERS),
         Type::CliArgs => Some(brasa_stdlib::ARGS_MEMBERS),
         Type::Walk => Some(brasa_stdlib::WALK_MEMBERS),
+        Type::NativeError => Some(brasa_stdlib::ERROR_MEMBERS),
         _ => None,
     }
 }
@@ -903,6 +904,7 @@ mod stdlib_declaration_tests {
             "Response" => Type::HttpResponse,
             "Args" => Type::CliArgs,
             "Walk" => Type::Walk,
+            "NativeError" => Type::NativeError,
             other => panic!("`{other}` has no checker type; add it to `record_table`"),
         };
 

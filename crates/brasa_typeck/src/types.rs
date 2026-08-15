@@ -81,6 +81,13 @@ pub enum Type {
     /// best-effort traversal that returned only a short list would be a
     /// partial answer presented as a complete one.
     Walk,
+    /// The compiler-known `NativeError` record a `catch` arm binds for a
+    /// stdlib error name (spec: 04 — Sistema de errores, BRS-135):
+    /// `message: string`, plus whatever fields the error itself
+    /// declares. Native like `Output` — not user-constructible, not a
+    /// pattern, and not writable in an annotation: it is only ever the
+    /// type of a binding the runtime produced.
+    NativeError,
     /// The compiler-known `Json` document type (spec: 05 — Stdlib de scripting,
     /// BRS-34): an immutable parsed JSON tree produced by `json.parse`.
     /// Opaque in v1 — no constructors and no patterns; access goes
@@ -174,6 +181,7 @@ impl Type {
             Type::HttpResponse => "Response".to_string(),
             Type::CliArgs => "Args".to_string(),
             Type::Walk => "Walk".to_string(),
+            Type::NativeError => "NativeError".to_string(),
             Type::Json => "Json".to_string(),
             Type::ConcurrentScope => "Scope".to_string(),
             Type::Task(elem) => format!("Task<{}>", elem.display(hir)),

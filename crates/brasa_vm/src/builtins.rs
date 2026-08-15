@@ -15,9 +15,9 @@ use brasa_runtime::proc_env::{
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 use brasa_runtime::{cli_glue, fs_glue, http_glue, io_glue, json_glue, num_glue, time_glue};
 use brasa_stdlib::{
-    ArgsMember, CliMember, EnvMember, FsMember, HttpMember, IoMember, JsonMember, MathMember,
-    OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, TaskMember, TimeMember,
-    VectorMember, WalkMember,
+    ArgsMember, CliMember, EnvMember, ErrorMember, FsMember, HttpMember, IoMember, JsonMember,
+    MathMember, OutputMember, ProcMember, RandMember, ResponseMember, ScopeMember, TaskMember,
+    TimeMember, VectorMember, WalkMember,
 };
 
 use crate::heap::GcRef;
@@ -1076,6 +1076,10 @@ impl Vm<'_> {
                 let walk = walk.clone();
                 walk_builtin(&walk, name, &args)
             }
+            Value::NativeError(error) => {
+                let error = error.clone();
+                native_error_builtin(&error, name, &args)
+            }
             Value::ConcurrentScope(_) => self.scope_builtin(&recv, name, args),
             Value::Task(_) => self.task_builtin(&recv, name, &args),
             Value::Json(tree) => {
@@ -1985,6 +1989,23 @@ fn response_builtin(response: &ResponseValue, name: &str, args: &[Value]) -> VmR
 
             Ok(Value::Option(found.map(Rc::new)))
         }
+        _ => Err(builtin_error(name)),
+    }
+}
+
+/// The `NativeError` record's field accessors (BRS-135), the same shape
+/// as `proc_output_builtin`.
+///
+/// `message` answers exactly what rendering the error yields
+/// (`Vm::display`), which is what keeps an arm that only printed its
+/// binding reading the same after the binding became a record.
+fn native_error_builtin(error: &NativeErrorValue, name: &str, args: &[Value]) -> VmResult {
+    let Some(member) = ErrorMember::from_name(name) else {
+        return Err(builtin_error(name));
+    };
+
+    match (member, args) {
+        (ErrorMember::Message, []) => Ok(Value::Str(error.message.clone())),
         _ => Err(builtin_error(name)),
     }
 }

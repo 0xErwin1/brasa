@@ -243,6 +243,8 @@ pub const BUILTINS: &[BuiltinDef] = &[
     // reordered.
     free("http.getWith"),
     free("http.postWith"),
+    // The `NativeError` record a `catch` arm binds (BRS-135).
+    method("message"),
 ];
 
 /// Looks up a builtin by its stable name.

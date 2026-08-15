@@ -2992,11 +2992,17 @@ impl<'a> Checker<'a> {
     ///   legitimate);
     /// - exactly one resolved panic name (`panics.X`, BRS-24) →
     ///   `string`: the runtime binds the panic's detail message
-    ///   (spec: 04 — Sistema de errores);
+    ///   (spec: 04 — Sistema de errores). A panic is not a value a
+    ///   program is meant to inspect and recover from, so it stays a
+    ///   message and gains no members;
     /// - exactly one resolved native-error name (`string.ParseError`,
-    ///   BRS-41) → `string`, for the same reason: a native error
-    ///   carries only a message, and the runtime binds it in the arm —
-    ///   symmetric with panic arms;
+    ///   BRS-41) → `NativeError` (BRS-135): the runtime binds the error
+    ///   VALUE, whose `message` member is what the arm used to bind
+    ///   directly. It stopped being symmetric with panic arms on
+    ///   purpose — a string has nowhere to carry what an error is
+    ///   about, which is what kept `proc.NonZeroExit` embedding its
+    ///   exit code in English. Rendering is unchanged, so an arm that
+    ///   only printed its binding reads the same;
     /// - a `|` group → `Unknown` (the spec binds "what's common to
     ///   both"; common-interface narrowing is deferred to error-set
     ///   work, BRS-22/23);
@@ -3007,13 +3013,15 @@ impl<'a> Checker<'a> {
             return Type::Unknown;
         };
 
-        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0))
-            || self
-                .res
-                .catch_arm_native_errors
-                .contains_key(&(id, arm_index, 0))
-        {
+        if self.res.catch_arm_panics.contains_key(&(id, arm_index, 0)) {
             return Type::String;
+        }
+        if self
+            .res
+            .catch_arm_native_errors
+            .contains_key(&(id, arm_index, 0))
+        {
+            return Type::NativeError;
         }
 
         match self.res.catch_arm_types.get(&(id, arm_index, 0)) {

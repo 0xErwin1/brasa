@@ -1280,7 +1280,7 @@ typecheck_test!(
     r#"
 def parse(s: string): int
   s.toInt() catch (e)
-    string.ParseError => e.len()
+    string.ParseError => e.message.len()
     _ => -1
   end
 end

@@ -174,6 +174,7 @@ const PINNED: &[(u16, &str, bool)] = &[
     (146, "value", true),
     (147, "http.getWith", false),
     (148, "http.postWith", false),
+    (149, "message", true),
 ];
 
 #[test]

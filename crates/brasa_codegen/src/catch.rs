@@ -4,12 +4,16 @@
 //! The handler entry covers the compiled subject only; the dispatch
 //! sequence tests the caught-signal value arm by arm: `jump_if_panic`
 //! for `_` (an error, never a panic), `jump_if_tag_ne` for named arms,
-//! `caught_value`/`caught_detail` for the binding (the error value for
-//! user arms and `_`, the detail/message string for dotted panic and
-//! native-error names — a compile-time choice, decided by what the arm
-//! RESOLVED to rather than by whether it was spelled with a dot, since
-//! `lib.Boom` is a user type written with one), guards after the
-//! binding store, and a `rethrow` tail for whatever no arm handles.
+//! `caught_value`/`caught_detail` for the binding (a compile-time
+//! choice, decided by what the arm RESOLVED to rather than by whether
+//! it was spelled with a dot, since `lib.Boom` is a user type written
+//! with one), guards after the binding store, and a `rethrow` tail for
+//! whatever no arm handles.
+//!
+//! Both opcodes push a VALUE now; only a panic arm still binds a
+//! string, and `caught_detail` is where that happens (BRS-135). The
+//! two are kept apart because a `_` arm must not bind a panic's detail
+//! — it never sees a panic at all.
 
 use brasa_bytecode::{CodeIx, Handler, Op};
 use brasa_hir::{CatchArm, CatchType, ExprId, Item, ItemId};
