@@ -212,6 +212,13 @@ pub const HTTP_REQUEST_ERROR: &str = "http.RequestError";
 /// `scope.spawn` after the scope's `concurrent` block returned.
 pub const CONCURRENT_SCOPE_EXITED: &str = "concurrent.ScopeExited";
 
+/// The canonical qualified name of the native structured-concurrency
+/// cancellation error (spec: 08 — Concurrencia estructurada, BRS-133):
+/// what a cancelled task's suspension points raise while its scope
+/// tears down. Cancellation is cooperative — code between suspension
+/// points is never interrupted.
+pub const CONCURRENT_CANCELLED: &str = "concurrent.Cancelled";
+
 /// The canonical qualified name of the native `cli` usage error
 /// (spec: 05 — Stdlib de scripting, BRS-112): a command line the declaration
 /// does not accept. Catchable rather than a panic, because the script
@@ -240,6 +247,7 @@ pub const NATIVE_ERRORS: &[&str] = &[
     HTTP_REQUEST_ERROR,
     CLI_USAGE_ERROR,
     CONCURRENT_SCOPE_EXITED,
+    CONCURRENT_CANCELLED,
 ];
 
 /// Whether a dotted `catch`-arm name lives in a native-error namespace

@@ -15,6 +15,13 @@
 /// harmless to keep — only spawning through it after the end is.
 pub const SCOPE_EXITED: &str = "concurrent.ScopeExited";
 
+/// `concurrent.Cancelled`: raised at a cancelled task's suspension
+/// points while its scope tears down after a failure. Not in any
+/// `throws` column — cancellation can surface at ANY suspension point,
+/// so it belongs to the runtime's contract (spec: 08), not to one
+/// member's declared set; `_` arms catch it like any error.
+pub const CANCELLED: &str = "concurrent.Cancelled";
+
 /// The one error `spawn` raises.
 pub const SPAWN_ERRORS: &[&str] = &[SCOPE_EXITED];
 

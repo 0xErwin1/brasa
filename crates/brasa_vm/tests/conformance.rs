@@ -5299,11 +5299,13 @@ puts "after"
     );
 }
 
-/// Every task settles before the first unread failure (spawn order)
-/// rethrows out of `concurrent`: the second block still runs, and the
-/// FIRST error is the one that surfaces.
+/// The first unread failure cancels the scope (spec: 08): the second
+/// task — never started when the first fails — is dropped without
+/// running, and the FIRST error is the one that surfaces. (Until
+/// slice C, settling ran every task to completion first; cancellation
+/// replaced that with the spec's teardown.)
 #[test]
-fn unread_failures_rethrow_the_first_in_spawn_order() {
+fn an_unread_failure_cancels_the_scope_and_rethrows() {
     assert_success(
         r##"
 struct FirstError
@@ -5330,7 +5332,7 @@ end catch (e)
 end
 puts out
 "##,
-        "a\nb\ncaught first\n",
+        "a\ncaught first\n",
     );
 
     // Uncaught, the same rethrow ends the run like any thrown error.
@@ -5646,5 +5648,222 @@ end
 puts n
 "##,
         "ran meanwhile\n42\n",
+    );
+}
+
+// --- cancellation (BRS-133 slice C) ------------------------------------
+
+/// A failure cancels a parked sibling AT its suspension point: the
+/// sleeper wakes with `concurrent.Cancelled` instead of its deadline,
+/// so the scope settles immediately — the wall clock proves the
+/// 60-second sleep was never served — and the FAILURE is what
+/// rethrows, not the sibling's `Cancelled`.
+#[test]
+fn a_failure_cancels_a_parked_sibling_at_its_suspension_point() {
+    let started = std::time::Instant::now();
+    assert_success(
+        r##"
+import std::time
+
+struct Boom
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000)
+    puts "never wakes"
+  end
+  scope.spawn do throw Boom { code: 1 } end
+  "done"
+end catch (e)
+  Boom => "caught boom"
+end
+puts out
+"##,
+        "caught boom\n",
+    );
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "cancellation must not serve the 60s sleep: {:?}",
+        started.elapsed()
+    );
+}
+
+/// Cancellation is cooperative and the scope WAITS: a cancelled task
+/// that catches `Cancelled` (with `_` — see the error-set note on
+/// `value_rethrows_the_same_error_on_every_read`) runs its cleanup to
+/// the end before the scope rethrows the failure that started the
+/// teardown.
+#[test]
+fn a_cancelled_task_finishes_its_cleanup_before_the_scope_rethrows() {
+    assert_success(
+        r##"
+import std::time
+
+struct Boom
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000) catch (e)
+      _ => unit
+    end
+    puts "cleaned up"
+  end
+  scope.spawn do throw Boom { code: 1 } end
+  "done"
+end catch (e)
+  Boom => "caught boom"
+end
+puts out
+"##,
+        "cleaned up\ncaught boom\n",
+    );
+}
+
+/// A cancelled task stays cancelled: after catching the first
+/// `Cancelled`, its NEXT suspension point raises again rather than
+/// blocking — teardown can only move forward. The second `Cancelled`
+/// settles the task and is dropped silently; the original failure is
+/// still what the scope reports.
+#[test]
+fn a_cancelled_task_raises_again_at_its_next_suspension_point() {
+    assert_success(
+        r##"
+import std::time
+
+struct Boom
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000) catch (e)
+      _ => unit
+    end
+    puts "first cancel"
+    time.sleep(60000)
+    puts "never reached"
+  end
+  scope.spawn do throw Boom { code: 1 } end
+  "done"
+end catch (e)
+  Boom => "caught boom"
+end
+puts out
+"##,
+        "first cancel\ncaught boom\n",
+    );
+}
+
+/// An error in the scope BODY takes the same teardown as a task
+/// failure: the parked task is cancelled, runs its cleanup, and only
+/// then does the body's error propagate (spec: 08 — nothing outlives
+/// the scope, not even a task busy cancelling).
+#[test]
+fn a_body_error_cancels_parked_tasks_and_waits_for_them() {
+    assert_success(
+        r##"
+import std::time
+
+struct Boom
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000) catch (e)
+      _ => unit
+    end
+    puts "cleaned up"
+  end
+  let quick = scope.spawn do
+    time.sleep(10)
+    1
+  end
+  quick.value()
+  throw Boom { code: 1 }
+end catch (e)
+  Boom => "caught body boom"
+end
+puts out
+"##,
+        "cleaned up\ncaught body boom\n",
+    );
+}
+
+/// A panic in a task cancels its parked siblings — their cleanup runs
+/// — and then propagates as the scope's panic, never converted to an
+/// error (spec: 08, doc 04).
+#[test]
+fn a_task_panic_cancels_parked_siblings_before_propagating() {
+    let (outcome, stdout) = assert_parity(
+        r##"
+import std::time
+
+let z = 0
+concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000) catch (e)
+      _ => unit
+    end
+    puts "cleaned up"
+  end
+  scope.spawn do 1 / z end
+  puts "body done"
+end
+puts "after"
+"##,
+    );
+
+    let Outcome::Panic { message } = outcome else {
+        panic!("expected the panic to propagate, got {outcome:?}");
+    };
+    assert!(
+        message.contains("panics.DivisionByZero"),
+        "unexpected panic: {message}"
+    );
+    assert_eq!(stdout, "body done\ncleaned up\n");
+}
+
+/// The rethrown failure is the FIRST by OCCURRENCE, not by spawn
+/// order: the earlier-spawned task parks and fails late, the
+/// later-spawned one fails first, and the scope reports the latter
+/// (spec: 08 — parking decouples occurrence order from spawn order).
+#[test]
+fn unread_failures_rethrow_the_first_in_occurrence_order() {
+    assert_success(
+        r##"
+import std::time
+
+struct SlowError
+  code: int
+end
+
+struct FastError
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(50)
+    throw SlowError { code: 1 }
+  end
+  scope.spawn do throw FastError { code: 2 } end
+  let anchor = scope.spawn do
+    time.sleep(120)
+    "anchor"
+  end
+  anchor.value()
+end catch (e)
+  SlowError => "caught slow"
+  FastError => "caught fast"
+end
+puts out
+"##,
+        "caught fast\n",
     );
 }

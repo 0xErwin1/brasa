@@ -2345,7 +2345,24 @@ pub(crate) enum JobResume {
 #[derive(Clone, Copy)]
 pub(crate) enum DriveGoal {
     Task(GcRef),
-    Scope(GcRef),
+    /// Every task of the scope. With `stop_on_failure`, an unobserved
+    /// task failure also ends the drive — settling reacts to it by
+    /// cancelling the scope (spec: 08); the cancellation wait then
+    /// drives WITHOUT it, or a failure during teardown would spin the
+    /// settle loop forever.
+    Scope {
+        scope: GcRef,
+        stop_on_failure: bool,
+    },
+}
+
+/// One driver set aside while a drive loop runs on its Rust stack: its
+/// execution state, the heap cell it was scheduled under (`None` for
+/// the program's root task), and whether it was already cancelled.
+struct Driver {
+    task: Task,
+    cell: Option<GcRef>,
+    cancelled: bool,
 }
 
 /// One task the scheduler holds: its heap cell (as a rooted handle),
@@ -2356,9 +2373,16 @@ struct ScheduledTask {
     scope: Value,
     exec: Task,
     wait: Option<Wait>,
-    /// An error a finished job left for the task to rethrow at its
-    /// suspension point, through ordinary handler unwinding.
-    raise: Option<Value>,
+    /// What a finished job (or a cancellation) left for the task's
+    /// suspension point: a result to push, or an error to rethrow
+    /// there through ordinary handler unwinding.
+    resume: Option<Result<Value, Value>>,
+    /// Set when the scope cancelled this task: its suspension points
+    /// raise `concurrent.Cancelled` instead of blocking or parking,
+    /// so it can only run toward its end (spec: 08 — cancellation is
+    /// cooperative and never interrupts code between suspension
+    /// points).
+    cancelled: bool,
 }
 
 impl ScheduledTask {
@@ -2369,11 +2393,23 @@ impl ScheduledTask {
         *cell
     }
 
+    fn scope_cell(&self) -> GcRef {
+        let Value::ConcurrentScope(scope) = &self.scope else {
+            unreachable!("a scheduled task's scope is a scope value");
+        };
+        *scope
+    }
+
     fn roots(&self) -> impl Iterator<Item = &Value> {
+        let resume = self
+            .resume
+            .iter()
+            .map(|resume| resume.as_ref().unwrap_or_else(|error| error));
+
         self.exec
             .roots()
             .chain([&self.handle, &self.scope])
-            .chain(self.raise.iter())
+            .chain(resume)
     }
 }
 
@@ -2381,14 +2417,17 @@ impl ScheduledTask {
 struct SchedState {
     runnable: std::collections::VecDeque<ScheduledTask>,
     parked: Vec<ScheduledTask>,
-    /// Tasks set aside while a drive loop runs on their Rust stack,
-    /// innermost last, each with the heap cell it was scheduled under
-    /// (`None` for the program's root task). Held here rather than in
-    /// drive-loop locals so safepoint rooting reaches them.
-    drivers: Vec<(Task, Option<GcRef>)>,
+    /// Drivers set aside while a drive loop runs on their Rust stack,
+    /// innermost last. Held here rather than in drive-loop locals so
+    /// safepoint rooting reaches them.
+    drivers: Vec<Driver>,
     /// The heap cell of the scheduled task now occupying `Vm::task`,
     /// while a drive loop is running one.
     current_cell: Option<GcRef>,
+    /// Whether the scheduled task now occupying `Vm::task` was
+    /// cancelled — what suspension points consult to raise
+    /// `concurrent.Cancelled` instead of blocking.
+    current_cancelled: bool,
     /// How many drive loops are on the Rust stack — what arms
     /// [`Vm::can_park`]: a park without a drive loop to catch it would
     /// abandon the program.
@@ -2396,6 +2435,10 @@ struct SchedState {
     /// The wait the parking builtin recorded for the `Signal::Park` in
     /// flight, consumed by the drive loop when the signal arrives.
     pending_park: Option<Wait>,
+    /// Monotonic failure sequence: settling rethrows the EARLIEST
+    /// unobserved failure by this order (spec: 08 — occurrence order,
+    /// which parking decouples from spawn order).
+    failures: u64,
     pool: Option<OffloadPool>,
 }
 
@@ -2407,7 +2450,7 @@ impl SchedState {
             .iter()
             .chain(self.parked.iter())
             .flat_map(ScheduledTask::roots)
-            .chain(self.drivers.iter().flat_map(|(task, _)| task.roots()))
+            .chain(self.drivers.iter().flat_map(|driver| driver.task.roots()))
     }
 }
 
@@ -2449,21 +2492,53 @@ impl<'a> Vm<'a> {
             return Ok(());
         }
 
-        let driver = std::mem::take(&mut self.task);
+        // A cancelled task that would have to WAIT here — a `value()`
+        // on an unfinished sibling, an inner scope with live tasks —
+        // has reached a suspension point: it raises instead of
+        // blocking (spec: 08). A read whose result is already settled
+        // took the fast path above and is not a suspension point.
+        self.check_cancelled()?;
+
+        let task = std::mem::take(&mut self.task);
         let sched = self.sched_mut();
-        let driver_cell = sched.current_cell.take();
-        sched.drivers.push((driver, driver_cell));
+        let cell = sched.current_cell.take();
+        let cancelled = std::mem::take(&mut sched.current_cancelled);
+        sched.drivers.push(Driver {
+            task,
+            cell,
+            cancelled,
+        });
         sched.driving += 1;
 
         let outcome = self.drive_loop(goal);
 
         let sched = self.sched_mut();
         sched.driving -= 1;
-        let (driver, driver_cell) = sched.drivers.pop().expect("drive set its driver aside");
-        sched.current_cell = driver_cell;
-        self.task = driver;
+        let driver = sched.drivers.pop().expect("drive set its driver aside");
+        sched.current_cell = driver.cell;
+        sched.current_cancelled = driver.cancelled;
+        self.task = driver.task;
 
         outcome
+    }
+
+    /// Whether the task now running was cancelled by its scope: the
+    /// signal every suspension point turns into `concurrent.Cancelled`.
+    pub(crate) fn cancelled_now(&self) -> bool {
+        self.sched
+            .as_ref()
+            .is_some_and(|sched| sched.current_cancelled)
+    }
+
+    /// The check every blocking suspension point runs first: a
+    /// cancelled task raises `concurrent.Cancelled` there instead of
+    /// blocking, parking, or registering more work (spec: 08 — the
+    /// closed suspension-point list is where cancellation surfaces).
+    pub(crate) fn check_cancelled(&self) -> VmResult<()> {
+        if self.cancelled_now() {
+            return Err(Signal::Error(Self::cancelled_value()));
+        }
+        Ok(())
     }
 
     fn drive_loop(&mut self, goal: DriveGoal) -> VmResult<()> {
@@ -2489,7 +2564,16 @@ impl<'a> Vm<'a> {
     /// stack: a result that depends on itself.
     fn goal_settled(&mut self, goal: DriveGoal) -> VmResult<bool> {
         match goal {
-            DriveGoal::Scope(scope) => self.sweep_scope(scope),
+            DriveGoal::Scope {
+                scope,
+                stop_on_failure,
+            } => {
+                let settled = self.sweep_scope(scope)?;
+                if settled {
+                    return Ok(true);
+                }
+                Ok(stop_on_failure && self.first_unobserved_failure(scope).is_some())
+            }
             DriveGoal::Task(cell) => {
                 if matches!(
                     &*self.heap.task(cell).borrow(),
@@ -2607,21 +2691,27 @@ impl<'a> Vm<'a> {
         // The current task is set aside THROUGH the drivers stack, not
         // a Rust local: preparing a bound builtin can reenter compiled
         // code, and a safepoint there must still root it.
-        let saved = std::mem::take(&mut self.task);
+        let task = std::mem::take(&mut self.task);
         let sched = self.sched_mut();
         let saved_cell = sched.current_cell.take();
-        sched.drivers.push((saved, saved_cell));
+        let saved_cancelled = std::mem::take(&mut sched.current_cancelled);
+        sched.drivers.push(Driver {
+            task,
+            cell: saved_cell,
+            cancelled: saved_cancelled,
+        });
 
         let prepared = self.prepare_block(block);
 
         let exec = std::mem::take(&mut self.task);
         let sched = self.sched_mut();
-        let (saved, saved_cell) = sched
+        let saved = sched
             .drivers
             .pop()
             .expect("begin set the current task aside");
-        sched.current_cell = saved_cell;
-        self.task = saved;
+        sched.current_cell = saved.cell;
+        sched.current_cancelled = saved.cancelled;
+        self.task = saved.task;
 
         match prepared {
             Ok(None) => {
@@ -2630,7 +2720,8 @@ impl<'a> Vm<'a> {
                     scope: Value::ConcurrentScope(scope),
                     exec,
                     wait: None,
-                    raise: None,
+                    resume: None,
+                    cancelled: false,
                 });
                 Ok(())
             }
@@ -2639,14 +2730,30 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             Err(Signal::Error(error)) => {
-                *self.heap.task(cell).borrow_mut() = TaskState::Failed {
-                    error,
-                    observed: false,
-                };
+                self.settle_failed(cell, error);
                 Ok(())
             }
-            Err(other) => Err(other),
+            Err(other) => {
+                // Same rule as a task dying mid-run in
+                // `Vm::run_scheduled`: the cell must not stay
+                // `Running` with nothing behind it.
+                self.settle_cancelled(cell);
+                Err(other)
+            }
         }
+    }
+
+    /// Caches one task failure with the next occurrence order.
+    fn settle_failed(&mut self, cell: GcRef, error: Value) {
+        let sched = self.sched_mut();
+        let order = sched.failures;
+        sched.failures += 1;
+
+        *self.heap.task(cell).borrow_mut() = TaskState::Failed {
+            error,
+            observed: false,
+            order,
+        };
     }
 
     /// [`Vm::call_callable`]'s frame-preparing twin for a spawned
@@ -2726,26 +2833,36 @@ impl<'a> Vm<'a> {
     /// propagates out of the whole scope.
     fn run_scheduled(&mut self, mut next: ScheduledTask) -> VmResult<()> {
         let cell = next.cell();
-        let raise = next.raise.take();
+        let resume = next.resume.take();
 
         debug_assert!(
             self.task.frames.is_empty(),
             "the drive loop owns an empty running slot"
         );
         self.task = std::mem::take(&mut next.exec);
-        self.sched_mut().current_cell = Some(cell);
+        let sched = self.sched_mut();
+        sched.current_cell = Some(cell);
+        sched.current_cancelled = next.cancelled;
 
-        // A failed job rethrows AT the suspension point, through the
-        // ordinary handler search — the frame's ip is still one past
-        // the blocking call, so a `catch` around it works exactly as
-        // it does on the synchronous path.
-        let resumed = match raise {
-            Some(error) => self.unwind(Signal::Error(error), 1),
+        // The suspension point the task stopped at gets what its wait
+        // produced: its result pushed as if the builtin returned, or
+        // its error — a failed job, or the scope's cancellation —
+        // rethrown through the ordinary handler search. The frame's ip
+        // is still one past the blocking call, so a `catch` around it
+        // works exactly as it does on the synchronous path.
+        let resumed = match resume {
+            Some(Ok(value)) => {
+                self.push(value);
+                Ok(())
+            }
+            Some(Err(error)) => self.unwind(Signal::Error(error), 1),
             None => Ok(()),
         };
         let outcome = resumed.and_then(|()| self.execute(1));
 
-        self.sched_mut().current_cell = None;
+        let sched = self.sched_mut();
+        sched.current_cell = None;
+        sched.current_cancelled = false;
 
         match outcome {
             Ok(()) => {
@@ -2755,6 +2872,10 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             Err(Signal::Park) => {
+                debug_assert!(
+                    !next.cancelled,
+                    "a cancelled task's suspension points raise"
+                );
                 let wait = self
                     .sched_mut()
                     .pending_park
@@ -2767,14 +2888,17 @@ impl<'a> Vm<'a> {
             }
             Err(Signal::Error(error)) => {
                 self.task = Task::default();
-                *self.heap.task(cell).borrow_mut() = TaskState::Failed {
-                    error,
-                    observed: false,
-                };
+                self.settle_failed(cell, error);
                 Ok(())
             }
             Err(other) => {
+                // The task died mid-run with a propagating signal (a
+                // panic, an exit). Its cell settles as cancelled so
+                // the scope's teardown wait sees it finished, and a
+                // read through a leaked handle answers `Cancelled`
+                // rather than a bogus self-dependency report.
                 self.task = Task::default();
+                self.settle_cancelled(cell);
                 Err(other)
             }
         }
@@ -2802,7 +2926,7 @@ impl<'a> Vm<'a> {
 
             let mut task = sched.parked.remove(ix);
             task.wait = None;
-            task.exec.stack.push(Value::Unit);
+            task.resume = Some(Ok(Value::Unit));
             sched.runnable.push_back(task);
         }
 
@@ -2822,10 +2946,7 @@ impl<'a> Vm<'a> {
                 unreachable!("matched a job wait above");
             };
 
-            match Self::job_value(&resume, outcome) {
-                Ok(value) => task.exec.stack.push(value),
-                Err(error) => task.raise = Some(error),
-            }
+            task.resume = Some(Self::job_value(&resume, outcome));
             sched.runnable.push_back(task);
         }
     }
@@ -2882,6 +3003,186 @@ impl<'a> Vm<'a> {
             |task: &ScheduledTask| !matches!(&task.scope, Value::ConcurrentScope(s) if *s == scope);
         sched.runnable.retain(foreign);
         sched.parked.retain(foreign);
+    }
+
+    // --- cancellation (BRS-133 slice C) --------------------------------
+
+    /// The `concurrent.Cancelled` error value a cancelled task's
+    /// suspension points raise.
+    pub(crate) fn cancelled_value() -> Value {
+        Value::NativeError(Rc::new(crate::value::NativeErrorValue {
+            name: brasa_stdlib::concurrent::CANCELLED,
+            message: Rc::from("the task was cancelled: its scope is unwinding"),
+        }))
+    }
+
+    /// Cancels every unsettled task of `scope` (spec: 08 — Concurrencia
+    /// estructurada). Cooperative, delivered at suspension points:
+    ///
+    /// - Never-started tasks (pending, or queued without having run an
+    ///   instruction) settle as `Failed(Cancelled)` without running —
+    ///   there is no suspension point inside them to deliver at.
+    /// - Parked and resumed-but-not-yet-run tasks are still AT their
+    ///   suspension point: they wake with `Cancelled` rethrown there,
+    ///   run whatever handlers they have, and every later suspension
+    ///   point raises again. A parked task's in-flight job is orphaned;
+    ///   its completion is discarded on arrival, never aborted
+    ///   mid-socket.
+    ///
+    /// Cancellation outcomes are settled `observed`, so the failure
+    /// that triggered the teardown — not a sibling's `Cancelled` — is
+    /// what the scope rethrows.
+    fn cancel_scope(&mut self, scope: GcRef) {
+        // Pending tasks first: settling them keeps the scope sweeps
+        // from ever starting them.
+        let mut ix = 0;
+        loop {
+            let task = match self.heap.scope(scope).borrow().tasks.get(ix) {
+                Some(task) => task.clone(),
+                None => break,
+            };
+            ix += 1;
+
+            let Value::Task(cell) = task else {
+                unreachable!("a scope holds task values only");
+            };
+            if matches!(&*self.heap.task(cell).borrow(), TaskState::Pending { .. }) {
+                self.settle_cancelled(cell);
+            }
+        }
+
+        let Some(sched) = self.sched.as_mut() else {
+            return;
+        };
+
+        let mut fresh = Vec::new();
+        let owned = |task: &ScheduledTask| task.scope_cell() == scope;
+
+        // A queued task that never ran and holds no resume has produced
+        // no side effect: dropping it is indistinguishable from never
+        // starting it. Everything else gets `Cancelled` at the
+        // suspension point its resume applies to.
+        sched.runnable.retain_mut(|task| {
+            if !owned(task) {
+                return true;
+            }
+            if task.resume.is_none() {
+                fresh.push(task.cell());
+                return false;
+            }
+            task.resume = Some(Err(Self::cancelled_value()));
+            task.cancelled = true;
+            true
+        });
+
+        let mut parked_ix = 0;
+        while parked_ix < sched.parked.len() {
+            if !owned(&sched.parked[parked_ix]) {
+                parked_ix += 1;
+                continue;
+            }
+
+            let mut task = sched.parked.remove(parked_ix);
+            task.wait = None;
+            task.resume = Some(Err(Self::cancelled_value()));
+            task.cancelled = true;
+            sched.runnable.push_back(task);
+        }
+
+        for cell in fresh {
+            self.settle_cancelled(cell);
+        }
+    }
+
+    /// Settles a task that will never run (or run further) as failed
+    /// with `Cancelled`, already observed: a later `value()` read
+    /// through a leaked handle rethrows it, but scope settling never
+    /// reports it over the failure that caused the teardown.
+    fn settle_cancelled(&mut self, cell: GcRef) {
+        let sched = self.sched_mut();
+        let order = sched.failures;
+        sched.failures += 1;
+
+        *self.heap.task(cell).borrow_mut() = TaskState::Failed {
+            error: Self::cancelled_value(),
+            observed: true,
+            order,
+        };
+    }
+
+    /// The earliest unobserved failure among `scope`'s tasks, by
+    /// occurrence order — the failure scope settling reacts to.
+    fn first_unobserved_failure(&self, scope: GcRef) -> Option<GcRef> {
+        let tasks = self.heap.scope(scope).borrow().tasks.clone();
+
+        let mut found: Option<(u64, GcRef)> = None;
+        for task in &tasks {
+            let Value::Task(cell) = task else {
+                unreachable!("a scope holds task values only");
+            };
+            if let TaskState::Failed {
+                observed: false,
+                order,
+                ..
+            } = &*self.heap.task(*cell).borrow()
+                && found.is_none_or(|(first, _)| *order < first)
+            {
+                found = Some((*order, *cell));
+            }
+        }
+
+        found.map(|(_, cell)| cell)
+    }
+
+    /// Marks the failure that triggered a teardown observed and answers
+    /// the error to rethrow after the cancelled tasks finish.
+    fn take_failure(&mut self, cell: GcRef) -> Value {
+        let mut state = self.heap.task(cell).borrow_mut();
+        let TaskState::Failed {
+            error, observed, ..
+        } = &mut *state
+        else {
+            unreachable!("the trigger was found failed");
+        };
+        *observed = true;
+        error.clone()
+    }
+
+    /// Cancels `scope`'s live tasks and drives until every one of them
+    /// settled: nothing outlives the scope, not even a task busy
+    /// cancelling. Failures during the teardown settle into their
+    /// cells and are dropped silently — the caller rethrows the
+    /// failure that started it; a panic (or any other non-error
+    /// signal) in a cancelled task's cleanup still propagates from
+    /// here and supersedes it.
+    pub(crate) fn cancel_and_settle(&mut self, scope: GcRef) -> VmResult<()> {
+        self.cancel_scope(scope);
+        self.drive(DriveGoal::Scope {
+            scope,
+            stop_on_failure: false,
+        })
+    }
+
+    /// Scope settling's drive (spec: 08): runs every task of `scope`
+    /// to settlement. The FIRST unobserved failure — earliest by
+    /// occurrence, whether it happened before settling or during it —
+    /// cancels the scope's remaining live tasks, waits for them to
+    /// finish cancelling, and comes back as the error to rethrow.
+    pub(crate) fn drive_settling(&mut self, scope: GcRef) -> VmResult<Option<Value>> {
+        if self.first_unobserved_failure(scope).is_none() {
+            self.drive(DriveGoal::Scope {
+                scope,
+                stop_on_failure: true,
+            })?;
+        }
+
+        let Some(trigger) = self.first_unobserved_failure(scope) else {
+            return Ok(None);
+        };
+
+        let error = self.take_failure(trigger);
+        self.cancel_and_settle(scope)?;
+        Ok(Some(error))
     }
 }
 

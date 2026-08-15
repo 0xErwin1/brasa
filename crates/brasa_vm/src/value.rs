@@ -146,8 +146,16 @@ pub enum TaskState {
     Done(Value),
     /// The block threw; every `value()` read rethrows this error.
     /// `observed` records whether any read saw it — what scope settling
-    /// consults so no error is ever silently dropped.
-    Failed { error: Value, observed: bool },
+    /// consults so no error is ever silently dropped. `order` is the
+    /// failure's position in the run's occurrence sequence: settling
+    /// rethrows the EARLIEST unobserved failure (spec: 08), and with
+    /// parking a later-spawned task can fail first, so spawn order is
+    /// not enough to reconstruct it.
+    Failed {
+        error: Value,
+        observed: bool,
+        order: u64,
+    },
 }
 
 /// The state of one `concurrent` scope (BRS-133), held in its arena

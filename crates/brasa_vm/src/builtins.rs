@@ -169,6 +169,8 @@ impl Vm<'_> {
             _ => return Err(invalid()),
         };
 
+        self.check_cancelled()?;
+
         let strict = matches!(member, ProcMember::Run | ProcMember::Shell);
 
         // Same offload rule as `http_call`: under a driving scheduler
@@ -307,6 +309,8 @@ impl Vm<'_> {
             }
             _ => return Err(invalid()),
         };
+
+        self.check_cancelled()?;
 
         let headers = std::collections::HashMap::new();
 
@@ -752,15 +756,26 @@ impl Vm<'_> {
                 }
                 _ => Err(invalid()),
             },
+            // The readers stay synchronous — the input stream is a
+            // caller-borrowed reader that cannot cross to a 'static
+            // pool thread — but they are still suspension points
+            // (spec: 08), so a cancelled task raises here rather than
+            // blocking on input its scope no longer wants.
             IoMember::ReadLine => match args.as_slice() {
-                [] => Ok(match io_glue::read_line(self.input) {
-                    Some(line) => Value::some(Value::str(line)),
-                    None => Value::NONE,
-                }),
+                [] => {
+                    self.check_cancelled()?;
+                    Ok(match io_glue::read_line(self.input) {
+                        Some(line) => Value::some(Value::str(line)),
+                        None => Value::NONE,
+                    })
+                }
                 _ => Err(invalid()),
             },
             IoMember::ReadAll => match args.as_slice() {
-                [] => Ok(Value::str(io_glue::read_all(self.input))),
+                [] => {
+                    self.check_cancelled()?;
+                    Ok(Value::str(io_glue::read_all(self.input)))
+                }
                 _ => Err(invalid()),
             },
         }
@@ -914,6 +929,8 @@ impl Vm<'_> {
                         format!("cannot sleep a negative duration ({ms} ms)"),
                     ));
                 }
+                self.check_cancelled()?;
+
                 // A sleeping task never occupies a pool thread: the
                 // deadline parks on the scheduler, which checks it
                 // when it looks for the next runnable task.
@@ -1687,14 +1704,31 @@ impl Vm<'_> {
         };
 
         let scope = self.heap.alloc_scope();
+        let Value::ConcurrentScope(scope_cell) = &scope else {
+            unreachable!("alloc_scope answers a scope value");
+        };
+        let scope_cell = *scope_cell;
 
         // The scope is rooted for the whole call: the body and the
         // settling both reenter compiled code, which can collect, and
         // every task is reachable only through this cell.
         let rooted = [scope.clone()];
         let outcome = self.with_rooted(&rooted, |this| {
-            let result = this.call_callable(body, vec![scope.clone()])?;
-            this.settle_scope(&scope, result)
+            match this.call_callable(body, vec![scope.clone()]) {
+                Ok(result) => this.settle_scope(&scope, result),
+
+                // A failing body cancels its children and waits for
+                // them before propagating (spec: 08) — the same
+                // teardown an unread task failure triggers, from the
+                // other side. Every other signal (exit, broken pipe,
+                // fatal) must not run more user code: it propagates
+                // now and the purge below abandons what was left.
+                Err(signal @ (Signal::Error(_) | Signal::Panic(_))) => {
+                    this.cancel_and_settle(scope_cell)?;
+                    Err(signal)
+                }
+                Err(other) => Err(other),
+            }
         });
 
         // Whatever happened — a settled scope, a body error that
@@ -1704,11 +1738,8 @@ impl Vm<'_> {
         // scheduler forgets whatever it still held for this scope; a
         // job a purged task left in flight completes in the pool and
         // is discarded on arrival.
-        let Value::ConcurrentScope(cell) = &scope else {
-            unreachable!("alloc_scope answers a scope value");
-        };
-        self.heap.scope(*cell).borrow_mut().exited = true;
-        self.purge_scope(*cell);
+        self.heap.scope(scope_cell).borrow_mut().exited = true;
+        self.purge_scope(scope_cell);
 
         outcome
     }
@@ -1716,12 +1747,10 @@ impl Vm<'_> {
     /// Settles a scope whose body answered `result` normally: drives
     /// the scheduler until every spawned task settled — tasks
     /// interleave here, parking on blocking IO while their siblings
-    /// run — then rethrows the FIRST unread failure (spawn order) if
-    /// any task failed without its `value()` ever being called.
-    ///
-    /// A failure does not cut the remaining tasks short, only a panic
-    /// does ([`Vm::run_scheduled`] propagates any non-error signal
-    /// immediately).
+    /// run. The first unread failure (occurrence order) cancels the
+    /// remaining live tasks, waits for them to finish cancelling, and
+    /// rethrows (spec: 08); a panic in a task takes the same teardown
+    /// and then propagates as the scope's panic.
     fn settle_scope(&mut self, scope: &Value, result: Value) -> VmResult {
         let Value::ConcurrentScope(cell) = scope else {
             unreachable!("settling reads a scope value");
@@ -1733,24 +1762,15 @@ impl Vm<'_> {
             // The drive re-checks the scope's task list on every
             // settle: the scope has not exited yet, so a settling
             // block may spawn again, and those tasks settle too.
-            this.drive(DriveGoal::Scope(cell))?;
-
-            let tasks = this.heap.scope(cell).borrow().tasks.clone();
-            for task in &tasks {
-                let Value::Task(t) = task else {
-                    unreachable!("a scope holds task values only");
-                };
-
-                let mut state = this.heap.task(*t).borrow_mut();
-                if let TaskState::Failed { error, observed } = &mut *state
-                    && !*observed
-                {
-                    *observed = true;
-                    return Err(Signal::Error(error.clone()));
+            match this.drive_settling(cell) {
+                Ok(None) => Ok(result.clone()),
+                Ok(Some(error)) => Err(Signal::Error(error)),
+                Err(signal @ Signal::Panic(_)) => {
+                    this.cancel_and_settle(cell)?;
+                    Err(signal)
                 }
+                Err(other) => Err(other),
             }
-
-            Ok(result.clone())
         })
     }
 
@@ -1813,6 +1833,10 @@ impl Vm<'_> {
     /// handle. The block does NOT run here in this slice — see
     /// [`Vm::run_task`] for the deferred-execution contract.
     fn spawn_task(&mut self, scope: GcRef, block: Value) -> VmResult {
+        // `spawn` is a suspension point (spec: 08): a cancelled task
+        // must not register work on a scope that is tearing down.
+        self.check_cancelled()?;
+
         if self.heap.scope(scope).borrow().exited {
             return Err(native_error(
                 CONCURRENT_SCOPE_EXITED,
@@ -1853,7 +1877,9 @@ impl Vm<'_> {
                 let mut state = self.heap.task(t).borrow_mut();
                 match &mut *state {
                     TaskState::Done(value) => Ok(value.clone()),
-                    TaskState::Failed { error, observed } => {
+                    TaskState::Failed {
+                        error, observed, ..
+                    } => {
                         *observed = true;
                         Err(Signal::Error(error.clone()))
                     }

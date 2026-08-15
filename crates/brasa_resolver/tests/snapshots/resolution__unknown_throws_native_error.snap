@@ -1,5 +1,6 @@
 ---
 source: crates/brasa_resolver/tests/resolution.rs
+assertion_line: 237
 expression: rendered
 ---
 [R012] Error: unknown stdlib error `fs.Nope`
@@ -9,5 +10,5 @@ expression: rendered
    │                                       ───┬───  
    │                                          ╰───── no such stdlib error
    │ 
-   │ Note: known stdlib errors: string.ParseError, string.RegexError, proc.NonZeroExit, proc.SpawnError, fs.NotFound, fs.Denied, fs.IoError, json.ParseError, http.RequestError, cli.UsageError, concurrent.ScopeExited
+   │ Note: known stdlib errors: string.ParseError, string.RegexError, proc.NonZeroExit, proc.SpawnError, fs.NotFound, fs.Denied, fs.IoError, json.ParseError, http.RequestError, cli.UsageError, concurrent.ScopeExited, concurrent.Cancelled
 ───╯
