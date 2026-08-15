@@ -296,23 +296,52 @@ impl Vm<'_> {
             return Err(unknown_module_member(HttpMember::MODULE, name));
         };
 
-        let (url, body, timeout) = match (member, args.as_slice()) {
-            (HttpMember::Get, [Value::Str(url)]) => (url.to_string(), None, None),
+        let (url, body, headers, timeout) = match (member, args.as_slice()) {
+            (HttpMember::Get, [Value::Str(url)]) => (url.to_string(), None, None, None),
             (HttpMember::Get, [Value::Str(url), Value::Int(ms)]) => {
-                (url.to_string(), None, Some(*ms))
+                (url.to_string(), None, None, Some(*ms))
             }
             (HttpMember::Post, [Value::Str(url), Value::Str(body)]) => {
-                (url.to_string(), Some(body.to_string()), None)
+                (url.to_string(), Some(body.to_string()), None, None)
             }
             (HttpMember::Post, [Value::Str(url), Value::Str(body), Value::Int(ms)]) => {
-                (url.to_string(), Some(body.to_string()), Some(*ms))
+                (url.to_string(), Some(body.to_string()), None, Some(*ms))
             }
+            (HttpMember::GetWith, [Value::Str(url), Value::Map(headers)]) => {
+                (url.to_string(), None, Some(*headers), None)
+            }
+            (HttpMember::GetWith, [Value::Str(url), Value::Map(headers), Value::Int(ms)]) => {
+                (url.to_string(), None, Some(*headers), Some(*ms))
+            }
+            (HttpMember::PostWith, [Value::Str(url), Value::Str(body), Value::Map(headers)]) => (
+                url.to_string(),
+                Some(body.to_string()),
+                Some(*headers),
+                None,
+            ),
+            (
+                HttpMember::PostWith,
+                [
+                    Value::Str(url),
+                    Value::Str(body),
+                    Value::Map(headers),
+                    Value::Int(ms),
+                ],
+            ) => (
+                url.to_string(),
+                Some(body.to_string()),
+                Some(*headers),
+                Some(*ms),
+            ),
             _ => return Err(invalid()),
         };
 
         self.check_cancelled()?;
 
-        let headers = std::collections::HashMap::new();
+        let headers = match headers {
+            None => std::collections::HashMap::new(),
+            Some(headers) => self.header_map(headers).ok_or_else(invalid)?,
+        };
 
         // Under a driving scheduler the request leaves for the offload
         // pool and this task parks; other tasks run while it waits
@@ -351,6 +380,27 @@ impl Vm<'_> {
             body: Rc::from(response.body),
             headers: response.headers,
         })))
+    }
+
+    /// A `Map<string, string>` argument as the plain header map the
+    /// glue takes — the same "only plain data crosses" boundary the
+    /// offload pool relies on. `None` when the map holds anything but
+    /// strings, which the checker already rules out.
+    fn header_map(
+        &self,
+        headers: crate::heap::GcRef,
+    ) -> Option<std::collections::HashMap<String, String>> {
+        let entries = self.heap.map(headers).borrow().clone();
+
+        entries
+            .iter()
+            .map(|(name, value)| match (name, value) {
+                (Value::Str(name), Value::Str(value)) => {
+                    Some((name.to_string(), value.to_string()))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// The `Args` record's members (BRS-112): `flag(name)`,

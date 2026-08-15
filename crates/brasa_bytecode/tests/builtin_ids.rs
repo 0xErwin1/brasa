@@ -159,6 +159,8 @@ const PINNED: &[(u16, &str, bool)] = &[
     (144, "concurrent", false),
     (145, "spawn", true),
     (146, "value", true),
+    (147, "http.getWith", false),
+    (148, "http.postWith", false),
 ];
 
 #[test]

@@ -239,6 +239,10 @@ pub const BUILTINS: &[BuiltinDef] = &[
     free("concurrent"),
     method("spawn"),
     method("value"),
+    // `std::http` with request headers (BRS-129): appended, never
+    // reordered.
+    free("http.getWith"),
+    free("http.postWith"),
 ];
 
 /// Looks up a builtin by its stable name.

@@ -18,6 +18,16 @@ crate::module_table! {
         /// all.
         Get  "get"  (string)         ?(int) -> response throws ALL_ERRORS;
         Post "post" (string, string) ?(int) -> response throws ALL_ERRORS;
+
+        /// The `With` pair adds request headers (BRS-129) — the door
+        /// to every authenticated API. Separate members rather than a
+        /// second optional on `get`/`post`: optionals are positional,
+        /// so a caller would have to pass a timeout to reach the
+        /// headers (or the shipped timeout position would move).
+        /// Header names are sent as given; the RESPONSE side is where
+        /// lookup is case-insensitive.
+        GetWith  "getWith"  (string, [Map<string, string>])         ?(int) -> response throws ALL_ERRORS;
+        PostWith "postWith" (string, string, [Map<string, string>]) ?(int) -> response throws ALL_ERRORS;
     }
 }
 

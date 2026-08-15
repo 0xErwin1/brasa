@@ -4424,6 +4424,109 @@ fn http_probe_url() -> &'static str {
     .as_str()
 }
 
+/// A loopback server that answers with the value of the request's
+/// `x-probe` header as the body — what pins that a header map given to
+/// `getWith`/`postWith` actually reaches the wire, which the canned
+/// probe above cannot see. Case-insensitive on the name, since the
+/// client stack may normalize it.
+fn http_header_echo_url() -> &'static str {
+    use std::io::{Read, Write};
+    use std::sync::OnceLock;
+
+    static URL: OnceLock<String> = OnceLock::new();
+
+    URL.get_or_init(|| {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is available");
+        let port = listener.local_addr().expect("the bound address").port();
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+
+                let mut seen = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read_exact(&mut byte).is_ok() {
+                    seen.push(byte[0]);
+                    if seen.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                let head = String::from_utf8_lossy(&seen);
+                let echoed = head
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.trim()
+                            .eq_ignore_ascii_case("x-probe")
+                            .then(|| value.trim().to_string())
+                    })
+                    .unwrap_or_else(|| "missing".to_string());
+
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\n\
+                         Content-Length: {}\r\n\
+                         Connection: close\r\n\r\n{echoed}",
+                        echoed.len()
+                    )
+                    .as_bytes(),
+                );
+                let _ = stream.flush();
+            }
+        });
+
+        format!("http://127.0.0.1:{port}/")
+    })
+    .as_str()
+}
+
+/// The whole point of `getWith`/`postWith` (BRS-129): the header map
+/// reaches the server. The echo server answers the `x-probe` request
+/// header as the body, so a dropped map reads back as `missing`.
+#[test]
+fn request_headers_reach_the_server() {
+    let echo = http_header_echo_url();
+
+    assert_success(
+        &format!(
+            r##"
+import std::http
+
+puts http.getWith("{echo}", {{"x-probe": "from-get"}}).body
+puts http.postWith("{echo}", "payload", {{"x-probe": "from-post"}}).body
+puts http.getWith("{echo}", {{}}).body
+"##
+        ),
+        "from-get\nfrom-post\nmissing\n",
+    );
+}
+
+/// The same headers cross the offload-pool boundary: a `getWith`
+/// inside a task parks, the request runs from a pool worker, and the
+/// header still reaches the server as plain data.
+#[test]
+fn request_headers_survive_parking() {
+    let echo = http_header_echo_url();
+
+    assert_success(
+        &format!(
+            r##"
+import std::http
+
+let bodies = concurrent do |scope|
+  let a = scope.spawn do http.getWith("{echo}", {{"x-probe": "task-a"}}).body end
+  let b = scope.spawn do http.getWith("{echo}", {{"x-probe": "task-b"}}).body end
+  "#{{a.value()}} #{{b.value()}}"
+end
+puts bodies
+"##
+        ),
+        "task-a task-b\n",
+    );
+}
+
 fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
     let math = "import std::math\n";
     let proc = "import std::proc\n";
@@ -4777,6 +4880,21 @@ fn builtin_snippets(dir: &str) -> Vec<(&'static str, String, &'static str)> {
             "http.post",
             "import std::http\nputs http.post(\"http://127.0.0.1:1/\", \"body\").status catch (e)\n  http.RequestError => -1\nend\n".to_string(),
             "-1\n",
+        ),
+        (
+            "http.getWith",
+            // The canned probe ignores request headers; that the map
+            // actually reaches the server is pinned separately by
+            // `request_headers_reach_the_server`.
+            format!("{http}puts http.getWith(\"{probe}\", {{\"x-probe\": \"yes\"}}).status\n"),
+            "201\n",
+        ),
+        (
+            "http.postWith",
+            format!(
+                "{http}puts http.postWith(\"{probe}\", \"body\", {{\"x-probe\": \"yes\"}}).status\n"
+            ),
+            "201\n",
         ),
         (
             "status",
