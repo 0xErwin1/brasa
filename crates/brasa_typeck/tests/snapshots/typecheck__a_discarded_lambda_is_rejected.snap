@@ -1,0 +1,43 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: rendered
+---
+[T035] Error: this lambda's value is discarded
+   ╭─[ a_discarded_lambda_is_rejected.bras:6:1 ]
+   │
+ 6 │ ╭─▶ do
+   ┆ ┆   
+ 8 │ ├─▶ end
+   │ │         
+   │ ╰───────── created here and dropped, so its body never runs
+   │     
+   │     Note 1: to run the statements, write them without `do ... end`
+   │     
+   │     Note 2: to keep the lambda, bind it: `let f = do ... end`
+───╯
+[T035] Error: this lambda's value is discarded
+    ╭─[ a_discarded_lambda_is_rejected.bras:11:8 ]
+    │
+ 11 │ ╭─▶   _ => do
+    ┆ ┆   
+ 13 │ ├─▶   end
+    │ │           
+    │ ╰─────────── created here and dropped, so its body never runs
+    │     
+    │     Note 1: to run the statements, write them without `do ... end`
+    │     
+    │     Note 2: to keep the lambda, bind it: `let f = do ... end`
+────╯
+[T035] Error: this lambda's value is discarded
+    ╭─[ a_discarded_lambda_is_rejected.bras:17:3 ]
+    │
+ 17 │ ╭─▶   do
+    ┆ ┆   
+ 19 │ ├─▶   end
+    │ │           
+    │ ╰─────────── created here and dropped, so its body never runs
+    │     
+    │     Note 1: to run the statements, write them without `do ... end`
+    │     
+    │     Note 2: to keep the lambda, bind it: `let f = do ... end`
+────╯

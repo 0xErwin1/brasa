@@ -803,7 +803,13 @@ impl<'a> Checker<'a> {
             }
             Expr::Lambda { params, body } => {
                 let (params, body) = (params.clone(), body.clone());
-                self.check_lambda(id, &params, &body, expected)
+                let ty = self.check_lambda(id, &params, &body, expected);
+
+                if !used {
+                    self.report_discarded_lambda(id);
+                }
+
+                ty
             }
             Expr::If(node) => {
                 let node = node.clone();
@@ -2761,6 +2767,23 @@ impl<'a> Checker<'a> {
         };
 
         Type::func(param_tys, ret)
+    }
+
+    /// `do ... end` is a lambda literal, so writing one where the value
+    /// goes nowhere builds a closure and drops it: the body never runs
+    /// and nothing else observes it. Every other discarded expression at
+    /// least performs its effects on the way.
+    fn report_discarded_lambda(&mut self, id: ExprId) {
+        self.error(
+            err_at(
+                codes::T_LAMBDA_VALUE_DISCARDED,
+                self.hir.span_of_expr(id),
+                "this lambda's value is discarded".to_string(),
+                "created here and dropped, so its body never runs",
+            )
+            .with_note("to run the statements, write them without `do ... end`".to_string())
+            .with_note("to keep the lambda, bind it: `let f = do ... end`".to_string()),
+        );
     }
 
     fn check_lambda_body(

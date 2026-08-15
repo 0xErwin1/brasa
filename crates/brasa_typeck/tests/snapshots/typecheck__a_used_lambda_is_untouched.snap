@@ -1,0 +1,56 @@
+---
+source: crates/brasa_typeck/tests/typecheck.rs
+expression: dump
+---
+item types
+  i0 apply -> (() -> unit) -> unit
+  i1 make -> () -> () -> unit
+  i2 risky -> () -> unit
+  i4 named -> () -> unit
+  i5 nested -> () -> () -> unit
+  i6 many -> Vector<() -> unit>
+local types
+  l0 f -> () -> unit
+  l1 e -> unknown
+  l2 f -> () -> unit
+expr types
+  e0 -> () -> unit
+  e1 -> unit
+  e2 -> (unknown) -> unit
+  e3 -> string
+  e4 -> unit
+  e5 -> () -> unit
+  e6 -> string
+  e7 -> (() -> unit) -> unit
+  e8 -> (unknown) -> unit
+  e9 -> string
+  e10 -> unit
+  e11 -> () -> unit
+  e12 -> unit
+  e13 -> (unknown) -> unit
+  e14 -> string
+  e15 -> unit
+  e16 -> () -> unit
+  e17 -> (unknown) -> unit
+  e18 -> string
+  e19 -> unit
+  e20 -> () -> unit
+  e21 -> () -> () -> unit
+  e22 -> () -> unit
+  e23 -> () -> () -> unit
+  e24 -> () -> unit
+  e25 -> () -> () -> unit
+  e26 -> () -> unit
+  e27 -> Vector<() -> unit>
+  e28 -> () -> unit
+  e29 -> unit
+  e30 -> (unknown) -> unit
+  e31 -> string
+  e32 -> unit
+  e33 -> (unknown) -> unit
+  e34 -> string
+  e35 -> unit
+  e36 -> unit
+  e37 -> Vector<() -> unit>
+  e38 -> () -> unit
+  e39 -> unit

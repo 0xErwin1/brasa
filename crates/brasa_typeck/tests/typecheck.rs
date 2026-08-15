@@ -1934,3 +1934,81 @@ let b = risky(false) catch (e)
 end
 "#
 );
+
+// BRS-149: `do ... end` is a lambda literal, not a block, so writing one
+// where the value goes nowhere builds a closure and drops it — the body
+// never runs and nothing observes it. Reported at every depth a value is
+// discarded, since that is exactly where the checker stops unifying and
+// the shape becomes invisible.
+typecheck_error_test!(
+    a_discarded_lambda_is_rejected,
+    r#"
+def risky()
+  throw "boom"
+end
+
+do
+  puts "never runs"
+end
+
+risky() catch (e)
+  _ => do
+    puts "never runs either"
+  end
+end
+
+for i in 0..3
+  do
+    puts i.toString()
+  end
+end
+"#
+);
+
+// The counterpart, and the reason the check keys on the discarded
+// position rather than on the literal: every way of actually using a
+// lambda has to stay silent, including a lambda whose own tail is one.
+typecheck_test!(
+    a_used_lambda_is_untouched,
+    r#"
+def apply(f: () -> unit)
+  f()
+end
+
+def make(): () -> unit
+  do
+    puts "made"
+  end
+end
+
+def risky()
+  throw "boom"
+end
+
+apply(do
+  puts "argument"
+end)
+
+let named = do
+  puts "named"
+end
+
+let nested = do
+  do
+    puts "returned by the outer one"
+  end
+end
+
+let many: Vector<() -> unit> = [named, make(), nested()]
+
+risky() catch (e)
+  _ =>
+    puts "a multi-statement arm is not a lambda"
+    puts "so it is unaffected"
+end
+
+for f in many
+  f()
+end
+"#
+);

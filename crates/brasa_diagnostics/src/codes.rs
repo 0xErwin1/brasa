@@ -198,6 +198,11 @@ pub const T_NOT_A_VALUE: &str = "T033";
 /// infallible: `toString` is reached from the paths that report a
 /// failure, so a throw there has nowhere left to go.
 pub const T_TO_STRING_CANNOT_THROW: &str = "T034";
+/// A lambda literal in a position where its value is discarded. `do ...
+/// end` builds a closure rather than running its body, so a discarded
+/// one is a program that says nothing — the shape a reader coming from
+/// Ruby writes expecting a block.
+pub const T_LAMBDA_VALUE_DISCARDED: &str = "T035";
 
 // --- error-sets (E) ---
 
