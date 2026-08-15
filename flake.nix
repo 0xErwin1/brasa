@@ -76,6 +76,54 @@
             --add-flags ${script} \
             ${pathPrefix}
         '';
+      # The project-shaped analogue of `writeBrasaApplication`: `src` is a
+      # directory whose `brasa.toml` names the entry, and the output is a
+      # BUNDLED executable rather than a wrapper around a script. The
+      # difference is load-bearing: import aliases resolve against the
+      # manifest at compile time, and a wrapper run from any cwd would
+      # never find `brasa.toml` again — `brasa bundle` embeds every
+      # resolved module, so nothing is needed at run time. Bundling also
+      # runs the full compiler, so the same gate holds: a project that
+      # does not compile can never reach an activated generation.
+      mkWriteBrasaProject = pkgs: brasa:
+        { src
+        , name ? null
+        , runtimeInputs ? [ ]
+        }:
+        let
+          manifest = builtins.fromTOML (builtins.readFile (src + "/brasa.toml"));
+        in
+        assert pkgs.lib.assertMsg (manifest ? build && manifest.build ? entry)
+          "writeBrasaProject: ${toString src}/brasa.toml defines no `build.entry`";
+        let
+          entry = manifest.build.entry;
+
+          # The same default chain the CLI uses for `bundle`:
+          # project.name, then the entry's stem.
+          finalName =
+            if name != null
+            then name
+            else manifest.project.name or (pkgs.lib.removeSuffix ".bras" (baseNameOf entry));
+
+          wrapped = runtimeInputs != [ ];
+          bundled = if wrapped then "$out/libexec/${finalName}" else "$out/bin/${finalName}";
+        in
+        pkgs.runCommand finalName
+          {
+            nativeBuildInputs = [ brasa ]
+              ++ pkgs.lib.optional wrapped pkgs.makeBinaryWrapper;
+            meta.mainProgram = finalName;
+          } ''
+          mkdir -p $out/bin ${pkgs.lib.optionalString wrapped "$out/libexec"}
+
+          cd ${src}
+          brasa bundle -o ${bundled}
+
+          ${pkgs.lib.optionalString wrapped ''
+            makeWrapper ${bundled} $out/bin/${finalName} \
+              --prefix PATH : ${pkgs.lib.makeBinPath runtimeInputs}
+          ''}
+        '';
     in
     {
       overlays.default = final: prev:
@@ -83,6 +131,7 @@
         in {
           inherit brasa;
           writeBrasaApplication = mkWriteBrasaApplication final brasa;
+          writeBrasaProject = mkWriteBrasaProject final brasa;
         };
 
       packages = forEachSystem (system:
