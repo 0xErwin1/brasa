@@ -37,10 +37,10 @@ mod tables;
 pub use resolver::{ModuleView, STD_MODULES};
 
 pub use tables::{
-    BinderKind, BuiltinType, BuiltinValue, CLI_USAGE_ERROR, CtorRes, DefRef, FS_DENIED,
-    FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR, JSON_PARSE_ERROR, JSON_VALUE_ERROR, LocalId,
-    LocalInfo, NATIVE_ERRORS, PANIC_UNION, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res, Resolutions,
-    STRING_PARSE_ERROR, STRING_REGEX_ERROR, TIME_PARSE_ERROR, TypeRes,
+    BinderKind, BuiltinType, BuiltinValue, CLI_USAGE_ERROR, CONCURRENT_CANCELLED, CtorRes, DefRef,
+    FS_DENIED, FS_IO_ERROR, FS_NOT_FOUND, HTTP_REQUEST_ERROR, JSON_PARSE_ERROR, JSON_VALUE_ERROR,
+    LocalId, LocalInfo, NATIVE_ERRORS, PANIC_UNION, PROC_NON_ZERO_EXIT, PROC_SPAWN_ERROR, Res,
+    Resolutions, STRING_PARSE_ERROR, STRING_REGEX_ERROR, TIME_PARSE_ERROR, TypeRes,
     native_error_namespace_landed,
 };
 

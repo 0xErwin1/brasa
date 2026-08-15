@@ -84,6 +84,31 @@ const RENDER_REACH_NOTE: &str = "`toString` is reached from `puts`, string inter
 /// reader into the sibling diagnostic.
 const RENDER_REPAIR_NOTE: &str = "handle the failure inside `toString` with a `catch` and render a fallback, or move the fallible work to a method with another name";
 
+/// Whether an error arrives from OUTSIDE the data flow, so naming it
+/// in an arm is never unreachable (BRS-136).
+///
+/// One error qualifies: `concurrent.Cancelled`, which a scope injects
+/// at a task's suspension points while it tears down
+/// (spec: 08 — Concurrencia estructurada). It is in no declared
+/// error-set and must not be, because a suspension point is a
+/// `http.get` or a `time.sleep` in some ordinary function, and a
+/// function does not know statically whether a task will run it.
+/// Putting it in their sets would make it viral: every caller that
+/// touches IO would inherit it and `throws never` would stop being
+/// reachable for anything that talks to the world.
+///
+/// So it is exempt in the same shape a panic arm is, for the same
+/// reason — the set describes what the expression itself can raise,
+/// and neither of these is raised by the expression. It differs from a
+/// panic in the half that matters to a caller: it IS an error, `_`
+/// catches it, and a cancelled task's cleanup can name it.
+///
+/// The cost, taken knowingly: an arm naming it around an expression
+/// with no suspension point is dead code nothing reports.
+fn ambient(tag: &ErrorTag) -> bool {
+    matches!(tag, ErrorTag::Opaque(name) if *name == brasa_resolver::CONCURRENT_CANCELLED)
+}
+
 fn err(code: &'static str, span: Span, message: String, label: &str) -> Diagnostic {
     Diagnostic::new(Severity::Error, message, code.to_string(), span)
         .with_label(span, label.to_string())
@@ -123,10 +148,10 @@ pub(crate) fn catch_expr(
     // only after the type matches. Native-error arms (BRS-41) check
     // like named types: their `Opaque` tag is in the set or the arm is
     // unreachable. Panic arms (`panics.X`, in `catch_arm_panics`, never
-    // read here) handle panics rather than errors and are exempt;
-    // dotted names in namespaces that have not landed (M4) and
-    // unresolved names map to no tag, so they are skipped, like the
-    // subtraction in `Collector::catch`.
+    // read here) handle panics rather than errors and are exempt, as
+    // are the AMBIENT errors below; dotted names in namespaces that
+    // have not landed (M4) and unresolved names map to no tag, so they
+    // are skipped, like the subtraction in `Collector::catch`.
     if !subject.open {
         for (arm_index, arm) in arms.iter().enumerate() {
             for (type_index, catch_type) in arm.types.iter().enumerate() {
@@ -136,6 +161,10 @@ pub(crate) fn catch_expr(
                 let Some(tag) = arm_tag(hir, res, (id, arm_index, type_index)) else {
                     continue;
                 };
+
+                if ambient(&tag) {
+                    continue;
+                }
 
                 if !subject.tags.contains(&tag) {
                     let tag = tag_name(hir, &tag);

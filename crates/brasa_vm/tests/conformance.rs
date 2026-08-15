@@ -6503,6 +6503,43 @@ puts out
     );
 }
 
+/// `concurrent.Cancelled` is an AMBIENT error (BRS-136): a scope
+/// injects it at a task's suspension points, so it is in no declared
+/// error-set and an arm naming it is never unreachable. Before this the
+/// only way to catch it was `_`, which also swallows every other error
+/// the cleanup might hit.
+///
+/// It is exempt from E001 the way a panic arm is, and for the same
+/// reason — neither is raised by the expression the set describes. It
+/// differs where it matters to a caller: this one IS an error, so `_`
+/// still catches it and a named arm can too.
+#[test]
+fn a_cancelled_suspension_point_is_catchable_by_name() {
+    assert_success(
+        r##"
+import std::time
+
+struct Boom
+  code: int
+end
+
+let out = concurrent do |scope|
+  scope.spawn do
+    time.sleep(60000) catch (e)
+      concurrent.Cancelled => puts "cleanup ran"
+    end
+  end
+  scope.spawn do throw Boom { code: 1 } end
+  "done"
+end catch (e)
+  Boom => "caught boom"
+end
+puts out
+"##,
+        "cleanup ran\ncaught boom\n",
+    );
+}
+
 /// A cancelled task stays cancelled: after catching the first
 /// `Cancelled`, its NEXT suspension point raises again rather than
 /// blocking — teardown can only move forward. The second `Cancelled`

@@ -1653,3 +1653,46 @@ let a = fetchWith(Good { url: "x" })
 let b = peekWith(Free { n: 1 })
 "#
 );
+
+// BRS-136: `concurrent.Cancelled` is ambient — a scope injects it at a
+// task's suspension points, so it is in no error-set and an arm naming
+// it is never unreachable. Both arms below are accepted, including the
+// one on an expression that has no suspension point at all: the
+// exemption cannot depend on the set, since the whole point is that it
+// is never in one.
+errorset_test!(
+    the_ambient_error_is_catchable_anywhere,
+    r#"
+import std::time
+
+def cleanup(): int
+  time.sleep(1) catch (e)
+    concurrent.Cancelled => 1
+  end
+  0
+end
+
+def nowhereNear(): int
+  time.nowMillis() catch (e)
+    concurrent.Cancelled => 0
+  end
+end
+"#
+);
+
+// And the exemption is exactly one name wide: every other native error
+// still has to be in the subject's set. Silencing E001 in general would
+// have traded a real check for an ergonomic one.
+errorset_error_test!(
+    only_the_ambient_error_escapes_the_unreachable_arm_check,
+    r#"
+import std::time
+import std::json
+
+def wrong(): int
+  time.nowMillis() catch (e)
+    json.ParseError => 0
+  end
+end
+"#
+);
