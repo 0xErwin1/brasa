@@ -529,8 +529,8 @@ impl Heap {
                        previous: &mut std::collections::HashMap<GcRef, Option<GcRef>>,
                        queue: &mut std::collections::VecDeque<GcRef>| {
             for cell in Heap::cells_of(value) {
-                if !previous.contains_key(&cell) {
-                    previous.insert(cell, from);
+                if let std::collections::hash_map::Entry::Vacant(entry) = previous.entry(cell) {
+                    entry.insert(from);
                     queue.push_back(cell);
                 }
             }

@@ -2683,10 +2683,7 @@ impl<'a> Checker<'a> {
         // but is not an operator over an `Option`, so it takes the
         // ordinary path; only its exhaustiveness wording differs.
         if let Some(origin) = self.sugar_origins.get(&id).copied()
-            && !matches!(
-                origin,
-                SugarOrigin::LambdaParam | SugarOrigin::LetPattern
-            )
+            && !matches!(origin, SugarOrigin::LambdaParam | SugarOrigin::LetPattern)
         {
             return self.check_sugar_match(scrutinee, &scrutinee_ty, origin, arms, expected, used);
         }

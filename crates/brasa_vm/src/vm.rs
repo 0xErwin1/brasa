@@ -823,12 +823,9 @@ impl<'a> Vm<'a> {
                 }
             }
 
-            if self.profile.is_some() {
+            if let Some(profiler) = self.profile.as_mut() {
                 let stack: Vec<FuncId> = self.task.frames.iter().map(|frame| frame.func).collect();
-                self.profile
-                    .as_mut()
-                    .expect("checked above")
-                    .maybe_sample(|| stack.clone());
+                profiler.maybe_sample(|| stack.clone());
             }
 
             let depth = self.task.frames.len();

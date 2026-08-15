@@ -329,7 +329,7 @@ fn footer(frame: &mut Frame, area: Rect, debugger: &Debugger) {
 /// A centred box over the rest, for answers that interrupt reading.
 fn overlay(frame: &mut Frame, title: &str, body: &str) {
     let area = frame.area();
-    let width = area.width.saturating_sub(20).min(70).max(20);
+    let width = area.width.saturating_sub(20).clamp(20, 70);
     let height = (body.lines().count() as u16 + 2).min(area.height.saturating_sub(4));
 
     let box_area = Rect {

@@ -273,7 +273,7 @@ fn build_report(session: &Session<'_>, sources: &SourceMap, stop: &Stop) -> Repo
                 at: position(sources, frame.span),
             })
             .collect(),
-        locals: innermost.map(|frame| locals_of(frame)).unwrap_or_default(),
+        locals: innermost.map(locals_of).unwrap_or_default(),
     }
 }
 
