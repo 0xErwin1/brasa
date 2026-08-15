@@ -121,18 +121,26 @@ pub enum Value {
 
 /// The state of one spawned task (BRS-133), held in its arena cell.
 ///
-/// In this slice the block runs lazily — at the first `value()` read,
-/// or at scope settling for never-read tasks. A later slice changes
-/// WHEN the transitions happen (a scheduler runs blocks eagerly), never
-/// what a reader observes: `value()` still answers the cached result or
-/// rethrows the cached error, at most one run per task.
+/// The scheduler starts a pending block when a suspension point first
+/// drives it — a `value()` read or scope settling — and may park it
+/// mid-run on blocking IO while its siblings proceed. What a reader
+/// observes never changes with WHEN the block runs: `value()` answers
+/// the cached result or rethrows the cached error, at most one run per
+/// task.
 #[derive(Debug)]
 pub enum TaskState {
-    /// Registered but not run; holds the callable `spawn` was given.
-    Pending(Value),
-    /// The block is running right now (its callable taken out). A
-    /// `value()` read that finds this asked for a result that depends
-    /// on itself.
+    /// Registered but not started; holds the callable `spawn` was given
+    /// and the scope it was spawned on — what the scheduler tags its
+    /// bookkeeping with, so a scope that exits can purge the entries it
+    /// owns.
+    Pending {
+        block: Value,
+        scope: crate::heap::GcRef,
+    },
+    /// The block has been started (its callable taken out): it is on
+    /// the Rust stack right now, queued as runnable, or parked on IO.
+    /// A `value()` read that finds it on the Rust stack asked for a
+    /// result that depends on itself.
     Running,
     /// The block returned; every `value()` read answers this result.
     Done(Value),

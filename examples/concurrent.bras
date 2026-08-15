@@ -1,0 +1,29 @@
+# Structured concurrency: `concurrent` opens a scope, `spawn` registers
+# tasks, and `value()` reads a task's result. A task that blocks — on
+# `time.sleep`, `std::http`, or `std::proc` — parks while its siblings
+# run, so the sleeps below overlap instead of adding up.
+
+import std::time
+
+let total = concurrent do |scope|
+  let a = scope.spawn do
+    time.sleep(20)
+    1
+  end
+  let b = scope.spawn do
+    time.sleep(20)
+    2
+  end
+  a.value() + b.value()
+end
+puts "sum: #{total}"
+
+# Tasks nobody reads still run before the scope exits, in spawn order.
+concurrent do |scope|
+  scope.spawn do
+    puts "first"
+  end
+  scope.spawn do
+    puts "second"
+  end
+end

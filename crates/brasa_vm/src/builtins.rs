@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+use brasa_runtime::offload::{Job, JobOutcome};
 use brasa_runtime::proc_env::{
     env_lookup, merged_env, non_zero_exit_message, run_all, run_command, shell_argv, valid_env_name,
 };
@@ -24,7 +25,9 @@ use crate::value::{
     ArgsValue, NativeErrorValue, OutputValue, ResponseValue, TaskState, Value, WalkValue,
     value_cmp, value_eq,
 };
-use crate::vm::{ASSERTION_FAILED, INTEGER_OVERFLOW, Signal, Step, Vm, VmResult};
+use crate::vm::{
+    ASSERTION_FAILED, DriveGoal, INTEGER_OVERFLOW, JobResume, Signal, Step, Vm, VmResult, Wait,
+};
 
 /// The canonical qualified name of the native `string` parse error
 /// (mirrors `brasa_resolver::STRING_PARSE_ERROR`).
@@ -166,10 +169,27 @@ impl Vm<'_> {
             _ => return Err(invalid()),
         };
 
+        let strict = matches!(member, ProcMember::Run | ProcMember::Shell);
+
+        // Same offload rule as `http_call`: under a driving scheduler
+        // the child runs from a pool worker and this task parks. The
+        // strictness decision travels with the wait so the resume can
+        // classify the exit exactly as the synchronous path below does.
+        if self.can_park() {
+            let id = self.submit_job(Job::ProcRun {
+                argv,
+                stdin: stdin.map(|text| text.to_string()),
+                overlay: self.env_overlay.clone(),
+            });
+            return Err(self.park_on(Wait::Job {
+                id,
+                resume: JobResume::Proc { strict, shown },
+            }));
+        }
+
         let output = run_command(&argv, stdin.as_deref(), &self.env_overlay)
             .map_err(|message| native_error(PROC_SPAWN_ERROR, message))?;
 
-        let strict = matches!(member, ProcMember::Run | ProcMember::Shell);
         if strict && output.code != 0 {
             let message = non_zero_exit_message(&shown, &output);
             return Err(native_error(PROC_NON_ZERO_EXIT, message));
@@ -289,6 +309,33 @@ impl Vm<'_> {
         };
 
         let headers = std::collections::HashMap::new();
+
+        // Under a driving scheduler the request leaves for the offload
+        // pool and this task parks; other tasks run while it waits
+        // (spec: 08 — Concurrencia estructurada). Only plain data
+        // crosses: the URL and body go out as `String`s, the raw
+        // response comes back and is converted on this thread.
+        if self.can_park() {
+            let job = match body {
+                None => Job::HttpGet {
+                    url,
+                    headers,
+                    timeout_ms: timeout,
+                },
+                Some(body) => Job::HttpPost {
+                    url,
+                    body,
+                    headers,
+                    timeout_ms: timeout,
+                },
+            };
+            let id = self.submit_job(job);
+            return Err(self.park_on(Wait::Job {
+                id,
+                resume: JobResume::Http,
+            }));
+        }
+
         let result = match &body {
             None => http_glue::get(&url, &headers, timeout),
             Some(body) => http_glue::post(&url, body, &headers, timeout),
@@ -867,6 +914,15 @@ impl Vm<'_> {
                         format!("cannot sleep a negative duration ({ms} ms)"),
                     ));
                 }
+                // A sleeping task never occupies a pool thread: the
+                // deadline parks on the scheduler, which checks it
+                // when it looks for the next runnable task.
+                if self.can_park() {
+                    let at =
+                        std::time::Instant::now() + std::time::Duration::from_millis(*ms as u64);
+                    return Err(self.park_on(Wait::Until(at)));
+                }
+
                 time_glue::sleep_ms(*ms as u64);
                 Ok(Value::Unit)
             }
@@ -1644,23 +1700,28 @@ impl Vm<'_> {
         // Whatever happened — a settled scope, a body error that
         // dropped its unrun tasks, a panic on the way out — the scope
         // is over: a handle that escaped must fail a later `spawn`
-        // rather than register a block nothing would ever settle.
+        // rather than register a block nothing would ever settle. The
+        // scheduler forgets whatever it still held for this scope; a
+        // job a purged task left in flight completes in the pool and
+        // is discarded on arrival.
         let Value::ConcurrentScope(cell) = &scope else {
             unreachable!("alloc_scope answers a scope value");
         };
         self.heap.scope(*cell).borrow_mut().exited = true;
+        self.purge_scope(*cell);
 
         outcome
     }
 
-    /// Settles a scope whose body answered `result` normally: runs
-    /// every task not yet run, in spawn order, then rethrows the FIRST
-    /// unread failure (spawn order) if any task failed without its
-    /// `value()` ever being called.
+    /// Settles a scope whose body answered `result` normally: drives
+    /// the scheduler until every spawned task settled — tasks
+    /// interleave here, parking on blocking IO while their siblings
+    /// run — then rethrows the FIRST unread failure (spawn order) if
+    /// any task failed without its `value()` ever being called.
     ///
-    /// Settling runs after all tasks have been given their run — a
-    /// failure does not cut the remaining tasks short, only a panic
-    /// does ([`Vm::run_task`]).
+    /// A failure does not cut the remaining tasks short, only a panic
+    /// does ([`Vm::run_scheduled`] propagates any non-error signal
+    /// immediately).
     fn settle_scope(&mut self, scope: &Value, result: Value) -> VmResult {
         let Value::ConcurrentScope(cell) = scope else {
             unreachable!("settling reads a scope value");
@@ -1669,19 +1730,10 @@ impl Vm<'_> {
 
         let rooted = [scope.clone(), result.clone()];
         self.with_rooted(&rooted, |this| {
-            // By index rather than over a snapshot: the scope has not
-            // exited yet, so a settling block may spawn again, and
-            // those tasks must settle too.
-            let mut ix = 0;
-            loop {
-                let task = match this.heap.scope(cell).borrow().tasks.get(ix) {
-                    Some(task) => task.clone(),
-                    None => break,
-                };
-                ix += 1;
-
-                this.run_task(&task)?;
-            }
+            // The drive re-checks the scope's task list on every
+            // settle: the scope has not exited yet, so a settling
+            // block may spawn again, and those tasks settle too.
+            this.drive(DriveGoal::Scope(cell))?;
 
             let tasks = this.heap.scope(cell).borrow().tasks.clone();
             for task in &tasks {
@@ -1702,68 +1754,38 @@ impl Vm<'_> {
         })
     }
 
-    /// Runs a task's block if it has not run, caching the outcome; a
-    /// task that already settled is left as it is (the block runs at
-    /// most once).
-    ///
-    /// A thrown ERROR is cached as `Failed` and does not propagate from
-    /// here: `value()` rethrows it to its reader, and scope settling
-    /// rethrows the first unread one — an error never disappears, it
-    /// only waits for its surfacing point. A PANIC (or any other
-    /// signal) propagates immediately, and the remaining unrun tasks
-    /// are dropped with the scope.
-    ///
-    /// Deferred execution IS this slice's scheduling
-    /// (spec: 08 — Concurrencia estructurada, BRS-133): the block runs
-    /// at the first `value()` read, or at scope settling for tasks
-    /// never read — exactly the suspension points this slice has. A
-    /// later slice replaces WHEN blocks run (a scheduler may start them
-    /// eagerly and park readers), never what a reader observes.
-    fn run_task(&mut self, task: &Value) -> VmResult<()> {
-        let Value::Task(t) = task else {
-            unreachable!("running reads a task value");
-        };
-        let t = *t;
+    /// Turns one finished offload job into the value its builtin would
+    /// have answered synchronously, or the error value it would have
+    /// raised — the scheduler pushes the former onto the resuming
+    /// task's stack and rethrows the latter at its suspension point.
+    pub(crate) fn job_value(resume: &JobResume, outcome: JobOutcome) -> Result<Value, Value> {
+        match (resume, outcome) {
+            (JobResume::Http, JobOutcome::Http(result)) => {
+                let response =
+                    result.map_err(|message| native_error_value(HTTP_REQUEST_ERROR, message))?;
 
-        let block = {
-            let mut state = self.heap.task(t).borrow_mut();
-            match &*state {
-                TaskState::Done(_) | TaskState::Failed { .. } => return Ok(()),
-                TaskState::Running => {
-                    return Err(Signal::Fatal(
-                        "brasa: a task's value depends on itself".to_string(),
-                    ));
+                Ok(Value::HttpResponse(Rc::new(ResponseValue {
+                    status: response.status,
+                    body: Rc::from(response.body),
+                    headers: response.headers,
+                })))
+            }
+            (JobResume::Proc { strict, shown }, JobOutcome::Proc(result)) => {
+                let output =
+                    result.map_err(|message| native_error_value(PROC_SPAWN_ERROR, message))?;
+
+                if *strict && output.code != 0 {
+                    let message = non_zero_exit_message(shown, &output);
+                    return Err(native_error_value(PROC_NON_ZERO_EXIT, message));
                 }
-                TaskState::Pending(_) => {
-                    let TaskState::Pending(block) =
-                        std::mem::replace(&mut *state, TaskState::Running)
-                    else {
-                        unreachable!("just matched Pending");
-                    };
-                    block
-                }
-            }
-        };
 
-        // The task cell is rooted across the run: the receiver was
-        // popped off the value stack before this builtin ran, and the
-        // block reenters compiled code, which can collect.
-        let rooted = [task.clone()];
-        let outcome = self.with_rooted(&rooted, |this| this.call_callable(block, vec![]));
-
-        match outcome {
-            Ok(value) => {
-                *self.heap.task(t).borrow_mut() = TaskState::Done(value);
-                Ok(())
+                Ok(Value::ProcOutput(Rc::new(OutputValue {
+                    stdout: Rc::from(output.stdout),
+                    stderr: Rc::from(output.stderr),
+                    code: output.code,
+                })))
             }
-            Err(Signal::Error(error)) => {
-                *self.heap.task(t).borrow_mut() = TaskState::Failed {
-                    error,
-                    observed: false,
-                };
-                Ok(())
-            }
-            Err(other) => Err(other),
+            _ => unreachable!("a job's outcome matches the resume recorded with it"),
         }
     }
 
@@ -1798,16 +1820,18 @@ impl Vm<'_> {
             ));
         }
 
-        let task = self.heap.alloc_task(TaskState::Pending(block));
+        let task = self.heap.alloc_task(TaskState::Pending { block, scope });
         self.heap
             .edit_scope(scope, |state| state.tasks.push(task.clone()));
 
         Ok(task)
     }
 
-    /// The `Task<T>` methods (BRS-133): `value` runs the block if it
-    /// has not run, then answers the cached result or rethrows the
-    /// cached error — the same error on every call.
+    /// The `Task<T>` methods (BRS-133): `value` drives the scheduler
+    /// until the task settles — starting it if it never ran, waiting
+    /// through its parks if it is mid-IO — then answers the cached
+    /// result or rethrows the cached error, the same error on every
+    /// call.
     fn task_builtin(&mut self, recv: &Value, name: &str, args: &[Value]) -> VmResult {
         let Value::Task(t) = recv else {
             return Err(builtin_error(name));
@@ -1820,7 +1844,11 @@ impl Vm<'_> {
 
         match (member, args) {
             (TaskMember::Value, []) => {
-                self.run_task(recv)?;
+                // The receiver was popped off the value stack before
+                // this builtin ran, and driving reenters compiled
+                // code, which can collect.
+                let rooted = [recv.clone()];
+                self.with_rooted(&rooted, |this| this.drive(DriveGoal::Task(t)))?;
 
                 let mut state = self.heap.task(t).borrow_mut();
                 match &mut *state {
@@ -1829,8 +1857,8 @@ impl Vm<'_> {
                         *observed = true;
                         Err(Signal::Error(error.clone()))
                     }
-                    TaskState::Pending(_) | TaskState::Running => {
-                        unreachable!("run_task settled the task or reported")
+                    TaskState::Pending { .. } | TaskState::Running => {
+                        unreachable!("the drive settled the task or reported")
                     }
                 }
             }
@@ -1928,10 +1956,17 @@ fn unknown_fs_member(name: &str) -> Signal {
 /// [`Value::NativeError`], caught by naming its qualified name or by
 /// `_` like any thrown value.
 fn native_error(name: &'static str, message: String) -> Signal {
-    Signal::Error(Value::NativeError(Rc::new(NativeErrorValue {
+    Signal::Error(native_error_value(name, message))
+}
+
+/// The value form of [`native_error`], for outcomes that are stored to
+/// rethrow later (a parked task's failed job) rather than raised on the
+/// spot.
+fn native_error_value(name: &'static str, message: String) -> Value {
+    Value::NativeError(Rc::new(NativeErrorValue {
         name,
         message: Rc::from(message),
-    })))
+    }))
 }
 
 fn fs_signal(err: fs_glue::FsError) -> Signal {

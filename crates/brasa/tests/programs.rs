@@ -568,6 +568,15 @@ fn example_real_tally() {
     assert_example("real/tally.bras", "");
 }
 
+/// Structured concurrency end to end (BRS-133): spawned tasks settle,
+/// `value()` reads compose, and the never-read tasks run in spawn
+/// order. The sleeps inside park rather than serialize, but the pin is
+/// the OUTPUT — timing belongs to the VM's conformance suite.
+#[test]
+fn example_concurrent() {
+    assert_example("concurrent.bras", "sum: 3\nfirst\nsecond\n");
+}
+
 /// The whole of BRS-97 in one example: the importer's top-level `let`
 /// calls across the module boundary before `main` runs, `main` reads a
 /// second exported function, and `utils`' own private helper is reached

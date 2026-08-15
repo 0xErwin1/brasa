@@ -378,11 +378,7 @@ impl Heap {
 
     /// [`Heap::edit_vector`] for a scope cell, whose slot count is its
     /// task list's length.
-    pub(crate) fn edit_scope<R>(
-        &self,
-        r: GcRef,
-        edit: impl FnOnce(&mut ScopeState) -> R,
-    ) -> R {
+    pub(crate) fn edit_scope<R>(&self, r: GcRef, edit: impl FnOnce(&mut ScopeState) -> R) -> R {
         let cell = self.scope(r);
         let before = cell.borrow().tasks.len();
 
@@ -599,7 +595,9 @@ impl Heap {
             HeapCell::Binding(value) => vec![value.borrow().clone()],
             HeapCell::Scope(state) => state.borrow().tasks.clone(),
             HeapCell::Task(state) => match &*state.borrow() {
-                TaskState::Pending(block) => vec![block.clone()],
+                TaskState::Pending { block, scope } => {
+                    vec![block.clone(), Value::ConcurrentScope(*scope)]
+                }
                 TaskState::Running => Vec::new(),
                 TaskState::Done(value) => vec![value.clone()],
                 TaskState::Failed { error, .. } => vec![error.clone()],
@@ -779,7 +777,10 @@ impl Heap {
                 }
             }
             HeapCell::Task(state) => match &*state.borrow() {
-                TaskState::Pending(block) => Heap::visit(mark, block),
+                TaskState::Pending { block, scope } => {
+                    Heap::visit(mark, block);
+                    Heap::visit(mark, &Value::ConcurrentScope(*scope));
+                }
                 TaskState::Running => {}
                 TaskState::Done(value) => Heap::visit(mark, value),
                 TaskState::Failed { error, .. } => Heap::visit(mark, error),

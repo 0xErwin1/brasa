@@ -15,6 +15,7 @@ pub mod http_glue;
 pub mod io_glue;
 pub mod json_glue;
 pub mod num_glue;
+pub mod offload;
 pub mod proc_env;
 pub mod rand_glue;
 pub mod table;

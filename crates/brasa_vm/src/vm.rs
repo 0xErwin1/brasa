@@ -25,12 +25,13 @@ use brasa_bytecode::{
     builtin_def, builtin_id,
 };
 use brasa_runtime::Outcome;
+use brasa_runtime::offload::{Job, JobId, OffloadPool};
 use brasa_runtime::table::{OrderedMap, OrderedSet};
 
-use crate::heap::{Heap, Interner};
+use crate::heap::{GcRef, Heap, Interner};
 use crate::value::{
-    BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, Value,
-    value_cmp, value_eq,
+    BoundBuiltin, BoundMethod, Caught, ClosureValue, EnumValue, IterState, PanicValue, TaskState,
+    Value, value_cmp, value_eq,
 };
 
 pub(crate) const INDEX_OUT_OF_BOUNDS: &str = "panics.IndexOutOfBounds";
@@ -64,6 +65,15 @@ pub(crate) enum Signal {
     /// construction — which is what lets a session pause with the frame
     /// stack and the operand stack exactly as the program left them.
     Breakpoint,
+    /// A blocking builtin suspended the running task
+    /// (spec: 08 — Concurrencia estructurada, BRS-133): its job is
+    /// submitted, its wait is recorded on the scheduler, and its frames
+    /// must survive untouched — so this signal BYPASSES unwinding
+    /// entirely and returns straight out of the dispatch loop to the
+    /// drive loop that swapped the task in. Raised only when
+    /// [`Vm::can_park`] held, which is what guarantees a drive loop is
+    /// there to catch it.
+    Park,
 }
 
 pub(crate) type VmResult<T = Value> = Result<T, Signal>;
@@ -105,6 +115,14 @@ struct Task {
     /// whatever they hold has to be reachable from here or the
     /// collector would sweep it out from under them.
     native_roots: Vec<Value>,
+    /// How many nested Rust-stack dispatch loops this task is inside
+    /// ([`Vm::call_frames`]): a builtin HOF running its callback, or
+    /// rendering running a user `toString`. Parking there would abandon
+    /// live Rust frames, so a suspension point at depth > 0 degrades to
+    /// its synchronous blocking form — same semantics, no overlap.
+    /// Compiled-to-compiled calls stay in one loop and do not count:
+    /// a task parks fine at any Brasa call depth.
+    reentry_depth: usize,
 }
 
 impl Task {
@@ -155,7 +173,7 @@ pub(crate) struct Vm<'a> {
     pub(crate) rng: brasa_runtime::rand_glue::Rng,
     /// Present only while a debug session is driving this VM (BRS-117).
     /// `None` on every ordinary run, and the field the dispatch loop
-    /// never looks at — see [`Vm::execute_debug`].
+    /// never looks at — see [`Vm::execute_instrumented`].
     pub(crate) debug: Option<crate::debug::DebugState>,
     /// Whether a debugged run has already entered `main`, so a resume
     /// that finishes `<toplevel>` does not run it twice.
@@ -163,6 +181,13 @@ pub(crate) struct Vm<'a> {
     /// Present only while a profiled run is executing (BRS-121). Like
     /// `debug`, the ordinary dispatch loop never looks at it.
     pub(crate) profile: Option<crate::profile::Profiler>,
+    /// The task scheduler (spec: 08 — Concurrencia estructurada,
+    /// BRS-133): parked and runnable tasks, the drivers set aside while
+    /// a drive loop runs, and the IO offload pool. Boxed and `None`
+    /// until the first task is started, so a run that never spawns
+    /// never allocates any of it — the same lazy rule the TLS stack
+    /// follows.
+    sched: Option<Box<SchedState>>,
 }
 
 impl<'a> Vm<'a> {
@@ -203,6 +228,7 @@ impl<'a> Vm<'a> {
             debug: None,
             debug_ran_entry: false,
             profile: None,
+            sched: None,
         }
     }
 
@@ -359,6 +385,11 @@ impl<'a> Vm<'a> {
             Err(Signal::Fatal(message)) => Outcome::Error { message },
             Err(Signal::BrokenPipe) => Outcome::BrokenPipe,
             Err(Signal::Exit(code)) => Outcome::Exit { code },
+            // A park is raised only under `can_park`, whose drive loop
+            // consumes it before any bounded caller can see it.
+            Err(Signal::Park) => Outcome::Panic {
+                message: "brasa: a parked task escaped its scheduler".to_string(),
+            },
         }
     }
 
@@ -482,7 +513,7 @@ impl<'a> Vm<'a> {
         while self.task.frames.len() >= min_frames {
             if self.heap.should_collect() {
                 self.heap
-                    .collect(self.task.roots().chain(self.globals.iter().flatten()));
+                    .collect(Self::all_roots(&self.task, &self.sched, &self.globals));
             }
 
             let frame = self.task.frames.last_mut().expect("loop condition holds");
@@ -496,17 +527,38 @@ impl<'a> Vm<'a> {
             }
 
             if let Err(signal) = self.step(code[ip]) {
+                // A park is not an error: the task's frames must
+                // survive for its resume, so the signal skips unwinding
+                // and returns to the drive loop that swapped it in.
+                if matches!(signal, Signal::Park) {
+                    return Err(signal);
+                }
                 self.unwind(signal, min_frames)?;
             }
         }
         Ok(())
     }
 
+    /// The full root set at a safepoint: the running task, every task
+    /// the scheduler holds (runnable, parked, and set-aside drivers),
+    /// and the globals. An associated function over the fields rather
+    /// than a `&self` method so the call can borrow `self.heap`
+    /// mutably alongside it.
+    fn all_roots<'r>(
+        task: &'r Task,
+        sched: &'r Option<Box<SchedState>>,
+        globals: &'r [Option<Value>],
+    ) -> impl Iterator<Item = &'r Value> {
+        task.roots()
+            .chain(sched.iter().flat_map(|sched| sched.roots()))
+            .chain(globals.iter().flatten())
+    }
+
     // --- debug substrate (BRS-117) -------------------------------------
 
     /// Whether the debug loop should stop before `(func, ip)`.
     ///
-    /// Only ever called from [`Vm::execute_debug`].
+    /// Only ever called from [`Vm::execute_instrumented`].
     fn debug_should_stop(&mut self, func: FuncId, ip: usize, depth: usize) -> bool {
         let Some(state) = self.debug.as_mut() else {
             return false;
@@ -764,7 +816,7 @@ impl<'a> Vm<'a> {
                 // and a single total hides which it is.
                 let started = std::time::Instant::now();
                 self.heap
-                    .collect(self.task.roots().chain(self.globals.iter().flatten()));
+                    .collect(Self::all_roots(&self.task, &self.sched, &self.globals));
 
                 if let Some(profiler) = self.profile.as_mut() {
                     profiler.add_gc(started.elapsed());
@@ -792,6 +844,10 @@ impl<'a> Vm<'a> {
 
             let op = self.function(func).chunk.ops()[ip];
             if let Err(signal) = self.step(op) {
+                // Same bypass as `execute`: a park keeps its frames.
+                if matches!(signal, Signal::Park) {
+                    return Err(signal);
+                }
                 self.unwind(signal, min_frames)?;
             }
         }
@@ -2139,6 +2195,29 @@ impl<'a> Vm<'a> {
         closure: Option<&ClosureValue>,
         args: Vec<Value>,
     ) -> VmResult {
+        self.call_prep(func, closure, args)?;
+
+        // The nested loop lives on the Rust stack, so parking anywhere
+        // inside it is forbidden — see `Task::reentry_depth`.
+        self.task.reentry_depth += 1;
+        let bounded = self.execute(self.task.frames.len());
+        self.task.reentry_depth -= 1;
+        bounded?;
+
+        Ok(self.pop())
+    }
+
+    /// The frame-pushing half of [`Vm::call_frames`]: arguments on the
+    /// stack, frame entered, captures written — everything but the
+    /// nested loop. The scheduler starts a task through this so the
+    /// block's frames belong to the task's own stack and run under the
+    /// DRIVER's loop, not a nested one.
+    fn call_prep(
+        &mut self,
+        func: FuncId,
+        closure: Option<&ClosureValue>,
+        args: Vec<Value>,
+    ) -> Result<(), Signal> {
         let ret_base = self.task.stack.len();
         self.task.stack.extend(args);
 
@@ -2150,8 +2229,7 @@ impl<'a> Vm<'a> {
             self.write_captures(closure);
         }
 
-        self.execute(self.task.frames.len())?;
-        Ok(self.pop())
+        Ok(())
     }
 
     /// `call_builtin b argc`: pops every operand (receiver included
@@ -2231,6 +2309,582 @@ impl<'a> Vm<'a> {
     }
 }
 
+// --- the task scheduler (BRS-133 slice B) ------------------------------
+//
+// Real parking (spec: 08 — Concurrencia estructurada). The suspension
+// points — scope settling and `value()` — DRIVE the scheduler: the
+// current task is set aside on the drivers stack, runnable tasks are
+// swapped through `Vm::task` one at a time, and a task that reaches a
+// blocking builtin at reentry depth zero parks — its job goes to the
+// offload pool, its frames stay in its `Task`, and the next runnable
+// task takes the slot. When nothing is runnable, the VM blocks on the
+// pool's condvar or the nearest sleep deadline: the event loop's idle
+// state, without an event loop.
+//
+// Determinism: runnable tasks run in FIFO order, which is spawn order
+// for a settling scope; only IO completion order is outside the
+// language's control. A `value()` read runs its target first when the
+// target is runnable, so code whose tasks never park observes exactly
+// the pre-scheduler execution order.
+
+/// What one blocked task is waiting for.
+pub(crate) enum Wait {
+    Job { id: JobId, resume: JobResume },
+    Until(std::time::Instant),
+}
+
+/// How to turn a finished job back into the value or error its builtin
+/// would have produced synchronously — the per-call data the sync path
+/// would have kept in Rust locals across the blocking call.
+pub(crate) enum JobResume {
+    Http,
+    Proc { strict: bool, shown: String },
+}
+
+/// What a drive loop is waiting to see settled.
+#[derive(Clone, Copy)]
+pub(crate) enum DriveGoal {
+    Task(GcRef),
+    Scope(GcRef),
+}
+
+/// One task the scheduler holds: its heap cell (as a rooted handle),
+/// the scope it belongs to (what an exiting scope purges by), and its
+/// swapped-out execution state.
+struct ScheduledTask {
+    handle: Value,
+    scope: Value,
+    exec: Task,
+    wait: Option<Wait>,
+    /// An error a finished job left for the task to rethrow at its
+    /// suspension point, through ordinary handler unwinding.
+    raise: Option<Value>,
+}
+
+impl ScheduledTask {
+    fn cell(&self) -> GcRef {
+        let Value::Task(cell) = &self.handle else {
+            unreachable!("a scheduled task's handle is a task value");
+        };
+        *cell
+    }
+
+    fn roots(&self) -> impl Iterator<Item = &Value> {
+        self.exec
+            .roots()
+            .chain([&self.handle, &self.scope])
+            .chain(self.raise.iter())
+    }
+}
+
+#[derive(Default)]
+struct SchedState {
+    runnable: std::collections::VecDeque<ScheduledTask>,
+    parked: Vec<ScheduledTask>,
+    /// Tasks set aside while a drive loop runs on their Rust stack,
+    /// innermost last, each with the heap cell it was scheduled under
+    /// (`None` for the program's root task). Held here rather than in
+    /// drive-loop locals so safepoint rooting reaches them.
+    drivers: Vec<(Task, Option<GcRef>)>,
+    /// The heap cell of the scheduled task now occupying `Vm::task`,
+    /// while a drive loop is running one.
+    current_cell: Option<GcRef>,
+    /// How many drive loops are on the Rust stack — what arms
+    /// [`Vm::can_park`]: a park without a drive loop to catch it would
+    /// abandon the program.
+    driving: usize,
+    /// The wait the parking builtin recorded for the `Signal::Park` in
+    /// flight, consumed by the drive loop when the signal arrives.
+    pending_park: Option<Wait>,
+    pool: Option<OffloadPool>,
+}
+
+impl SchedState {
+    /// Every value the collector must reach through the scheduler:
+    /// each held task's stacks plus its cell and scope handles.
+    fn roots(&self) -> impl Iterator<Item = &Value> {
+        self.runnable
+            .iter()
+            .chain(self.parked.iter())
+            .flat_map(ScheduledTask::roots)
+            .chain(self.drivers.iter().flat_map(|(task, _)| task.roots()))
+    }
+}
+
+impl<'a> Vm<'a> {
+    fn sched_mut(&mut self) -> &mut SchedState {
+        self.sched.get_or_insert_default()
+    }
+
+    /// Whether a suspension point may park the running task: a drive
+    /// loop must be there to catch the signal, and the task must not be
+    /// inside a nested Rust dispatch loop (`Task::reentry_depth`).
+    /// When this is `false` the builtin blocks synchronously — same
+    /// semantics, no overlap.
+    pub(crate) fn can_park(&self) -> bool {
+        self.task.reentry_depth == 0 && self.sched.as_ref().is_some_and(|sched| sched.driving > 0)
+    }
+
+    /// Records what the parking task waits for and answers the signal
+    /// the builtin returns. Only valid when [`Vm::can_park`] held.
+    pub(crate) fn park_on(&mut self, wait: Wait) -> Signal {
+        let previous = self.sched_mut().pending_park.replace(wait);
+        debug_assert!(previous.is_none(), "one park per suspension point");
+        Signal::Park
+    }
+
+    /// Queues one blocking job on the offload pool, building the pool
+    /// on the first call.
+    pub(crate) fn submit_job(&mut self, job: Job) -> JobId {
+        self.sched_mut().pool.get_or_insert_default().submit(job)
+    }
+
+    /// Runs scheduled tasks until `goal` settles. The suspension
+    /// points call this: scope settling drives until every task in the
+    /// scope settled, `value()` until its target did. Reentrant — a
+    /// driven task that reaches its own suspension point drives again,
+    /// with the outer task safely on the drivers stack.
+    pub(crate) fn drive(&mut self, goal: DriveGoal) -> VmResult<()> {
+        if self.goal_settled(goal)? {
+            return Ok(());
+        }
+
+        let driver = std::mem::take(&mut self.task);
+        let sched = self.sched_mut();
+        let driver_cell = sched.current_cell.take();
+        sched.drivers.push((driver, driver_cell));
+        sched.driving += 1;
+
+        let outcome = self.drive_loop(goal);
+
+        let sched = self.sched_mut();
+        sched.driving -= 1;
+        let (driver, driver_cell) = sched.drivers.pop().expect("drive set its driver aside");
+        sched.current_cell = driver_cell;
+        self.task = driver;
+
+        outcome
+    }
+
+    fn drive_loop(&mut self, goal: DriveGoal) -> VmResult<()> {
+        loop {
+            self.absorb_completions();
+
+            let Some(next) = self.pick_runnable(goal) else {
+                self.await_progress()?;
+                continue;
+            };
+            self.run_scheduled(next)?;
+
+            if self.goal_settled(goal)? {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Whether the goal has settled — starting any task still pending
+    /// on the way, so a settling block that spawns again is picked up
+    /// by the next check. A `value()` read that finds its target
+    /// running OUTSIDE the scheduler found it below itself on the Rust
+    /// stack: a result that depends on itself.
+    fn goal_settled(&mut self, goal: DriveGoal) -> VmResult<bool> {
+        match goal {
+            DriveGoal::Scope(scope) => self.sweep_scope(scope),
+            DriveGoal::Task(cell) => {
+                if matches!(
+                    &*self.heap.task(cell).borrow(),
+                    TaskState::Done(_) | TaskState::Failed { .. }
+                ) {
+                    return Ok(true);
+                }
+
+                // The whole scope is swept, not just the target: while
+                // the target is parked its pending siblings are the
+                // work the scheduler should be doing. The target still
+                // RUNS first (`Vm::pick_runnable`), so code whose
+                // tasks never park observes the pre-scheduler order.
+                if let Some(scope) = self.task_scope(cell) {
+                    self.sweep_scope(scope)?;
+                }
+
+                let unsettled = self.begin_if_pending(cell)?;
+                if !unsettled {
+                    return Ok(true);
+                }
+                if self.holds_scheduled(cell) {
+                    return Ok(false);
+                }
+                Err(Self::fatal("brasa: a task's value depends on itself"))
+            }
+        }
+    }
+
+    /// Starts every task of `scope` still pending, in spawn order;
+    /// answers whether all of them have settled.
+    fn sweep_scope(&mut self, scope: GcRef) -> VmResult<bool> {
+        let mut settled = true;
+        let mut ix = 0;
+        loop {
+            let task = match self.heap.scope(scope).borrow().tasks.get(ix) {
+                Some(task) => task.clone(),
+                None => break,
+            };
+            ix += 1;
+
+            let Value::Task(cell) = task else {
+                unreachable!("a scope holds task values only");
+            };
+            if self.begin_if_pending(cell)? {
+                settled = false;
+            }
+        }
+        Ok(settled)
+    }
+
+    /// The scope `cell` belongs to, when the scheduler can still tell:
+    /// from its pending state, or from the scheduler entry that carries
+    /// it. `None` for a task on the Rust stack — the caller's
+    /// self-dependency check reports it.
+    fn task_scope(&self, cell: GcRef) -> Option<GcRef> {
+        if let TaskState::Pending { scope, .. } = &*self.heap.task(cell).borrow() {
+            return Some(*scope);
+        }
+
+        let sched = self.sched.as_ref()?;
+        sched
+            .runnable
+            .iter()
+            .chain(sched.parked.iter())
+            .find(|task| task.cell() == cell)
+            .map(|task| {
+                let Value::ConcurrentScope(scope) = &task.scope else {
+                    unreachable!("a scheduled task's scope is a scope value");
+                };
+                *scope
+            })
+    }
+
+    /// Starts `cell` if it is still pending; answers whether it remains
+    /// unsettled afterwards.
+    fn begin_if_pending(&mut self, cell: GcRef) -> VmResult<bool> {
+        if matches!(&*self.heap.task(cell).borrow(), TaskState::Pending { .. }) {
+            self.begin_task(cell)?;
+        }
+        Ok(matches!(
+            &*self.heap.task(cell).borrow(),
+            TaskState::Running
+        ))
+    }
+
+    fn holds_scheduled(&self, cell: GcRef) -> bool {
+        self.sched.as_ref().is_some_and(|sched| {
+            sched
+                .runnable
+                .iter()
+                .chain(sched.parked.iter())
+                .any(|task| task.cell() == cell)
+        })
+    }
+
+    /// Materializes a pending task: takes the block out, prepares its
+    /// frames on a fresh execution state, and queues it runnable. A
+    /// natively-callable block (a bound builtin) has no frames to
+    /// schedule and runs to its outcome here.
+    fn begin_task(&mut self, cell: GcRef) -> VmResult<()> {
+        let (block, scope) = {
+            let mut state = self.heap.task(cell).borrow_mut();
+            let TaskState::Pending { .. } = &*state else {
+                unreachable!("only a pending task is started");
+            };
+            let TaskState::Pending { block, scope } =
+                std::mem::replace(&mut *state, TaskState::Running)
+            else {
+                unreachable!("just matched Pending");
+            };
+            (block, scope)
+        };
+
+        // The current task is set aside THROUGH the drivers stack, not
+        // a Rust local: preparing a bound builtin can reenter compiled
+        // code, and a safepoint there must still root it.
+        let saved = std::mem::take(&mut self.task);
+        let sched = self.sched_mut();
+        let saved_cell = sched.current_cell.take();
+        sched.drivers.push((saved, saved_cell));
+
+        let prepared = self.prepare_block(block);
+
+        let exec = std::mem::take(&mut self.task);
+        let sched = self.sched_mut();
+        let (saved, saved_cell) = sched
+            .drivers
+            .pop()
+            .expect("begin set the current task aside");
+        sched.current_cell = saved_cell;
+        self.task = saved;
+
+        match prepared {
+            Ok(None) => {
+                self.sched_mut().runnable.push_back(ScheduledTask {
+                    handle: Value::Task(cell),
+                    scope: Value::ConcurrentScope(scope),
+                    exec,
+                    wait: None,
+                    raise: None,
+                });
+                Ok(())
+            }
+            Ok(Some(value)) => {
+                *self.heap.task(cell).borrow_mut() = TaskState::Done(value);
+                Ok(())
+            }
+            Err(Signal::Error(error)) => {
+                *self.heap.task(cell).borrow_mut() = TaskState::Failed {
+                    error,
+                    observed: false,
+                };
+                Ok(())
+            }
+            Err(other) => Err(other),
+        }
+    }
+
+    /// [`Vm::call_callable`]'s frame-preparing twin for a spawned
+    /// block: same callable shapes, same arity messages, but the frames
+    /// go onto the (fresh) current task without a nested loop.
+    /// `Some(value)` means the block was native and already ran.
+    fn prepare_block(&mut self, block: Value) -> VmResult<Option<Value>> {
+        match block {
+            Value::Func(func) => {
+                let function = self.function(func);
+                if function.arity != 0 {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {} argument(s), found 0",
+                        function.name, function.arity
+                    )));
+                }
+                self.call_prep(func, None, Vec::new())?;
+                Ok(None)
+            }
+            Value::Closure(closure) => {
+                let function = self.function(closure.func);
+                if function.arity != 0 {
+                    return Err(Self::fatal(format!(
+                        "brasa: lambda takes {} argument(s), found 0",
+                        function.arity
+                    )));
+                }
+                // No rooting needed between here and the enqueue: the
+                // captures are written straight into the fresh task's
+                // slots and nothing in between can collect.
+                self.call_prep(closure.func, Some(&closure), Vec::new())?;
+                Ok(None)
+            }
+            Value::BoundMethod(bound) => {
+                let function = self.function(bound.func);
+                let expected = (function.arity as usize).saturating_sub(1);
+                if expected != 0 {
+                    return Err(Self::fatal(format!(
+                        "brasa: `{}` takes {expected} argument(s), found 0",
+                        function.name
+                    )));
+                }
+                self.call_prep(bound.func, None, vec![bound.recv.clone()])?;
+                Ok(None)
+            }
+            Value::BoundBuiltin(bound) => {
+                // A native block has no frames to park, so any
+                // suspension point it reaches must take its synchronous
+                // form — the same depth guard nested loops use.
+                let args = vec![bound.recv.clone()];
+                self.task.reentry_depth += 1;
+                let outcome = self.builtin_with_args(bound.builtin, args);
+                self.task.reentry_depth -= 1;
+                outcome.map(Some)
+            }
+            _ => Err(Self::fatal("brasa: value is not callable")),
+        }
+    }
+
+    /// Runs the target first when a `value()` read is driving and its
+    /// target is runnable; FIFO otherwise.
+    fn pick_runnable(&mut self, goal: DriveGoal) -> Option<ScheduledTask> {
+        let sched = self.sched.as_mut()?;
+
+        if let DriveGoal::Task(target) = goal
+            && let Some(ix) = sched.runnable.iter().position(|task| task.cell() == target)
+        {
+            return sched.runnable.remove(ix);
+        }
+
+        sched.runnable.pop_front()
+    }
+
+    /// Swaps one runnable task into `Vm::task` and runs it to its next
+    /// boundary: settled (its outcome cached on its cell), parked (its
+    /// state moved to the parked list), or a non-error signal that
+    /// propagates out of the whole scope.
+    fn run_scheduled(&mut self, mut next: ScheduledTask) -> VmResult<()> {
+        let cell = next.cell();
+        let raise = next.raise.take();
+
+        debug_assert!(
+            self.task.frames.is_empty(),
+            "the drive loop owns an empty running slot"
+        );
+        self.task = std::mem::take(&mut next.exec);
+        self.sched_mut().current_cell = Some(cell);
+
+        // A failed job rethrows AT the suspension point, through the
+        // ordinary handler search — the frame's ip is still one past
+        // the blocking call, so a `catch` around it works exactly as
+        // it does on the synchronous path.
+        let resumed = match raise {
+            Some(error) => self.unwind(Signal::Error(error), 1),
+            None => Ok(()),
+        };
+        let outcome = resumed.and_then(|()| self.execute(1));
+
+        self.sched_mut().current_cell = None;
+
+        match outcome {
+            Ok(()) => {
+                let value = self.pop();
+                self.task = Task::default();
+                *self.heap.task(cell).borrow_mut() = TaskState::Done(value);
+                Ok(())
+            }
+            Err(Signal::Park) => {
+                let wait = self
+                    .sched_mut()
+                    .pending_park
+                    .take()
+                    .expect("a park recorded its wait");
+                next.exec = std::mem::take(&mut self.task);
+                next.wait = Some(wait);
+                self.sched_mut().parked.push(next);
+                Ok(())
+            }
+            Err(Signal::Error(error)) => {
+                self.task = Task::default();
+                *self.heap.task(cell).borrow_mut() = TaskState::Failed {
+                    error,
+                    observed: false,
+                };
+                Ok(())
+            }
+            Err(other) => {
+                self.task = Task::default();
+                Err(other)
+            }
+        }
+    }
+
+    /// Moves every task whose wait is over back to the runnable queue:
+    /// expired sleep deadlines (in park order), then finished jobs (in
+    /// completion order), each with its result pushed — or its error
+    /// recorded — exactly as its builtin would have left it. A
+    /// completion no parked task claims belonged to a purged scope and
+    /// is discarded: cancellation is cooperative, never an abort.
+    fn absorb_completions(&mut self) {
+        let Some(sched) = self.sched.as_mut() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+
+        let mut ix = 0;
+        while ix < sched.parked.len() {
+            let expired = matches!(sched.parked[ix].wait, Some(Wait::Until(at)) if at <= now);
+            if !expired {
+                ix += 1;
+                continue;
+            }
+
+            let mut task = sched.parked.remove(ix);
+            task.wait = None;
+            task.exec.stack.push(Value::Unit);
+            sched.runnable.push_back(task);
+        }
+
+        let Some(pool) = sched.pool.as_mut() else {
+            return;
+        };
+        for (id, outcome) in pool.drain_completions() {
+            let position = sched.parked.iter().position(
+                |task| matches!(&task.wait, Some(Wait::Job { id: waiting, .. }) if *waiting == id),
+            );
+            let Some(position) = position else {
+                continue;
+            };
+
+            let mut task = sched.parked.remove(position);
+            let Some(Wait::Job { resume, .. }) = task.wait.take() else {
+                unreachable!("matched a job wait above");
+            };
+
+            match Self::job_value(&resume, outcome) {
+                Ok(value) => task.exec.stack.push(value),
+                Err(error) => task.raise = Some(error),
+            }
+            sched.runnable.push_back(task);
+        }
+    }
+
+    /// Blocks until something parked can make progress: the pool's
+    /// condvar when jobs are in flight (bounded by the nearest sleep
+    /// deadline), a plain sleep when only timers remain. This is the
+    /// scheduler's idle state.
+    fn await_progress(&mut self) -> VmResult<()> {
+        let sched = self.sched_mut();
+        if sched.parked.is_empty() {
+            return Err(Self::fatal(
+                "brasa: the scheduler has nothing runnable and nothing parked",
+            ));
+        }
+
+        let now = std::time::Instant::now();
+        let mut deadline: Option<std::time::Instant> = None;
+        let mut jobs = false;
+        for parked in &sched.parked {
+            match &parked.wait {
+                Some(Wait::Until(at)) => {
+                    if *at <= now {
+                        return Ok(());
+                    }
+                    deadline = Some(deadline.map_or(*at, |d| d.min(*at)));
+                }
+                Some(Wait::Job { .. }) => jobs = true,
+                None => unreachable!("a parked task recorded its wait"),
+            }
+        }
+
+        if jobs {
+            let pool = sched.pool.as_ref().expect("a parked job implies the pool");
+            pool.wait_for_completion(deadline);
+        } else {
+            let deadline = deadline.expect("a parked task waits on a job or a deadline");
+            std::thread::sleep(deadline.saturating_duration_since(now));
+        }
+        Ok(())
+    }
+
+    /// Forgets every scheduler entry belonging to `scope`, called when
+    /// the scope exits — with its tasks settled on the ordinary path,
+    /// or abandoned mid-park when a panic tore the scope down. An
+    /// abandoned task's job completes in the pool and is discarded on
+    /// arrival.
+    pub(crate) fn purge_scope(&mut self, scope: GcRef) {
+        let Some(sched) = self.sched.as_mut() else {
+            return;
+        };
+
+        let foreign =
+            |task: &ScheduledTask| !matches!(&task.scope, Value::ConcurrentScope(s) if *s == scope);
+        sched.runnable.retain(foreign);
+        sched.parked.retain(foreign);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2280,5 +2934,87 @@ mod tests {
             raised, declared,
             "the panic union and the names the VM raises have drifted"
         );
+    }
+
+    /// Compiles `source` through the frontend and runs it on a directly
+    /// constructed `Vm`, answering the scheduler and pool fields the
+    /// integration harness cannot see.
+    fn run_and_inspect(source: &str) -> (bool, bool) {
+        let mut sources = brasa_source::SourceMap::new();
+        let file = sources.add_file("guard.bras", source.to_string());
+        let parsed = brasa_parser::parse(source, file);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let lowered = brasa_hir::lower(&parsed.ast, &parsed.roots);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let resolved = brasa_resolver::resolve(&lowered.hir, &lowered.roots);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let checked = brasa_typeck::check(
+            &lowered.hir,
+            &lowered.roots,
+            &resolved.resolutions,
+            &lowered.sugar_origins,
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let compiled = brasa_codegen::compile(
+            &lowered.hir,
+            &lowered.roots,
+            &resolved.resolutions,
+            &checked.types,
+        );
+        assert!(
+            compiled.diagnostics.is_empty(),
+            "{:?}",
+            compiled.diagnostics
+        );
+
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let mut input: &[u8] = b"";
+        let mut vm = Vm::new(
+            &compiled.module,
+            brasa_runtime::Streams {
+                out: &mut out,
+                err: &mut err,
+                input: &mut input,
+            },
+            brasa_runtime::DEFAULT_MAX_CALL_DEPTH,
+            crate::heap::DEFAULT_GC_BUDGET_BYTES,
+            &[],
+        );
+        vm.run_program().expect("the guard programs run cleanly");
+
+        let sched = vm.sched.is_some();
+        let pool = vm.sched.as_ref().is_some_and(|sched| sched.pool.is_some());
+        (sched, pool)
+    }
+
+    /// The lazy-initialization guard (BRS-134): nothing of the
+    /// scheduler exists before the first task starts, and nothing of
+    /// the offload pool before the first park submits a job — a run
+    /// that never spawns must not pay for either, and cold start must
+    /// stay unmoved.
+    #[test]
+    fn scheduler_and_pool_are_not_built_before_first_use() {
+        let (sched, pool) = run_and_inspect("puts 1 + 1\n");
+        assert!(!sched, "a plain run must not build the scheduler");
+        assert!(!pool);
+
+        let (sched, pool) =
+            run_and_inspect("let n = concurrent do |scope|\n  40 + 2\nend\nputs n\n");
+        assert!(
+            !sched,
+            "a scope with no spawns must not build the scheduler"
+        );
+        assert!(!pool);
+
+        let (sched, pool) = run_and_inspect(
+            "let n = concurrent do |scope|\n  let t = scope.spawn do 42 end\n  t.value()\nend\nputs n\n",
+        );
+        assert!(sched, "a started task lives in the scheduler");
+        assert!(!pool, "a task that never parks must not build the pool");
     }
 }

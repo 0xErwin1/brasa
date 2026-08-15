@@ -8,7 +8,7 @@
 //! # A breakpoint costs nothing when none is set
 //!
 //! Because the dispatch loop a normal run uses never learns about any
-//! of this. [`crate::vm::Vm::execute_debug`] is a second loop, entered
+//! of this. [`crate::vm::Vm::execute_instrumented`] is a second loop, entered
 //! only through a [`Session`], and the hot one is untouched — the
 //! guarantee is structural rather than argued, so there is nothing to
 //! re-measure.

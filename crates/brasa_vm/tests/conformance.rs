@@ -5499,3 +5499,152 @@ puts total
         "111\n",
     );
 }
+
+// --- real parking (BRS-133 slice B) ------------------------------------
+
+/// The core promise of parking, as ORDER rather than time: the first
+/// task reaches `time.sleep` and parks, so the second runs and prints
+/// before the sleeper wakes. Without parking the sleeper would hold the
+/// scope and print first (spawn order).
+#[test]
+fn a_parked_sleeper_lets_its_sibling_run() {
+    assert_success(
+        r##"
+import std::time
+
+concurrent do |scope|
+  scope.spawn do
+    time.sleep(60)
+    puts "slept"
+  end
+  scope.spawn do puts "ran meanwhile" end
+end
+"##,
+        "ran meanwhile\nslept\n",
+    );
+}
+
+/// The same promise as TIME: four sleeping tasks park on the scheduler
+/// (no pool thread involved) and their deadlines overlap, so the scope
+/// settles in roughly one sleep, not four. The harness runs the
+/// program twice (default and hot-GC legs), so the bound covers two
+/// runs — still far under the eight sequential sleeps they replace.
+#[test]
+fn parked_sleepers_overlap() {
+    let started = std::time::Instant::now();
+    assert_success(
+        r##"
+import std::time
+
+concurrent do |scope|
+  scope.spawn do time.sleep(200) end
+  scope.spawn do time.sleep(200) end
+  scope.spawn do time.sleep(200) end
+  scope.spawn do time.sleep(200) end
+end
+puts "settled"
+"##,
+        "settled\n",
+    );
+
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(1200),
+        "four 200ms sleeps in tasks must overlap (two harness runs): {elapsed:?}"
+    );
+}
+
+/// A child process parks its task on the offload pool: the sibling
+/// prints while the child sleeps, then the parked task resumes with the
+/// child's output — the observable proof that `proc` blocking moved
+/// off the interpreter thread.
+#[test]
+fn a_parked_child_process_lets_its_sibling_run() {
+    assert_success(
+        r##"
+import std::proc
+
+concurrent do |scope|
+  scope.spawn do
+    let out = proc.tryRun(["/bin/sh", "-c", "sleep 0.2; echo child"])
+    puts out.stdout
+  end
+  scope.spawn do puts "ran meanwhile" end
+end
+"##,
+        "ran meanwhile\nchild\n\n",
+    );
+}
+
+/// A request that fails in the pool rethrows AT the suspension point,
+/// through the ordinary handler search: a `catch` around the offloaded
+/// `http.get` observes the same `http.RequestError` the synchronous
+/// path raises. Port 1 is refused everywhere, so no network is needed.
+#[test]
+fn a_failed_offloaded_request_rethrows_at_the_suspension_point() {
+    assert_success(
+        r##"
+import std::http
+
+concurrent do |scope|
+  let t = scope.spawn do
+    http.get("http://127.0.0.1:1/").status catch (e)
+      http.RequestError => -1
+    end
+  end
+  scope.spawn do puts "ran meanwhile" end
+  puts t.value()
+end
+"##,
+        "ran meanwhile\n-1\n",
+    );
+}
+
+/// The reentry guard, as order: a blocking call inside a native
+/// callback (`each` runs its callback in a nested Rust loop) cannot
+/// park, so it degrades to a synchronous sleep and the first task
+/// finishes before its sibling runs — the pre-parking order, kept on
+/// purpose over corrupting the native stack.
+#[test]
+fn a_blocking_call_inside_a_callback_stays_synchronous() {
+    assert_success(
+        r##"
+import std::time
+
+concurrent do |scope|
+  scope.spawn do
+    [1, 2].each do |n|
+      time.sleep(10)
+    end
+    puts "callback sleeper"
+  end
+  scope.spawn do puts "sibling" end
+end
+"##,
+        "callback sleeper\nsibling\n",
+    );
+}
+
+/// A `value()` read on a parked task keeps the scheduler busy: while
+/// the target sleeps, the other runnable task gets the slot. (Before
+/// parking, `value()` ran ONLY its target — the sibling would print
+/// after the read.)
+#[test]
+fn value_on_a_parked_task_runs_other_tasks_meanwhile() {
+    assert_success(
+        r##"
+import std::time
+
+let n = concurrent do |scope|
+  let slow = scope.spawn do
+    time.sleep(60)
+    42
+  end
+  scope.spawn do puts "ran meanwhile" end
+  slow.value()
+end
+puts n
+"##,
+        "ran meanwhile\n42\n",
+    );
+}

@@ -1,0 +1,61 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::time)
+Let total
+  Call
+    Ident(concurrent)
+    Lambda(scope)
+      Let a
+        Call
+          Field(spawn)
+            Ident(scope)
+          Lambda()
+            Call
+              Field(sleep)
+                Ident(time)
+              Int(20)
+            Int(1)
+      Let b
+        Call
+          Field(spawn)
+            Ident(scope)
+          Lambda()
+            Call
+              Field(sleep)
+                Ident(time)
+              Int(20)
+            Int(2)
+      Binary(+)
+        Call
+          Field(value)
+            Ident(a)
+        Call
+          Field(value)
+            Ident(b)
+Call
+  Ident(puts)
+  StringLit
+    Text(raw=false) "sum: "
+    Interp
+      Ident(total)
+Call
+  Ident(concurrent)
+  Lambda(scope)
+    Call
+      Field(spawn)
+        Ident(scope)
+      Lambda()
+        Call
+          Ident(puts)
+          StringLit
+            Text(raw=false) "first"
+    Call
+      Field(spawn)
+        Ident(scope)
+      Lambda()
+        Call
+          Ident(puts)
+          StringLit
+            Text(raw=false) "second"
