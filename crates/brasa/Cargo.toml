@@ -12,6 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+glob = { workspace = true }
 brasa_source = { workspace = true }
 brasa_parser = { workspace = true }
 brasa_hir = { workspace = true }

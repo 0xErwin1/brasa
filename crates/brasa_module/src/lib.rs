@@ -129,6 +129,23 @@ impl Overlay {
     }
 }
 
+/// What a project manifest contributes to a load, resolved by the
+/// caller before this crate sees it.
+///
+/// The loader takes directories, not a manifest: parsing `brasa.toml`
+/// and resolving its paths against the manifest's own directory is the
+/// CLI's job, so every path in here is already absolute. Both editor
+/// entry points ([`load_partial`]) ignore this on purpose — an editor
+/// session decides its own project context.
+#[derive(Debug, Default, Clone)]
+pub struct LoadOptions {
+    /// Alias name to the absolute directory it maps to. An import whose
+    /// FIRST segment names an alias resolves under that directory ONLY;
+    /// it never falls through to the search path, because an alias that
+    /// half-works is worse than one that fails loudly.
+    pub aliases: Vec<(String, PathBuf)>,
+}
+
 /// Loads `entry` and everything it imports, from disk.
 ///
 /// `entry` is expected to be readable — the caller checked it, and its
@@ -137,7 +154,20 @@ impl Overlay {
 /// imported file) lands in [`Program::diagnostics`] and still produces a
 /// module list, so one run reports every problem it can see.
 pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
-    load_inner(entry, sources, &Overlay::default(), false)
+    load_inner(
+        entry,
+        sources,
+        &Overlay::default(),
+        false,
+        &LoadOptions::default(),
+    )
+}
+
+/// [`load`], with what a project manifest contributes. The CLI calls
+/// this when a `brasa.toml` was found; with default options it is
+/// [`load`] exactly.
+pub fn load_with(entry: &Path, sources: &mut SourceMap, options: &LoadOptions) -> Program {
+    load_inner(entry, sources, &Overlay::default(), false, options)
 }
 
 /// [`load`], for an editor: unsaved buffers layered over the files, and
@@ -155,7 +185,7 @@ pub fn load(entry: &Path, sources: &mut SourceMap) -> Program {
 /// Every phase after this tolerates that (BRS-114), and the
 /// diagnostics say what was wrong.
 pub fn load_partial(entry: &Path, sources: &mut SourceMap, overlay: &Overlay) -> Program {
-    load_inner(entry, sources, overlay, true)
+    load_inner(entry, sources, overlay, true, &LoadOptions::default())
 }
 
 fn load_inner(
@@ -163,6 +193,7 @@ fn load_inner(
     sources: &mut SourceMap,
     overlay: &Overlay,
     tolerate_parse_errors: bool,
+    options: &LoadOptions,
 ) -> Program {
     let canonical = canonicalize(entry);
 
@@ -170,6 +201,7 @@ fn load_inner(
         sources,
         lowerer: Lowerer::new(),
         search_path: search_path(&canonical),
+        options,
         modules: Vec::new(),
         loaded: HashMap::new(),
         stack: Vec::new(),
@@ -199,14 +231,14 @@ fn load_inner(
 /// Where a `::` import is looked for, in priority order: every entry of
 /// `BRASA_PATH`, then a `lib` directory beside the executed file.
 ///
-/// Two deliberate limits. There is no manifest — a standalone file has
-/// to keep running with no project around it
-/// (spec: 00 — Visión y alcance), so a manifest could only ever be
-/// optional, and an optional one is not worth its weight yet. And there
-/// is no walk up the ancestors looking for a `lib`: implicit project
-/// roots are surprising when they fire and worse when they do not, and
-/// a shared directory is one `BRASA_PATH` entry away. Both omissions
-/// are additive later; neither would be removable.
+/// Two deliberate limits. A manifest (`brasa.toml`) is optional and
+/// stays that way — a standalone file has to keep running with no
+/// project around it (spec: 00 — Visión y alcance); when one is present
+/// it contributes import ALIASES through [`LoadOptions`], which are
+/// checked before this search path and never fall through to it. And
+/// there is no walk up the ancestors looking for a `lib`: implicit
+/// project roots are surprising when they fire and worse when they do
+/// not, and a shared directory is one `BRASA_PATH` entry away.
 ///
 /// Resolution is anchored to the EXECUTED file, not to the importing
 /// one, so a library's own `::` imports mean the same thing wherever
@@ -289,6 +321,8 @@ struct Loader<'a> {
     lowerer: Lowerer,
     /// Where a `::` import is looked for, in priority order.
     search_path: Vec<PathBuf>,
+    /// What a manifest contributed; defaulted for every standalone load.
+    options: &'a LoadOptions,
     modules: Vec<Module>,
     /// Canonical path to the module it produced, so a file reached twice
     /// is loaded once.
@@ -470,7 +504,19 @@ impl Loader<'_> {
 
         let target = match request {
             Request::Relative(raw) => self.resolve_relative(importer, raw),
-            Request::Search(segments) => self.resolve_on_search_path(segments, span)?,
+            Request::Search(segments) => {
+                let alias = self
+                    .options
+                    .aliases
+                    .iter()
+                    .find(|(name, _)| segments.first() == Some(name))
+                    .cloned();
+
+                match alias {
+                    Some((name, dir)) => self.resolve_aliased(&name, &dir, segments, span)?,
+                    None => self.resolve_on_search_path(segments, span)?,
+                }
+            }
         };
 
         if let Some(position) = self.stack.iter().position(|entry| entry == &target) {
@@ -487,6 +533,45 @@ impl Loader<'_> {
     fn resolve_relative(&self, importer: &Path, raw: &str) -> PathBuf {
         let base = importer.parent().unwrap_or_else(|| Path::new("."));
         canonicalize(&base.join(raw))
+    }
+
+    /// `import util::helpers` where `util` is a manifest alias: the
+    /// remaining segments under the aliased directory, and NOWHERE else.
+    ///
+    /// A miss does not fall through to the search path: the manifest
+    /// claimed this name, so a module that resolved somewhere else would
+    /// silently mean something different in and out of the project. The
+    /// failure names the alias and the directory instead, which is the
+    /// whole content of the error.
+    fn resolve_aliased(
+        &mut self,
+        alias: &str,
+        dir: &Path,
+        segments: &[String],
+        span: Span,
+    ) -> Option<PathBuf> {
+        let rest = &segments[1..];
+        let relative = rest.iter().collect::<PathBuf>().with_extension("bras");
+
+        if !rest.is_empty() {
+            let candidate = dir.join(&relative);
+            if candidate.is_file() {
+                return Some(canonicalize(&candidate));
+            }
+        }
+
+        let path = segments.join("::");
+        let message = format!("cannot find module `{path}` under the `{alias}` alias");
+        let diagnostic = self
+            .error(codes::M_MODULE_NOT_FOUND, span, message, "no such module")
+            .with_note(format!(
+                "the manifest maps `{alias}` to {}; looked for `{}` there and nowhere else",
+                dir.display(),
+                relative.display()
+            ));
+        self.diagnostics.push(diagnostic);
+
+        None
     }
 
     /// `import lib::helpers`: `lib/helpers.bras` under the first search

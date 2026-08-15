@@ -27,7 +27,10 @@ pub struct FmtArgs {
 
 pub fn run(args: &FmtArgs) -> ExitCode {
     let roots: Vec<PathBuf> = if args.paths.is_empty() {
-        vec![PathBuf::from(".")]
+        match default_root() {
+            Ok(root) => vec![root],
+            Err(code) => return code,
+        }
     } else {
         args.paths.clone()
     };
@@ -65,6 +68,18 @@ pub fn run(args: &FmtArgs) -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+/// What no explicit path means: `build.source_dir` from the nearest
+/// `brasa.toml` when it defines one, the current directory otherwise —
+/// exactly the default a project-less invocation has always had.
+fn default_root() -> Result<PathBuf, ExitCode> {
+    let found = crate::manifest::discover()?;
+
+    Ok(found
+        .as_ref()
+        .and_then(crate::manifest::Manifest::source_dir)
+        .unwrap_or_else(|| PathBuf::from(".")))
 }
 
 enum Outcome {

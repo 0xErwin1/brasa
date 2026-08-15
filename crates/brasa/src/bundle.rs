@@ -24,11 +24,14 @@ use crate::{Compiled, Dumps, execute, reject_entry};
 #[derive(clap::Args)]
 pub struct BundleArgs {
     /// Script to bundle. Every module it imports is embedded with it.
-    pub script: PathBuf,
+    /// Without one, `build.entry` from the nearest `brasa.toml`.
+    pub script: Option<PathBuf>,
 
-    /// Where to write the self-contained executable.
+    /// Where to write the self-contained executable. Without one,
+    /// `<out_dir>/<project.name or the entry's stem>` from the nearest
+    /// `brasa.toml`.
     #[arg(short, long)]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 }
 
 /// The payload this executable carries, if it carries one.
@@ -97,25 +100,72 @@ pub fn run(payload: &[u8]) -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match crate::compile_program(&program, &sources, color, false, Dumps::default()) {
-        Compiled::Stopped(code) => code,
+        Compiled::Stopped(code) => ExitCode::from(code),
         Compiled::Module(compiled) => execute(&compiled.module, &args),
     }
 }
 
-/// `brasa bundle script.bras -o tool`.
+/// `brasa bundle script.bras -o tool`. The manifest only fills in what
+/// the command line omitted: without a script, `build.entry`; without
+/// `-o`, `<out_dir>/<project.name or the entry's stem>`.
 pub fn write(args: &BundleArgs) -> ExitCode {
-    if names_source_file(&args.output) {
+    let found = match crate::manifest::discover() {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+
+    let script = match args
+        .script
+        .clone()
+        .or_else(|| found.as_ref().and_then(crate::manifest::Manifest::entry))
+    {
+        Some(script) => script,
+        None => {
+            eprintln!(
+                "brasa: no script to bundle, and no `brasa.toml` with a `build.entry` was found"
+            );
+            eprintln!("usage: brasa bundle <script.bras> -o <tool>");
+            return ExitCode::from(64);
+        }
+    };
+
+    let output = match args
+        .output
+        .clone()
+        .or_else(|| found.as_ref().map(|m| m.bundle_output(&script)))
+    {
+        Some(output) => output,
+        None => {
+            eprintln!("brasa: no output path, and no `brasa.toml` to take one from");
+            eprintln!("usage: brasa bundle <script.bras> -o <tool>");
+            return ExitCode::from(64);
+        }
+    };
+
+    if names_source_file(&output) {
         return refuse_flattening();
     }
 
-    if let Some(code) = reject_entry(&args.script) {
+    if let Some(code) = reject_entry(&script) {
         return code;
+    }
+
+    // A manifest default lands in a directory that may not exist yet;
+    // an explicit `-o` keeps today's behavior of writing exactly where
+    // it was told.
+    if args.output.is_none()
+        && let Some(parent) = output.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("brasa: cannot create {}: {err}", parent.display());
+        return ExitCode::from(70);
     }
 
     let color = std::io::stderr().is_terminal();
 
     let mut sources = SourceMap::new();
-    let program = brasa_module::load(&args.script, &mut sources);
+    let options = crate::load_options(found.as_ref());
+    let program = brasa_module::load_with(&script, &mut sources, &options);
 
     // The program is compiled all the way to bytecode and the result
     // thrown away. A bundle that does not compile would only fail on
@@ -124,7 +174,7 @@ pub fn write(args: &BundleArgs) -> ExitCode {
     if let Compiled::Stopped(code) =
         crate::compile_program(&program, &sources, color, false, Dumps::default())
     {
-        return code;
+        return ExitCode::from(code);
     }
 
     let payload = match Bundle::capture(&program, &sources).and_then(|bundle| bundle.encode()) {
@@ -135,10 +185,10 @@ pub fn write(args: &BundleArgs) -> ExitCode {
         }
     };
 
-    match emit(&args.output, &payload) {
+    match emit(&output, &payload) {
         Ok(()) => ExitCode::from(0),
         Err(err) => {
-            eprintln!("brasa: cannot write {}: {err}", args.output.display());
+            eprintln!("brasa: cannot write {}: {err}", output.display());
             ExitCode::from(70)
         }
     }

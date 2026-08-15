@@ -11,6 +11,7 @@ mod bundle;
 mod debug;
 mod debug_tui;
 mod fmt;
+mod manifest;
 
 use std::collections::HashMap;
 use std::io::{BufWriter, IsTerminal, Write};
@@ -117,8 +118,10 @@ struct ProfileArgs {
 
 #[derive(clap::Args)]
 struct TestArgs {
-    /// Script whose tests to run.
-    script: PathBuf,
+    /// Script whose tests to run. Without one, `[test].globs` from the
+    /// nearest `brasa.toml` says which scripts to run, falling back to
+    /// its `build.entry`.
+    script: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -144,7 +147,7 @@ fn main() -> ExitCode {
 
     match &cli.command {
         Some(Subcommand::Fmt(args)) => return fmt::run(args),
-        Some(Subcommand::Test(args)) => return run_tests(&args.script),
+        Some(Subcommand::Test(args)) => return run_tests(args.script.as_ref()),
         Some(Subcommand::Bundle(args)) => return bundle::write(args),
         Some(Subcommand::Debug(args)) => return debug::run(args),
         Some(Subcommand::Profile(args)) => return run_profile(args),
@@ -153,13 +156,30 @@ fn main() -> ExitCode {
         None => {}
     }
 
-    let Some(script) = cli.script.clone() else {
-        eprintln!("brasa: no script and no subcommand");
+    // The manifest only fills in what the command line omitted: an
+    // explicit script runs exactly as it would with no project around
+    // it, aliases aside.
+    let found = match manifest::discover() {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+
+    let entry = found.as_ref().and_then(manifest::Manifest::entry);
+    let Some(script) = cli.script.clone().or(entry) else {
+        eprintln!("brasa: no script, no subcommand, and no `brasa.toml` with a `build.entry`");
         eprintln!("usage: brasa <script.bras> [args...]   or   brasa fmt [paths...]");
         return ExitCode::from(64);
     };
 
-    run_script(&cli, &script)
+    let options = load_options(found.as_ref());
+    run_script(&cli, &script, &options)
+}
+
+/// What the loader gets: the manifest's contribution, or nothing.
+fn load_options(found: Option<&manifest::Manifest>) -> brasa_module::LoadOptions {
+    found
+        .map(manifest::Manifest::load_options)
+        .unwrap_or_default()
 }
 
 /// Compiles a loaded program to a module for a debug session.
@@ -173,7 +193,7 @@ fn compile_for_debug(
 ) -> Result<brasa_bytecode::Module, ExitCode> {
     match compile_program(program, sources, true, false, Dumps::default()) {
         Compiled::Module(result) => Ok(result.module),
-        Compiled::Stopped(code) => Err(code),
+        Compiled::Stopped(code) => Err(ExitCode::from(code)),
     }
 }
 
@@ -320,7 +340,10 @@ enum Compiled {
     /// against carrying a whole module's worth of stack for the
     /// `Stopped` case too.
     Module(Box<brasa_codegen::CompileResult>),
-    Stopped(ExitCode),
+    /// The raw sysexits number rather than an [`ExitCode`], because an
+    /// aggregated `brasa test` run compares codes across files to pick
+    /// the worst one, and `ExitCode` is deliberately opaque.
+    Stopped(u8),
 }
 
 /// Splits argv into what this CLI parses and what the script receives.
@@ -350,7 +373,7 @@ fn split_at_script(argv: impl Iterator<Item = String>) -> (Vec<String>, Vec<Stri
     }
 }
 
-fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
+fn run_script(cli: &Cli, script: &PathBuf, options: &brasa_module::LoadOptions) -> ExitCode {
     let color = std::io::stderr().is_terminal();
 
     // `--dump-ast` is a single-file view: an AST belongs to one parsed
@@ -366,8 +389,8 @@ fn run_script(cli: &Cli, script: &PathBuf) -> ExitCode {
         check_only: cli.check,
     };
 
-    match compile(script, color, false, dumps) {
-        Compiled::Stopped(code) => code,
+    match compile(script, color, false, dumps, options) {
+        Compiled::Stopped(code) => ExitCode::from(code),
         Compiled::Module(compiled) => execute(&compiled.module, &cli.args),
     }
 }
@@ -390,13 +413,19 @@ fn reject_entry(script: &PathBuf) -> Option<ExitCode> {
 
 /// The whole pipeline over one entry file, stopping wherever `dumps`
 /// says to. `with_tests` compiles the entry module's `test` items too.
-fn compile(script: &PathBuf, color: bool, with_tests: bool, dumps: Dumps) -> Compiled {
-    if let Some(code) = reject_entry(script) {
-        return Compiled::Stopped(code);
+fn compile(
+    script: &PathBuf,
+    color: bool,
+    with_tests: bool,
+    dumps: Dumps,
+    options: &brasa_module::LoadOptions,
+) -> Compiled {
+    if reject_entry(script).is_some() {
+        return Compiled::Stopped(65);
     }
 
     let mut sources = SourceMap::new();
-    let program = brasa_module::load(script, &mut sources);
+    let program = brasa_module::load_with(script, &mut sources, options);
 
     compile_program(&program, &sources, color, with_tests, dumps)
 }
@@ -420,7 +449,7 @@ fn compile_program(
 
     if dumps.hir {
         println!("{}", brasa_hir::dump::dump(&program.hir, &roots));
-        return Compiled::Stopped(ExitCode::from(0));
+        return Compiled::Stopped(0);
     }
 
     // The loader's post-order list is what the resolver walks; the
@@ -464,7 +493,7 @@ fn compile_program(
 
     if dumps.error_sets {
         println!("{}", brasa_errorset::dump::dump(&program.hir, &inferred));
-        return Compiled::Stopped(ExitCode::from(0));
+        return Compiled::Stopped(0);
     }
 
     // Code generation runs even under `--check`: the limits it reports
@@ -489,11 +518,11 @@ fn compile_program(
 
     if dumps.bytecode {
         println!("{}", brasa_bytecode::dump::dump(&compiled.module));
-        return Compiled::Stopped(ExitCode::from(0));
+        return Compiled::Stopped(0);
     }
 
     if dumps.check_only {
-        return Compiled::Stopped(ExitCode::from(0));
+        return Compiled::Stopped(0);
     }
 
     Compiled::Module(Box::new(compiled))
@@ -501,28 +530,121 @@ fn compile_program(
 
 /// Renders one phase's diagnostics and reports the exit code to stop
 /// with, when it has to stop.
-fn reject(diagnostics: &[Diagnostic], sources: &SourceMap, color: bool) -> Option<ExitCode> {
+fn reject(diagnostics: &[Diagnostic], sources: &SourceMap, color: bool) -> Option<u8> {
     match render_diagnostics(diagnostics, sources, color) {
         Ok(false) => None,
-        Ok(true) => Some(ExitCode::from(65)),
+        Ok(true) => Some(65),
         Err(code) => Some(code),
     }
 }
 
-/// `brasa test script.bras`: compiles the script WITH its `test` items
-/// and runs each one, reporting a line per test and exiting non-zero if
-/// any failed.
-fn run_tests(script: &PathBuf) -> ExitCode {
+/// `brasa test`: which scripts to test, then each one's `test` items.
+///
+/// A named script runs exactly as it always has. Without one, the
+/// nearest manifest decides: `[test].globs` expand relative to its
+/// directory and run in sorted order, a `== path` header per file;
+/// with no globs, `build.entry` is the one script tested.
+fn run_tests(script: Option<&PathBuf>) -> ExitCode {
     let color = std::io::stderr().is_terminal();
 
-    let compiled = match compile(script, color, true, Dumps::default()) {
+    let found = match manifest::discover() {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+    let options = load_options(found.as_ref());
+
+    if let Some(script) = script {
+        return ExitCode::from(test_one(script, color, &options));
+    }
+
+    let Some(found) = found else {
+        eprintln!("brasa: no script to test, and no `brasa.toml` was found");
+        eprintln!("usage: brasa test <script.bras>");
+        return ExitCode::from(64);
+    };
+
+    if let Some(globs) = found.test_globs() {
+        let scripts = match expand_test_globs(&found, globs) {
+            Ok(scripts) => scripts,
+            Err(code) => return code,
+        };
+
+        if scripts.is_empty() {
+            println!("no tests");
+            return ExitCode::from(0);
+        }
+
+        // The aggregate exit is the numerically largest per-file code,
+        // which is exactly this CLI's severity order: a host failure
+        // (70) outranks a rejected script (65) outranks a failed test
+        // (1) outranks a clean run (0).
+        let mut worst = 0u8;
+        for script in scripts {
+            println!("== {}", script.display());
+            worst = worst.max(test_one(&script, color, &options));
+        }
+
+        return ExitCode::from(worst);
+    }
+
+    let Some(entry) = found.entry() else {
+        eprintln!(
+            "brasa: no script to test, and the manifest defines neither `[test].globs` nor `build.entry`"
+        );
+        return ExitCode::from(64);
+    };
+
+    ExitCode::from(test_one(&entry, color, &options))
+}
+
+/// Every file `[test].globs` names, deduplicated and sorted so a run is
+/// deterministic whatever order the filesystem answers in.
+fn expand_test_globs(
+    found: &manifest::Manifest,
+    globs: &[String],
+) -> Result<Vec<PathBuf>, ExitCode> {
+    let mut scripts = std::collections::BTreeSet::new();
+
+    for pattern in globs {
+        let anchored = found.dir().join(pattern).to_string_lossy().into_owned();
+
+        let matched = match glob::glob(&anchored) {
+            Ok(matched) => matched,
+            Err(err) => {
+                eprintln!("brasa: invalid test glob `{pattern}`: {err}");
+                return Err(ExitCode::from(65));
+            }
+        };
+
+        for entry in matched {
+            match entry {
+                Ok(path) if path.is_file() => {
+                    scripts.insert(path);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    eprintln!("brasa: cannot read a match of `{pattern}`: {err}");
+                    return Err(ExitCode::from(70));
+                }
+            }
+        }
+    }
+
+    Ok(scripts.into_iter().collect())
+}
+
+/// One script's `test` items: compiled with them and run one at a time,
+/// a line per test. Answers the raw sysexits number so an aggregated
+/// run can compare codes across files.
+fn test_one(script: &PathBuf, color: bool, options: &brasa_module::LoadOptions) -> u8 {
+    let compiled = match compile(script, color, true, Dumps::default(), options) {
         Compiled::Stopped(code) => return code,
         Compiled::Module(compiled) => compiled,
     };
 
     if compiled.module.tests.is_empty() {
         println!("no tests");
-        return ExitCode::from(0);
+        return 0;
     }
 
     let mut stdout = std::io::stdout();
@@ -533,7 +655,7 @@ fn run_tests(script: &PathBuf) -> ExitCode {
     if let Some(message) = failure_message(&setup) {
         eprintln!("{message}");
         eprintln!("brasa: the script's top level failed, so no test ran");
-        return ExitCode::from(70);
+        return 70;
     }
 
     let mut failed = 0;
@@ -551,9 +673,9 @@ fn run_tests(script: &PathBuf) -> ExitCode {
     println!("{} passed, {failed} failed", results.len() - failed);
 
     if failed > 0 {
-        return ExitCode::from(1);
+        return 1;
     }
-    ExitCode::from(0)
+    0
 }
 
 /// How a run ended, when it ended badly.
@@ -617,7 +739,7 @@ fn dump_ast(script: &PathBuf, color: bool) -> ExitCode {
     match render_diagnostics(&result.diagnostics, &sources, color) {
         Ok(false) => {}
         Ok(true) => return ExitCode::from(65),
-        Err(code) => return code,
+        Err(code) => return ExitCode::from(code),
     }
 
     println!("{}", brasa_parser::dump::dump(&result.ast, &result.roots));
@@ -630,18 +752,18 @@ fn render_diagnostics(
     diagnostics: &[Diagnostic],
     sources: &SourceMap,
     color: bool,
-) -> Result<bool, ExitCode> {
+) -> Result<bool, u8> {
     let mut stderr = BufWriter::new(std::io::stderr());
     for diagnostic in diagnostics {
         if let Err(err) = brasa_diagnostics::render::render(diagnostic, sources, &mut stderr, color)
         {
             eprintln!("brasa: failed to render diagnostic: {err}");
-            return Err(ExitCode::from(70));
+            return Err(70);
         }
     }
     if let Err(err) = stderr.flush() {
         eprintln!("brasa: failed to flush diagnostics: {err}");
-        return Err(ExitCode::from(70));
+        return Err(70);
     }
 
     Ok(diagnostics

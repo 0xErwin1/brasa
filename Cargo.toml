@@ -45,6 +45,13 @@ serde = { version = "1", features = ["derive"] }
 # pipeline never sees. ratatui is the maintained successor to tui-rs and
 # brings its own `TestBackend`, so the views render into a buffer a test
 # can assert on: a TUI here is not the untestable shell it usually is.
+# The project manifest, `brasa.toml` (spec: 00 — Visión y alcance): the
+# canonical Rust TOML parser, driven through serde's derive so a typo'd
+# key is a parse error rather than a silently ignored table. Confined to
+# the CLI crate — the compiler pipeline never learns what a manifest is,
+# which is what keeps a standalone script running with no project
+# around it.
+toml = "0.9"
 ratatui = "0.30"
 crossterm = "0.29"
 lsp-server = "0.10"
