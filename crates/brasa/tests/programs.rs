@@ -559,6 +559,81 @@ fn example_modules_utils() {
     assert_example("modules/utils.bras", "");
 }
 
+/// Runs against a committed fixture corpus rather than a real
+/// transcript directory, which is machine-specific and private. The
+/// three files are built to hit the branches a live corpus reaches only
+/// by accident: a turn duplicated across two transcripts (counted
+/// once), a line carrying the literal `"type":"assistant"` inside
+/// quoted content without being one (the pre-filter is a heuristic and
+/// the parsed document has to confirm it), a truncated JSON line, a
+/// non-`.jsonl` file beside them, and a turn older than the window
+/// (present in the corpus total, absent from every windowed figure).
+///
+/// The numbers are round on purpose: 34,000,000 tokens and $353.90 can
+/// be checked against the fixtures by hand, so a wrong answer here is
+/// legible rather than merely different.
+#[test]
+fn example_real_aiusage() {
+    let expected = AIUSAGE_REPORT;
+    assert_example_args(
+        "real/aiusage/src/main.bras",
+        &[example_path("real/aiusage/data")],
+        expected,
+    );
+}
+
+/// The manifest's first exercise in this repository: run from inside the
+/// project with no arguments at all, so the script path can only have
+/// come from `build.entry` in `brasa.toml`. It is also why the script
+/// defaults its directory to `.` — a positional would be read as the
+/// script to run, so an entry that needs an argument cannot be reached
+/// this way.
+#[test]
+fn example_real_aiusage_runs_from_its_manifest() {
+    let project = example_path("real/aiusage");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_brasa"))
+        .current_dir(&project)
+        .output()
+        .expect("failed to run brasa");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), AIUSAGE_REPORT);
+}
+
+/// Shared so the two ways of reaching the program — an explicit script
+/// with an explicit corpus, and the manifest's entry walking `.` — are
+/// held to one expectation rather than two that can drift apart.
+const AIUSAGE_REPORT: &str = "\
+3 transcripts, 2,333 bytes, 7 assistant turns
+window 2026-03-01..2026-03-07 — 34,000,000 tokens, $353.90
+
+by day:
+  2026-03-07        8,000,000 tokens   $   192.00
+  2026-03-06       10,000,000 tokens   $    49.50
+  2026-03-05       12,000,000 tokens   $    22.40
+  2026-03-04        2,000,000 tokens   $    30.00
+  2026-03-01        2,000,000 tokens   $    60.00
+
+by model:
+  Opus             15,000,000 tokens   $   244.50
+  Haiku            12,000,000 tokens   $    22.40
+  Sonnet            5,000,000 tokens   $    27.00
+  Fable             2,000,000 tokens   $    60.00
+";
+
+/// The two modules the project splits out. Like every module they
+/// declare and run nothing, so the pin is that each loads clean on its
+/// own — `corpus.bras` reaching `pricing.bras` through a relative
+/// import is what that proves.
+#[test]
+fn example_real_aiusage_modules() {
+    assert_example("real/aiusage/src/corpus.bras", "");
+    assert_example("real/aiusage/src/pricing.bras", "");
+}
+
 /// The counting helpers `logstat` and `gitreport` share. Like every
 /// module it declares and runs nothing, so the pin is that it loads
 /// clean and stays silent; the two scripts that import it pin its

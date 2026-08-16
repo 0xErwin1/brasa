@@ -1,0 +1,147 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+pub StructDef Price
+  field input
+  field output
+  field cacheWrite
+  field cacheRead
+pub FuncDef forModel(model)
+  Let m
+    Call
+      Field(toLower)
+        Ident(model)
+  If
+    cond
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "opus"
+    then
+      StructLit(Price)
+        field input
+          Float(15)
+        field output
+          Float(75)
+        field cacheWrite
+          Float(18.75)
+        field cacheRead
+          Float(1.5)
+    elsif
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "fable"
+    then
+      StructLit(Price)
+        field input
+          Float(10)
+        field output
+          Float(50)
+        field cacheWrite
+          Float(12.5)
+        field cacheRead
+          Float(1)
+    elsif
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "haiku"
+    then
+      StructLit(Price)
+        field input
+          Float(0.8)
+        field output
+          Float(4)
+        field cacheWrite
+          Float(1)
+        field cacheRead
+          Float(0.08)
+    else
+      StructLit(Price)
+        field input
+          Float(3)
+        field output
+          Float(15)
+        field cacheWrite
+          Float(3.75)
+        field cacheRead
+          Float(0.3)
+pub FuncDef label(model)
+  Let m
+    Call
+      Field(toLower)
+        Ident(model)
+  If
+    cond
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "opus"
+    then
+      StringLit
+        Text(raw=false) "Opus"
+    elsif
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "fable"
+    then
+      StringLit
+        Text(raw=false) "Fable"
+    elsif
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "sonnet"
+    then
+      StringLit
+        Text(raw=false) "Sonnet"
+    elsif
+      Call
+        Field(contains?)
+          Ident(m)
+        StringLit
+          Text(raw=false) "haiku"
+    then
+      StringLit
+        Text(raw=false) "Haiku"
+    else
+      Ident(model)
+pub FuncDef usd(p, inTok, outTok, writeTok, readTok)
+  Binary(/)
+    Binary(+)
+      Binary(+)
+        Binary(+)
+          Binary(*)
+            Call
+              Field(toFloat)
+                Ident(inTok)
+            Field(input)
+              Ident(p)
+          Binary(*)
+            Call
+              Field(toFloat)
+                Ident(outTok)
+            Field(output)
+              Ident(p)
+        Binary(*)
+          Call
+            Field(toFloat)
+              Ident(writeTok)
+          Field(cacheWrite)
+            Ident(p)
+      Binary(*)
+        Call
+          Field(toFloat)
+            Ident(readTok)
+        Field(cacheRead)
+          Ident(p)
+    Float(1000000)

@@ -1,0 +1,301 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::fs)
+Import::Std(std::json)
+Import::Std(std::time)
+Import::File("pricing.bras")
+pub StructDef Turn
+  field stamp
+  field date
+  field model
+  field tokens
+  field usd
+pub FuncDef files(dir)
+  Let none
+    VectorLit
+  Let hits
+    VectorLit
+  For
+    Binding(path)
+    Field(paths)
+      Call
+        Field(tryWalk)
+          Ident(fs)
+        Ident(dir)
+        Ident(none)
+    If
+      cond
+        Call
+          Field(endsWith?)
+            Ident(path)
+          StringLit
+            Text(raw=false) ".jsonl"
+      then
+        Call
+          Field(push)
+            Ident(hits)
+          Ident(path)
+  Call
+    Field(sort)
+      Ident(hits)
+pub FuncDef bytes(paths)
+  Let mut total
+    Int(0)
+  For
+    Binding(path)
+    Ident(paths)
+    Assign +=
+      Ident(total)
+      Catch(exhaustive=false, binding=e)
+        Field(size)
+          Call
+            Field(stat)
+              Ident(fs)
+            Ident(path)
+        arm _
+            Int(0)
+  Ident(total)
+FuncDef turnFrom(doc, stamp)
+  Let usage
+    Index
+      Index
+        Ident(doc)
+        StringLit
+          Text(raw=false) "message"
+      StringLit
+        Text(raw=false) "usage"
+  Let model
+    Coalesce
+      Call
+        Field(asString)
+          Index
+            Index
+              Ident(doc)
+              StringLit
+                Text(raw=false) "message"
+            StringLit
+              Text(raw=false) "model"
+      StringLit
+  Let p
+    Call
+      Field(forModel)
+        Ident(pricing)
+      Ident(model)
+  Let inTok
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Ident(usage)
+            StringLit
+              Text(raw=false) "input_tokens"
+      Int(0)
+  Let outTok
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Ident(usage)
+            StringLit
+              Text(raw=false) "output_tokens"
+      Int(0)
+  Let writeTok
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Ident(usage)
+            StringLit
+              Text(raw=false) "cache_creation_input_tokens"
+      Int(0)
+  Let readTok
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Ident(usage)
+            StringLit
+              Text(raw=false) "cache_read_input_tokens"
+      Int(0)
+  StructLit(Turn)
+    field stamp
+      Ident(stamp)
+    field date
+      Call
+        Field(slice)
+          Call
+            Field(iso)
+              Ident(time)
+            Ident(stamp)
+        Int(0)
+        Int(10)
+    field model
+      Call
+        Field(label)
+          Ident(pricing)
+        Ident(model)
+    field tokens
+      Binary(+)
+        Binary(+)
+          Binary(+)
+            Ident(inTok)
+            Ident(outTok)
+          Ident(writeTok)
+        Ident(readTok)
+    field usd
+      Call
+        Field(usd)
+          Ident(pricing)
+        Ident(p)
+        Ident(inTok)
+        Ident(outTok)
+        Ident(writeTok)
+        Ident(readTok)
+FuncDef scanFile(path, seen, turns)
+  Let text
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(read)
+          Ident(fs)
+        Ident(path)
+      arm _
+          StringLit
+  For
+    Binding(line)
+    Call
+      Field(lines)
+        Ident(text)
+    If
+      cond
+        Unary(!)
+          Call
+            Field(contains?)
+              Ident(line)
+            StringLit
+              Text(raw=false) "\"type\":\"assistant\""
+      then
+        Continue
+    Let doc
+      Catch(exhaustive=false, binding=e)
+        Call
+          Field(parse)
+            Ident(json)
+          Ident(line)
+        arm json.ParseError
+            Call
+              Field(parse)
+                Ident(json)
+              StringLit
+                Text(raw=false) "null"
+    If
+      cond
+        Binary(||)
+          Binary(!=)
+            Coalesce
+              Call
+                Field(asString)
+                  Index
+                    Ident(doc)
+                    StringLit
+                      Text(raw=false) "type"
+              StringLit
+            StringLit
+              Text(raw=false) "assistant"
+          Call
+            Field(null?)
+              Index
+                Index
+                  Ident(doc)
+                  StringLit
+                    Text(raw=false) "message"
+                StringLit
+                  Text(raw=false) "usage"
+      then
+        Continue
+    Let key
+      StringLit
+        Interp
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Index
+                    Ident(doc)
+                    StringLit
+                      Text(raw=false) "message"
+                  StringLit
+                    Text(raw=false) "id"
+            StringLit
+        Text(raw=false) "|"
+        Interp
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Ident(doc)
+                  StringLit
+                    Text(raw=false) "requestId"
+            StringLit
+    If
+      cond
+        Binary(&&)
+          Binary(!=)
+            Ident(key)
+            StringLit
+              Text(raw=false) "|"
+          Call
+            Field(has?)
+              Ident(seen)
+            Ident(key)
+      then
+        Continue
+    Call
+      Field(add)
+        Ident(seen)
+      Ident(key)
+    Let stamp
+      Catch(exhaustive=false, binding=e)
+        Call
+          Field(parseIso)
+            Ident(time)
+          Coalesce
+            Call
+              Field(asString)
+                Index
+                  Ident(doc)
+                  StringLit
+                    Text(raw=false) "timestamp"
+            StringLit
+        arm time.ParseError
+            Int(0)
+    If
+      cond
+        Binary(>)
+          Ident(stamp)
+          Int(0)
+      then
+        Call
+          Field(push)
+            Ident(turns)
+          Call
+            Ident(turnFrom)
+            Ident(doc)
+            Ident(stamp)
+pub FuncDef scan(paths)
+  Let seen
+    EnumCtor(Set)
+      VectorLit
+        StringLit
+  Let turns
+    VectorLit
+  For
+    Binding(path)
+    Ident(paths)
+    Call
+      Ident(scanFile)
+      Ident(path)
+      Ident(seen)
+      Ident(turns)
+  Ident(turns)

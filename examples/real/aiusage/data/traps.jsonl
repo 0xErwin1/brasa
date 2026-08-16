@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"the log line was {\"type\":\"assistant\",\"cost\":999} and it broke the parser"}}
+{"type":"assistant","requestId":"req_t1","timestamp":"2026-02-20T12:00:00.000Z","message":{"id":"msg_t1","model":"claude-opus-5","usage":{"input_tokens":9000000,"output_tokens":9000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","requestId":"req_t2","timestamp":"2026-03-03T12:00:00.000Z","message":{"id":"msg_t2","model":"claude-opus-5","usage":

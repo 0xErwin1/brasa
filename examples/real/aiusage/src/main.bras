@@ -1,0 +1,165 @@
+#!/usr/bin/env brasa
+# What did the assistant transcripts under a directory cost? Walks a
+# corpus of JSONL transcripts, prices every turn at list rates, and
+# reports the last week by day and by model tier.
+#
+#   brasa            # in this directory, using brasa.toml
+#   brasa src/main.bras --days 3 ~/.claude/projects
+#
+# The Go command this replaces is one file, which is what a single
+# concern in one language usually earns. Three here instead, split where
+# the reasons to change differ: `pricing.bras` moves when a provider
+# reprices, `corpus.bras` moves when the on-disk transcript shape moves,
+# and this file moves when the report does. None of the three has ever
+# needed the other two's tests.
+#
+# Two differences from the script this was extracted from, both so the
+# output is identical on every machine: the window is anchored to the
+# newest turn in the corpus rather than to the clock, and days are cut
+# in UTC rather than in the reader's zone.
+
+import std::cli
+import std::env
+import std::io
+import std::time
+import "corpus.bras"
+
+let spec = [
+  ["option", "days", "d", "how many days the window spans (default 7)"],
+  ["flag", "help", "h", "print this help"],
+  ["arg", "dir", "", "directory to walk for `.jsonl` transcripts"],
+]
+
+let dayMillis = 86400000
+
+struct Bucket
+  key: string
+  tokens: int
+  usd: float
+end
+
+# Groups by whatever `pick` names. Both report sections want the same
+# aggregation over a different key and in a different order, so the
+# ordering is left to the caller.
+def bucketsBy(turns: Vector<corpus.Turn>, pick: (corpus.Turn) -> string): Vector<Bucket>
+  let totals: Map<string, Bucket> = {}
+
+  for turn in turns
+    let key = pick(turn)
+    let previous = totals[key] ?? Bucket { key: key, tokens: 0, usd: 0.0 }
+
+    totals.insert(
+      key,
+      Bucket { key: key, tokens: previous.tokens + turn.tokens, usd: previous.usd + turn.usd },
+    )
+  end
+
+  let rows: Vector<Bucket> = []
+
+  for (_, bucket) in totals
+    rows.push(bucket)
+  end
+
+  rows
+end
+
+def thousands(n: int): string
+  let grouped: Vector<string> = []
+  let mut rest = n.toString()
+
+  while rest.len() > 3
+    grouped.push(rest.slice(rest.len() - 3, rest.len()))
+    rest = rest.slice(0, rest.len() - 3)
+  end
+
+  grouped.push(rest)
+  grouped.reverse().join(",")
+end
+
+def row(b: Bucket): string
+  "  #{b.key.padEnd(12, " ")}#{thousands(b.tokens).padStart(15, " ")} tokens   $#{b.usd.toFixed(2).padStart(9, " ")}"
+end
+
+def main()
+  let args = cli.parse(env.args(), spec) catch (e)
+    cli.UsageError =>
+      io.eprint("#{e}\n\n#{cli.help("aiusage.bras", spec)}")
+      env.exit(2)
+      cli.parse([], spec)
+  end
+
+  if args.flag("help")
+    print cli.help("aiusage.bras", spec)
+    return
+  end
+
+  let days = (args.option("days") ?? "7").toInt() catch (e)
+    string.ParseError => 7
+  end
+
+  # No directory means here, which is what makes the project runnable as
+  # a bare `brasa`: the manifest supplies the entry, and the entry can
+  # take no arguments because a script argument would be read as the
+  # script to run.
+  let dir = if args.rest.len() == 0
+    "."
+  else
+    args.rest[0]
+  end
+
+  let files = corpus.files(dir)
+  let all = corpus.scan(files)
+
+  if all.len() == 0
+    puts "no assistant turns under #{dir}"
+    return
+  end
+
+  # Anchored to the corpus rather than to the clock, so the same
+  # transcripts report the same window forever.
+  let mut newest = 0
+
+  for turn in all
+    if turn.stamp > newest
+      newest = turn.stamp
+    end
+  end
+
+  let first = time.iso(newest - (days - 1) * dayMillis).slice(0, 10)
+  let last = time.iso(newest).slice(0, 10)
+
+  let window: Vector<corpus.Turn> = []
+
+  for turn in all
+    if turn.date >= first
+      window.push(turn)
+    end
+  end
+
+  let mut tokens = 0
+  let mut usd = 0.0
+
+  for turn in window
+    tokens += turn.tokens
+    usd += turn.usd
+  end
+
+  puts "#{files.len()} transcripts, #{thousands(corpus.bytes(files))} bytes, #{all.len()} assistant turns"
+  puts "window #{first}..#{last} — #{thousands(tokens)} tokens, $#{usd.toFixed(2)}"
+
+  puts ""
+  puts "by day:"
+
+  # Newest first, so every day reads in the same place. The model
+  # section is ranked instead, because there the size IS the point.
+  for bucket in bucketsBy(window, |t| t.date).sortBy(|b| b.key).reverse()
+    puts row(bucket)
+  end
+
+  puts ""
+  puts "by model:"
+
+  for bucket in bucketsBy(window, |t| t.model).sortBy(|b| -b.tokens)
+    puts row(bucket)
+  end
+end

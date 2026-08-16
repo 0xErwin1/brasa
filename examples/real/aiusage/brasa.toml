@@ -1,0 +1,15 @@
+# A project, rather than a script with imports beside it: `brasa` run in
+# this directory with no arguments finds this file, resolves `entry`
+# against it, and runs the program.
+#
+# Every path here resolves against this file's own directory, so the
+# project works the same from anywhere it is checked out. Unknown keys
+# are a parse error rather than a setting that silently never applied.
+
+[project]
+name = "aiusage"
+
+[build]
+entry = "src/main.bras"
+# Where `brasa bundle` puts the executable, named after `project.name`.
+out_dir = "build"

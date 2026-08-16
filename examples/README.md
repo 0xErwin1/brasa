@@ -79,6 +79,7 @@ measure the M4 stdlib against real work rather than to tour a feature.
 | `real/gitreport.bras` | a bash release-readiness script | `std::proc` (`run`/`tryRun`), `proc.NonZeroExit`, `proc.SpawnError`, `std::env` |
 | `real/lockaudit.bras` | a Python `flake.lock` auditor | `std::fs` walking and path helpers, `std::json`, `std::time` |
 | `real/tally.bras` | helper module imported by the report scripts | exported struct and shared `Map` counting/ranking helpers |
+| `real/aiusage/` | a Go transcript-cost scanner | a `brasa.toml` project over three modules, `fs.tryWalk` and `fs.stat`, `std::json` at scale, `time.parseIso`, a lambda parameter, `Set` dedup |
 
 Run them as:
 
@@ -87,11 +88,45 @@ brasa examples/real/logstat.bras examples/real/data/access.log
 brasa examples/real/gitreport.bras v0.1.0
 brasa examples/real/lockaudit.bras .
 brasa examples/real/lockaudit.bras examples/real/data/lockfixture
+brasa examples/real/aiusage/src/main.bras examples/real/aiusage/data
 ```
 
+### `real/aiusage/` — the one that is a project
+
+The others are scripts. This one is a `brasa.toml` project, and it is
+the only example of one:
+
+```sh
+cd examples/real/aiusage
+brasa                     # no arguments: `build.entry` says what to run
+```
+
+The manifest is discovered by walking up from the working directory, so
+the bare `brasa` above only works from inside the project — which is why
+the script defaults its corpus to `.`. A positional argument would be
+read as the script to run, so an entry that required one could never be
+reached through the manifest at all.
+
+It is split three ways along the lines its reasons to change fall on:
+`src/pricing.bras` moves when a provider reprices, `src/corpus.bras`
+moves when the on-disk transcript shape moves, and `src/main.bras` moves
+when the report does. The Go command it replaces is a single file, which
+is what one concern in one language usually earns; the split is the
+claim being demonstrated, not an improvement asserted.
+
+It differs from the script it was extracted from in exactly two places,
+both so its output is identical on every machine: the window is anchored
+to the newest turn in the corpus rather than to the clock, and days are
+cut in UTC rather than in the reader's zone. The original uses
+`fs.stat().modifiedMillis` to skip files that cannot be in the window
+and `time.localOffsetMillis` to bucket by the user's day — a filter
+deliberately dropped here, because a checkout older than the cutoff
+would start excluding fixtures and the pin would then fail for a reason
+that has nothing to do with the code.
+
 `tally.bras` is a declaration-only helper and is pinned to load and run
-silently on its own. `logstat.bras` and `lockaudit.bras` are pinned
-byte-for-byte in
+silently on its own, as are `aiusage`'s two modules. `logstat.bras`,
+`lockaudit.bras` and `aiusage` are pinned byte-for-byte in
 `crates/brasa/tests/programs.rs`, each against a committed fixture under
 `real/data/` so the expectation never moves with unrelated repository
 changes. `gitreport.bras` reads the live repository, so only its shape is

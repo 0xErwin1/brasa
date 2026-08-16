@@ -1,0 +1,450 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::cli)
+Import::Std(std::env)
+Import::Std(std::io)
+Import::Std(std::time)
+Import::File("corpus.bras")
+Let spec
+  VectorLit
+    VectorLit
+      StringLit
+        Text(raw=false) "option"
+      StringLit
+        Text(raw=false) "days"
+      StringLit
+        Text(raw=false) "d"
+      StringLit
+        Text(raw=false) "how many days the window spans (default 7)"
+    VectorLit
+      StringLit
+        Text(raw=false) "flag"
+      StringLit
+        Text(raw=false) "help"
+      StringLit
+        Text(raw=false) "h"
+      StringLit
+        Text(raw=false) "print this help"
+    VectorLit
+      StringLit
+        Text(raw=false) "arg"
+      StringLit
+        Text(raw=false) "dir"
+      StringLit
+      StringLit
+        Text(raw=false) "directory to walk for `.jsonl` transcripts"
+Let dayMillis
+  Int(86400000)
+StructDef Bucket
+  field key
+  field tokens
+  field usd
+FuncDef bucketsBy(turns, pick)
+  Let totals
+    MapLit
+  For
+    Binding(turn)
+    Ident(turns)
+    Let key
+      Call
+        Ident(pick)
+        Ident(turn)
+    Let previous
+      Coalesce
+        Index
+          Ident(totals)
+          Ident(key)
+        StructLit(Bucket)
+          field key
+            Ident(key)
+          field tokens
+            Int(0)
+          field usd
+            Float(0)
+    Call
+      Field(insert)
+        Ident(totals)
+      Ident(key)
+      StructLit(Bucket)
+        field key
+          Ident(key)
+        field tokens
+          Binary(+)
+            Field(tokens)
+              Ident(previous)
+            Field(tokens)
+              Ident(turn)
+        field usd
+          Binary(+)
+            Field(usd)
+              Ident(previous)
+            Field(usd)
+              Ident(turn)
+  Let rows
+    VectorLit
+  For
+    Tuple
+      Wildcard
+      Binding(bucket)
+    Ident(totals)
+    Call
+      Field(push)
+        Ident(rows)
+      Ident(bucket)
+  Ident(rows)
+FuncDef thousands(n)
+  Let grouped
+    VectorLit
+  Let mut rest
+    Call
+      Field(toString)
+        Ident(n)
+  While
+    Binary(>)
+      Call
+        Field(len)
+          Ident(rest)
+      Int(3)
+    Call
+      Field(push)
+        Ident(grouped)
+      Call
+        Field(slice)
+          Ident(rest)
+        Binary(-)
+          Call
+            Field(len)
+              Ident(rest)
+          Int(3)
+        Call
+          Field(len)
+            Ident(rest)
+    Assign =
+      Ident(rest)
+      Call
+        Field(slice)
+          Ident(rest)
+        Int(0)
+        Binary(-)
+          Call
+            Field(len)
+              Ident(rest)
+          Int(3)
+  Call
+    Field(push)
+      Ident(grouped)
+    Ident(rest)
+  Call
+    Field(join)
+      Call
+        Field(reverse)
+          Ident(grouped)
+    StringLit
+      Text(raw=false) ","
+FuncDef row(b)
+  StringLit
+    Text(raw=false) "  "
+    Interp
+      Call
+        Field(padEnd)
+          Field(key)
+            Ident(b)
+        Int(12)
+        StringLit
+          Text(raw=false) " "
+    Interp
+      Call
+        Field(padStart)
+          Call
+            Ident(thousands)
+            Field(tokens)
+              Ident(b)
+        Int(15)
+        StringLit
+          Text(raw=false) " "
+    Text(raw=false) " tokens   $"
+    Interp
+      Call
+        Field(padStart)
+          Call
+            Field(toFixed)
+              Field(usd)
+                Ident(b)
+            Int(2)
+        Int(9)
+        StringLit
+          Text(raw=false) " "
+FuncDef main()
+  Let args
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(parse)
+          Ident(cli)
+        Call
+          Field(args)
+            Ident(env)
+        Ident(spec)
+      arm cli.UsageError
+          Call
+            Field(eprint)
+              Ident(io)
+            StringLit
+              Interp
+                Ident(e)
+              Text(raw=false) "\n\n"
+              Interp
+                Call
+                  Field(help)
+                    Ident(cli)
+                  StringLit
+                    Text(raw=false) "aiusage.bras"
+                  Ident(spec)
+          Call
+            Field(exit)
+              Ident(env)
+            Int(2)
+          Call
+            Field(parse)
+              Ident(cli)
+            VectorLit
+            Ident(spec)
+  If
+    cond
+      Call
+        Field(flag)
+          Ident(args)
+        StringLit
+          Text(raw=false) "help"
+    then
+      Call
+        Ident(print)
+        Call
+          Field(help)
+            Ident(cli)
+          StringLit
+            Text(raw=false) "aiusage.bras"
+          Ident(spec)
+      Return
+  Let days
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(toInt)
+          Coalesce
+            Call
+              Field(option)
+                Ident(args)
+              StringLit
+                Text(raw=false) "days"
+            StringLit
+              Text(raw=false) "7"
+      arm string.ParseError
+          Int(7)
+  Let dir
+    If
+      cond
+        Binary(==)
+          Call
+            Field(len)
+              Field(rest)
+                Ident(args)
+          Int(0)
+      then
+        StringLit
+          Text(raw=false) "."
+      else
+        Index
+          Field(rest)
+            Ident(args)
+          Int(0)
+  Let files
+    Call
+      Field(files)
+        Ident(corpus)
+      Ident(dir)
+  Let all
+    Call
+      Field(scan)
+        Ident(corpus)
+      Ident(files)
+  If
+    cond
+      Binary(==)
+        Call
+          Field(len)
+            Ident(all)
+        Int(0)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "no assistant turns under "
+          Interp
+            Ident(dir)
+      Return
+  Let mut newest
+    Int(0)
+  For
+    Binding(turn)
+    Ident(all)
+    If
+      cond
+        Binary(>)
+          Field(stamp)
+            Ident(turn)
+          Ident(newest)
+      then
+        Assign =
+          Ident(newest)
+          Field(stamp)
+            Ident(turn)
+  Let first
+    Call
+      Field(slice)
+        Call
+          Field(iso)
+            Ident(time)
+          Binary(-)
+            Ident(newest)
+            Binary(*)
+              Binary(-)
+                Ident(days)
+                Int(1)
+              Ident(dayMillis)
+      Int(0)
+      Int(10)
+  Let last
+    Call
+      Field(slice)
+        Call
+          Field(iso)
+            Ident(time)
+          Ident(newest)
+      Int(0)
+      Int(10)
+  Let window
+    VectorLit
+  For
+    Binding(turn)
+    Ident(all)
+    If
+      cond
+        Binary(>=)
+          Field(date)
+            Ident(turn)
+          Ident(first)
+      then
+        Call
+          Field(push)
+            Ident(window)
+          Ident(turn)
+  Let mut tokens
+    Int(0)
+  Let mut usd
+    Float(0)
+  For
+    Binding(turn)
+    Ident(window)
+    Assign +=
+      Ident(tokens)
+      Field(tokens)
+        Ident(turn)
+    Assign +=
+      Ident(usd)
+      Field(usd)
+        Ident(turn)
+  Call
+    Ident(puts)
+    StringLit
+      Interp
+        Call
+          Field(len)
+            Ident(files)
+      Text(raw=false) " transcripts, "
+      Interp
+        Call
+          Ident(thousands)
+          Call
+            Field(bytes)
+              Ident(corpus)
+            Ident(files)
+      Text(raw=false) " bytes, "
+      Interp
+        Call
+          Field(len)
+            Ident(all)
+      Text(raw=false) " assistant turns"
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "window "
+      Interp
+        Ident(first)
+      Text(raw=false) ".."
+      Interp
+        Ident(last)
+      Text(raw=false) " — "
+      Interp
+        Call
+          Ident(thousands)
+          Ident(tokens)
+      Text(raw=false) " tokens, $"
+      Interp
+        Call
+          Field(toFixed)
+            Ident(usd)
+          Int(2)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "by day:"
+  For
+    Binding(bucket)
+    Call
+      Field(reverse)
+        Call
+          Field(sortBy)
+            Call
+              Ident(bucketsBy)
+              Ident(window)
+              Lambda(t)
+                Field(date)
+                  Ident(t)
+          Lambda(b)
+            Field(key)
+              Ident(b)
+    Call
+      Ident(puts)
+      Call
+        Ident(row)
+        Ident(bucket)
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "by model:"
+  For
+    Binding(bucket)
+    Call
+      Field(sortBy)
+        Call
+          Ident(bucketsBy)
+          Ident(window)
+          Lambda(t)
+            Field(model)
+              Ident(t)
+      Lambda(b)
+        Unary(-)
+          Field(tokens)
+            Ident(b)
+    Call
+      Ident(puts)
+      Call
+        Ident(row)
+        Ident(bucket)

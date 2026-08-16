@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"summarize the build log"}}
+{"type":"assistant","requestId":"req_a1","timestamp":"2026-03-07T12:00:00.000Z","message":{"id":"msg_a1","model":"claude-opus-5","usage":{"input_tokens":1000000,"output_tokens":2000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","requestId":"req_a2","timestamp":"2026-03-07T13:30:00.000Z","message":{"id":"msg_a2","model":"claude-sonnet-5","usage":{"input_tokens":4000000,"output_tokens":1000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","requestId":"req_a3","timestamp":"2026-03-06T12:00:00.000Z","message":{"id":"msg_a3","model":"claude-opus-5","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":2000000,"cache_read_input_tokens":8000000}}}
+{"type":"assistant","requestId":"req_a4","timestamp":"2026-03-05T12:00:00.000Z","message":{"id":"msg_a4","model":"claude-haiku-4-5","usage":{"input_tokens":8000000,"output_tokens":4000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","requestId":"req_a5","timestamp":"2026-03-01T12:00:00.000Z","message":{"id":"msg_a5","model":"claude-fable-5","usage":{"input_tokens":1000000,"output_tokens":1000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}

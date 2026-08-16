@@ -1,0 +1,125 @@
+# Reading a directory of JSONL transcripts into priced turns.
+#
+# Everything that knows the provider's on-disk shape lives here: which
+# files count, which lines are assistant turns, how a turn is identified
+# so it is not counted twice, and which fields carry the token counts.
+# The report side never sees a `Json` node.
+
+import std::fs
+import std::json
+import std::time
+import "pricing.bras"
+
+# One assistant turn, already priced. The rows are kept rather than
+# aggregated on the way through, so a caller can decide its window after
+# seeing the whole corpus.
+pub struct Turn
+  stamp: int
+  date: string
+  model: string
+  tokens: int
+  usd: float
+end
+
+# Sorted so the corpus reads in the same order everywhere, which is what
+# lets a report over it be pinned.
+pub def files(dir: string): Vector<string>
+  let none: Vector<string> = []
+  let hits: Vector<string> = []
+
+  for path in fs.tryWalk(dir, none).paths
+    if path.endsWith?(".jsonl")
+      hits.push(path)
+    end
+  end
+
+  hits.sort()
+end
+
+pub def bytes(paths: Vector<string>): int
+  let mut total = 0
+
+  for path in paths
+    total += fs.stat(path).size catch (e)
+      _ => 0
+    end
+  end
+
+  total
+end
+
+def turnFrom(doc: Json, stamp: int): Turn
+  let usage = doc["message"]["usage"]
+  let model = doc["message"]["model"].asString() ?? ""
+  let p = pricing.forModel(model)
+
+  let inTok = usage["input_tokens"].asInt() ?? 0
+  let outTok = usage["output_tokens"].asInt() ?? 0
+  let writeTok = usage["cache_creation_input_tokens"].asInt() ?? 0
+  let readTok = usage["cache_read_input_tokens"].asInt() ?? 0
+
+  Turn {
+    stamp: stamp,
+    date: time.iso(stamp).slice(0, 10),
+    model: pricing.label(model),
+    tokens: inTok + outTok + writeTok + readTok,
+    usd: pricing.usd(p, inTok, outTok, writeTok, readTok),
+  }
+end
+
+def scanFile(path: string, seen: Set<string>, turns: Vector<Turn>)
+  let text = fs.read(path) catch (e)
+    _ => ""
+  end
+
+  for line in text.lines()
+    # The cheap test first: parsing every line of a corpus this shape
+    # only to discard most of them is the whole cost of the scan.
+    if !line.contains?("\"type\":\"assistant\"")
+      continue
+    end
+
+    let doc = json.parse(line) catch (e)
+      json.ParseError => json.parse("null")
+    end
+
+    # The test above is a HEURISTIC — a line can carry that text inside
+    # quoted content without being an assistant turn — so the parsed
+    # document has to confirm it. `data/traps.jsonl` holds
+    # one of each.
+    if (doc["type"].asString() ?? "") != "assistant" || doc["message"]["usage"].null?()
+      continue
+    end
+
+    # One turn can appear in more than one transcript. The provider's
+    # own pair identifies it; a record carrying neither is counted
+    # rather than collapsing every such record into a single turn.
+    let key = "#{doc["message"]["id"].asString() ?? ""}|#{doc["requestId"].asString() ?? ""}"
+
+    if key != "|" && seen.has?(key)
+      continue
+    end
+
+    seen.add(key)
+
+    let stamp = time.parseIso(doc["timestamp"].asString() ?? "") catch (e)
+      time.ParseError => 0
+    end
+
+    if stamp > 0
+      turns.push(turnFrom(doc, stamp))
+    end
+  end
+end
+
+# Every priced turn under `paths`, deduplicated across files.
+pub def scan(paths: Vector<string>): Vector<Turn>
+  let seen = Set([""])
+  let turns: Vector<Turn> = []
+
+  for path in paths
+    scanFile(path, seen, turns)
+  end
+
+  turns
+end
