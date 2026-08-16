@@ -1,0 +1,6 @@
+{
+  "rate_limits": [
+    { "limit_window_seconds": 18000, "used_percent": 11.2, "reset_at": 1772897400 },
+    { "limit_window_seconds": 604800, "used_percent": 47.8, "reset_at": 1773100800 }
+  ]
+}

@@ -4,9 +4,14 @@ expression: dump
 ---
 Import::Std(std::cli)
 Import::Std(std::env)
+Import::Std(std::fs)
 Import::Std(std::io)
 Import::Std(std::time)
+Import::File("claude.bras")
+Import::File("codex.bras")
 Import::File("corpus.bras")
+Import::File("grok.bras")
+Import::File("provider.bras")
 Let spec
   VectorLit
     VectorLit
@@ -18,6 +23,15 @@ Let spec
         Text(raw=false) "d"
       StringLit
         Text(raw=false) "how many days the window spans (default 7)"
+    VectorLit
+      StringLit
+        Text(raw=false) "option"
+      StringLit
+        Text(raw=false) "responses"
+      StringLit
+        Text(raw=false) "r"
+      StringLit
+        Text(raw=false) "canned provider responses (default data/providers)"
     VectorLit
       StringLit
         Text(raw=false) "flag"
@@ -176,6 +190,133 @@ FuncDef row(b)
         Int(9)
         StringLit
           Text(raw=false) " "
+FuncDef reportProvider(p)
+  If
+    cond
+      Unary(!)
+        Field(available)
+          Ident(p)
+    then
+      Call
+        Ident(puts)
+        StringLit
+          Text(raw=false) "  "
+          Interp
+            Call
+              Field(padEnd)
+                Field(name)
+                  Ident(p)
+              Int(12)
+              StringLit
+                Text(raw=false) " "
+          Text(raw=false) "unavailable — "
+          Interp
+            Field(reason)
+              Ident(p)
+      Return
+  Let mut first
+    Bool(true)
+  For
+    Binding(w)
+    Field(windows)
+      Ident(p)
+    Let name
+      If
+        cond
+          Ident(first)
+        then
+          Field(name)
+            Ident(p)
+        else
+          StringLit
+    Let resets
+      If
+        cond
+          Binary(==)
+            Field(resetAt)
+              Ident(w)
+            StringLit
+        then
+          StringLit
+        else
+          StringLit
+            Text(raw=false) "   resets "
+            Interp
+              Field(resetAt)
+                Ident(w)
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Call
+            Field(padEnd)
+              Ident(name)
+            Int(12)
+            StringLit
+              Text(raw=false) " "
+        Interp
+          Call
+            Field(padEnd)
+              Field(label)
+                Ident(w)
+            Int(14)
+            StringLit
+              Text(raw=false) " "
+        Interp
+          Call
+            Field(padStart)
+              Call
+                Field(toString)
+                  Field(usedPercent)
+                    Ident(w)
+            Int(3)
+            StringLit
+              Text(raw=false) " "
+        Text(raw=false) "%"
+        Interp
+          Ident(resets)
+    Assign =
+      Ident(first)
+      Bool(false)
+  For
+    Binding(n)
+    Field(notes)
+      Ident(p)
+    Let name
+      If
+        cond
+          Ident(first)
+        then
+          Field(name)
+            Ident(p)
+        else
+          StringLit
+    Call
+      Ident(puts)
+      StringLit
+        Text(raw=false) "  "
+        Interp
+          Call
+            Field(padEnd)
+              Ident(name)
+            Int(12)
+            StringLit
+              Text(raw=false) " "
+        Interp
+          Call
+            Field(padEnd)
+              Field(label)
+                Ident(n)
+            Int(14)
+            StringLit
+              Text(raw=false) " "
+        Interp
+          Field(value)
+            Ident(n)
+    Assign =
+      Ident(first)
+      Bool(false)
 FuncDef main()
   Let args
     Catch(exhaustive=false, binding=e)
@@ -448,3 +589,46 @@ FuncDef main()
       Call
         Ident(row)
         Ident(bucket)
+  Let responses
+    Coalesce
+      Call
+        Field(option)
+          Ident(args)
+        StringLit
+          Text(raw=false) "responses"
+      StringLit
+        Text(raw=false) "data/providers"
+  Let providers
+    VectorLit
+      Call
+        Field(read)
+          Ident(claude)
+        Ident(responses)
+      Call
+        Field(read)
+          Ident(codex)
+        Ident(responses)
+      Call
+        Field(read)
+          Ident(grok)
+        Ident(responses)
+      Call
+        Field(unavailable)
+          Ident(provider)
+        StringLit
+          Text(raw=false) "Kimi"
+        StringLit
+          Text(raw=false) "no-credentials"
+  Call
+    Ident(puts)
+    StringLit
+  Call
+    Ident(puts)
+    StringLit
+      Text(raw=false) "providers:"
+  For
+    Binding(p)
+    Ident(providers)
+    Call
+      Ident(reportProvider)
+      Ident(p)

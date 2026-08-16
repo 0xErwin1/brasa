@@ -1,0 +1,174 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::File("provider.bras")
+FuncDef label(periodType)
+  Let t
+    Call
+      Field(toUpper)
+        Ident(periodType)
+  If
+    cond
+      Call
+        Field(contains?)
+          Ident(t)
+        StringLit
+          Text(raw=false) "WEEK"
+    then
+      StringLit
+        Text(raw=false) "Weekly"
+    elsif
+      Call
+        Field(contains?)
+          Ident(t)
+        StringLit
+          Text(raw=false) "MONTH"
+    then
+      StringLit
+        Text(raw=false) "Monthly"
+    else
+      StringLit
+        Text(raw=false) "Credits"
+pub FuncDef read(dir)
+  Let data
+    Call
+      Field(response)
+        Ident(provider)
+      Ident(dir)
+      StringLit
+        Text(raw=false) "grok"
+  If
+    cond
+      Call
+        Field(null?)
+          Ident(data)
+    then
+      Return
+        Call
+          Field(unavailable)
+            Ident(provider)
+          StringLit
+            Text(raw=false) "Grok"
+          StringLit
+            Text(raw=false) "no-credentials"
+  Let config
+    Index
+      Ident(data)
+      StringLit
+        Text(raw=false) "config"
+  Let windows
+    VectorLit
+  Let notes
+    VectorLit
+  Let pct
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(config)
+            StringLit
+              Text(raw=false) "creditUsagePercent"
+      Unary(-)
+        Float(1)
+  If
+    cond
+      Binary(>=)
+        Ident(pct)
+        Float(0)
+    then
+      Let period
+        Index
+          Ident(config)
+          StringLit
+            Text(raw=false) "currentPeriod"
+      Call
+        Field(push)
+          Ident(windows)
+        StructLit(provider.Window)
+          field label
+            Call
+              Ident(label)
+              Coalesce
+                Call
+                  Field(asString)
+                    Index
+                      Ident(period)
+                      StringLit
+                        Text(raw=false) "type"
+                StringLit
+          field usedPercent
+            Call
+              Field(percent)
+                Ident(provider)
+              Ident(pct)
+          field resetAt
+            Coalesce
+              Call
+                Field(asString)
+                  Index
+                    Ident(period)
+                    StringLit
+                      Text(raw=false) "end"
+              Coalesce
+                Call
+                  Field(asString)
+                    Index
+                      Ident(config)
+                      StringLit
+                        Text(raw=false) "billingPeriodEnd"
+                StringLit
+  Let remaining
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Index
+              Ident(data)
+              StringLit
+                Text(raw=false) "credits"
+            StringLit
+              Text(raw=false) "remaining"
+      Unary(-)
+        Int(1)
+  If
+    cond
+      Binary(>=)
+        Ident(remaining)
+        Int(0)
+    then
+      Call
+        Field(push)
+          Ident(notes)
+        StructLit(provider.Note)
+          field label
+            StringLit
+              Text(raw=false) "Credits left"
+          field value
+            Call
+              Field(dollars)
+                Ident(provider)
+              Ident(remaining)
+              Coalesce
+                Call
+                  Field(asInt)
+                    Index
+                      Index
+                        Ident(data)
+                        StringLit
+                          Text(raw=false) "credits"
+                      StringLit
+                        Text(raw=false) "exponent"
+                Int(2)
+  StructLit(provider.Provider)
+    field name
+      StringLit
+        Text(raw=false) "Grok"
+    field available
+      Bool(true)
+    field reason
+      StringLit
+    field windows
+      Ident(windows)
+    field notes
+      Ident(notes)

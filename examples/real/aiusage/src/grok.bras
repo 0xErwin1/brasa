@@ -1,0 +1,55 @@
+# Grok's usage shape.
+#
+# A third spelling of the same two facts: the percentage sits two levels
+# down under `config`, and the window is named by an enum on the current
+# period rather than by a key or a width. The reset is on the period,
+# with a billing-period fallback for accounts that have no period.
+
+import "provider.bras"
+
+def label(periodType: string): string
+  let t = periodType.toUpper()
+
+  if t.contains?("WEEK")
+    "Weekly"
+  elsif t.contains?("MONTH")
+    "Monthly"
+  else
+    "Credits"
+  end
+end
+
+pub def read(dir: string): provider.Provider
+  let data = provider.response(dir, "grok")
+
+  if data.null?()
+    return provider.unavailable("Grok", "no-credentials")
+  end
+
+  let config = data["config"]
+  let windows: Vector<provider.Window> = []
+  let notes: Vector<provider.Note> = []
+
+  let pct = config["creditUsagePercent"].asFloat() ?? -1.0
+
+  if pct >= 0.0
+    let period = config["currentPeriod"]
+
+    windows.push(provider.Window {
+      label: label(period["type"].asString() ?? ""),
+      usedPercent: provider.percent(pct),
+      resetAt: period["end"].asString() ?? config["billingPeriodEnd"].asString() ?? "",
+    })
+  end
+
+  let remaining = data["credits"]["remaining"].asInt() ?? -1
+
+  if remaining >= 0
+    notes.push(provider.Note {
+      label: "Credits left",
+      value: provider.dollars(remaining, data["credits"]["exponent"].asInt() ?? 2),
+    })
+  end
+
+  provider.Provider { name: "Grok", available: true, reason: "", windows: windows, notes: notes }
+end

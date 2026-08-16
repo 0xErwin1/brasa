@@ -1,17 +1,20 @@
 #!/usr/bin/env brasa
-# What did the assistant transcripts under a directory cost? Walks a
-# corpus of JSONL transcripts, prices every turn at list rates, and
-# reports the last week by day and by model tier.
+# How much of each AI provider's allowance is spent, and what the local
+# Claude transcripts cost. Walks a corpus of JSONL transcripts and
+# prices every assistant turn at list rates, then reports what each
+# provider says about its own usage.
 #
 #   brasa            # in this directory, using brasa.toml
 #   brasa src/main.bras --days 3 ~/.claude/projects
 #
 # The Go command this replaces is one file, which is what a single
-# concern in one language usually earns. Three here instead, split where
-# the reasons to change differ: `pricing.bras` moves when a provider
-# reprices, `corpus.bras` moves when the on-disk transcript shape moves,
-# and this file moves when the report does. None of the three has ever
-# needed the other two's tests.
+# concern in one language usually earns. This is not one concern: four
+# services answer the same two questions in four shapes, and each
+# module here moves when a different thing changes. `provider.bras`
+# holds the shape they are flattened to, one module per service holds
+# that service's spelling of it, `corpus.bras` moves with the on-disk
+# transcript format, `pricing.bras` with a price sheet, and this file
+# with the report. None of them has ever needed another's tests.
 #
 # Two differences from the script this was extracted from, both so the
 # output is identical on every machine: the window is anchored to the
@@ -20,12 +23,18 @@
 
 import std::cli
 import std::env
+import std::fs
 import std::io
 import std::time
+import "claude.bras"
+import "codex.bras"
 import "corpus.bras"
+import "grok.bras"
+import "provider.bras"
 
 let spec = [
   ["option", "days", "d", "how many days the window spans (default 7)"],
+  ["option", "responses", "r", "canned provider responses (default data/providers)"],
   ["flag", "help", "h", "print this help"],
   ["arg", "dir", "", "directory to walk for `.jsonl` transcripts"],
 ]
@@ -78,6 +87,46 @@ end
 
 def row(b: Bucket): string
   "  #{b.key.padEnd(12, " ")}#{thousands(b.tokens).padStart(15, " ")} tokens   $#{b.usd.toFixed(2).padStart(9, " ")}"
+end
+
+# Every provider prints under one heading whatever shape it arrived in,
+# which is what normalizing bought. A provider that could not answer
+# still gets its line: an absent row and a quiet zero look the same.
+def reportProvider(p: provider.Provider)
+  if !p.available
+    puts "  #{p.name.padEnd(12, " ")}unavailable — #{p.reason}"
+    return
+  end
+
+  let mut first = true
+
+  for w in p.windows
+    let name = if first
+      p.name
+    else
+      ""
+    end
+
+    let resets = if w.resetAt == ""
+      ""
+    else
+      "   resets #{w.resetAt}"
+    end
+
+    puts "  #{name.padEnd(12, " ")}#{w.label.padEnd(14, " ")}#{w.usedPercent.toString().padStart(3, " ")}%#{resets}"
+    first = false
+  end
+
+  for n in p.notes
+    let name = if first
+      p.name
+    else
+      ""
+    end
+
+    puts "  #{name.padEnd(12, " ")}#{n.label.padEnd(14, " ")}#{n.value}"
+    first = false
+  end
 end
 
 def main()
@@ -161,5 +210,32 @@ def main()
 
   for bucket in bucketsBy(window, |t| t.model).sortBy(|b| -b.tokens)
     puts row(bucket)
+  end
+
+  # The cost above is Claude's alone, because transcripts are the only
+  # usage recoverable from disk. The rest is what each service says
+  # about itself — four different answers to the same two questions,
+  # which is what `provider.bras` and its three readers exist to
+  # flatten.
+  #
+  # A separate input from the corpus, and separately defaulted: the
+  # real tool gets these over HTTP with the credentials each CLI
+  # maintains, and an example may do neither.
+  let responses = args.option("responses") ?? "data/providers"
+
+  # Kimi is the fourth provider and has no fixture here, standing in
+  # for the credentials the real tool reads and this example must not.
+  let providers = [
+    claude.read(responses),
+    codex.read(responses),
+    grok.read(responses),
+    provider.unavailable("Kimi", "no-credentials"),
+  ]
+
+  puts ""
+  puts "providers:"
+
+  for p in providers
+    reportProvider(p)
   end
 end

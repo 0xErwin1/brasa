@@ -1,0 +1,58 @@
+# Codex's usage shape.
+#
+# The same two facts as Claude reports, said differently: the reset is
+# an epoch second rather than an ISO string, and the window is named by
+# its width in seconds rather than by a key. Normalizing that is the
+# work this module exists for.
+
+import std::time
+import "provider.bras"
+
+# The window's own width names it, so a provider that adds a window
+# needs no change here.
+def label(seconds: int): string
+  if seconds <= 0
+    "Window"
+  elsif seconds < 86400
+    "#{(seconds / 3600).toString()}-hour"
+  elsif seconds == 604800
+    "Weekly"
+  else
+    "#{(seconds / 86400).toString()}-day"
+  end
+end
+
+def window(node: Json, into: Vector<provider.Window>)
+  let used = node["used_percent"].asFloat() ?? -1.0
+
+  if used >= 0.0
+    let reset = match node["reset_at"].asInt()
+      Some(sec) => time.iso(sec * 1000).slice(0, 19) + "Z"
+      None => ""
+    end
+
+    into.push(provider.Window {
+      label: label(node["limit_window_seconds"].asInt() ?? 0),
+      usedPercent: provider.percent(used),
+      resetAt: reset,
+    })
+  end
+end
+
+pub def read(dir: string): provider.Provider
+  let data = provider.response(dir, "codex")
+
+  if data.null?()
+    return provider.unavailable("Codex", "no-credentials")
+  end
+
+  let none: Vector<Json> = []
+  let windows: Vector<provider.Window> = []
+  let notes: Vector<provider.Note> = []
+
+  for node in data["rate_limits"].asArray() ?? none
+    window(node, windows)
+  end
+
+  provider.Provider { name: "Codex", available: true, reason: "", windows: windows, notes: notes }
+end

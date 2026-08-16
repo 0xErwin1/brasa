@@ -574,11 +574,14 @@ fn example_modules_utils() {
 /// legible rather than merely different.
 #[test]
 fn example_real_aiusage() {
-    let expected = AIUSAGE_REPORT;
     assert_example_args(
         "real/aiusage/src/main.bras",
-        &[example_path("real/aiusage/data")],
-        expected,
+        &[
+            PathBuf::from("--responses"),
+            example_path("real/aiusage/data/providers"),
+            example_path("real/aiusage/data"),
+        ],
+        AIUSAGE_REPORT,
     );
 }
 
@@ -622,6 +625,16 @@ by model:
   Haiku            12,000,000 tokens   $    22.40
   Sonnet            5,000,000 tokens   $    27.00
   Fable             2,000,000 tokens   $    60.00
+
+providers:
+  Claude      5-hour         42%   resets 2026-03-07T18:00:00Z
+              Weekly         64%   resets 2026-03-09T00:00:00Z
+              Extra usage   $12.50 / $50.00 (25%)
+  Codex       5-hour         11%   resets 2026-03-07T15:30:00Z
+              Weekly         48%   resets 2026-03-10T00:00:00Z
+  Grok        Monthly        88%   resets 2026-03-31T23:59:59Z
+              Credits left  $11.90
+  Kimi        unavailable — no-credentials
 ";
 
 /// The two modules the project splits out. Like every module they
@@ -630,7 +643,11 @@ by model:
 /// import is what that proves.
 #[test]
 fn example_real_aiusage_modules() {
+    assert_example("real/aiusage/src/claude.bras", "");
+    assert_example("real/aiusage/src/codex.bras", "");
     assert_example("real/aiusage/src/corpus.bras", "");
+    assert_example("real/aiusage/src/grok.bras", "");
+    assert_example("real/aiusage/src/provider.bras", "");
     assert_example("real/aiusage/src/pricing.bras", "");
 }
 

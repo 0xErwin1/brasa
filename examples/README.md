@@ -79,7 +79,7 @@ measure the M4 stdlib against real work rather than to tour a feature.
 | `real/gitreport.bras` | a bash release-readiness script | `std::proc` (`run`/`tryRun`), `proc.NonZeroExit`, `proc.SpawnError`, `std::env` |
 | `real/lockaudit.bras` | a Python `flake.lock` auditor | `std::fs` walking and path helpers, `std::json`, `std::time` |
 | `real/tally.bras` | helper module imported by the report scripts | exported struct and shared `Map` counting/ranking helpers |
-| `real/aiusage/` | a Go transcript-cost scanner | a `brasa.toml` project over three modules, `fs.tryWalk` and `fs.stat`, `std::json` at scale, `time.parseIso`, a lambda parameter, `Set` dedup |
+| `real/aiusage/` | a Go multi-provider usage command | a `brasa.toml` project over seven modules, `fs.tryWalk` and `fs.stat`, `std::json` at scale, `time.parseIso`, a lambda parameter, `Set` dedup |
 
 Run them as:
 
@@ -88,7 +88,8 @@ brasa examples/real/logstat.bras examples/real/data/access.log
 brasa examples/real/gitreport.bras v0.1.0
 brasa examples/real/lockaudit.bras .
 brasa examples/real/lockaudit.bras examples/real/data/lockfixture
-brasa examples/real/aiusage/src/main.bras examples/real/aiusage/data
+brasa examples/real/aiusage/src/main.bras \
+  --responses examples/real/aiusage/data/providers examples/real/aiusage/data
 ```
 
 ### `real/aiusage/` — the one that is a project
@@ -107,12 +108,33 @@ the script defaults its corpus to `.`. A positional argument would be
 read as the script to run, so an entry that required one could never be
 reached through the manifest at all.
 
-It is split three ways along the lines its reasons to change fall on:
-`src/pricing.bras` moves when a provider reprices, `src/corpus.bras`
-moves when the on-disk transcript shape moves, and `src/main.bras` moves
-when the report does. The Go command it replaces is a single file, which
-is what one concern in one language usually earns; the split is the
-claim being demonstrated, not an improvement asserted.
+Four services report usage in four different shapes — a float
+percentage under a named key, an epoch second and a window width in
+seconds, a percentage two levels down with the period named by an enum
+— and a status bar can only draw one of them. Flattening that is what
+the program is for, and it is why the modules fall where they do:
+
+| Module | Moves when |
+|--------|-----------|
+| `src/provider.bras` | the normalized shape changes — the one thing every reader agrees on |
+| `src/claude.bras`, `src/codex.bras`, `src/grok.bras` | *that* service changes its response |
+| `src/corpus.bras` | the on-disk transcript shape changes |
+| `src/pricing.bras` | a provider reprices |
+| `src/main.bras` | the report changes |
+
+A provider that cannot answer still gets a line, with the reason:
+silence and genuine zero usage look identical otherwise, and the fourth
+provider here has no fixture precisely so that path is exercised.
+
+The Go command it replaces is a single file, which is what one concern
+in one language usually earns; the split is the claim being
+demonstrated, not an improvement asserted.
+
+The provider responses are canned under `data/providers/`. The real
+tool fetches them over HTTP with the credentials each vendor's CLI
+maintains — an example may do neither, so `--responses` names a
+directory of saved replies instead. Parsing them is the part worth
+reading anyway; the fetch is four lines.
 
 It differs from the script it was extracted from in exactly two places,
 both so its output is identical on every machine: the window is anchored
@@ -125,7 +147,7 @@ would start excluding fixtures and the pin would then fail for a reason
 that has nothing to do with the code.
 
 `tally.bras` is a declaration-only helper and is pinned to load and run
-silently on its own, as are `aiusage`'s two modules. `logstat.bras`,
+silently on its own, as are `aiusage`'s five. `logstat.bras`,
 `lockaudit.bras` and `aiusage` are pinned byte-for-byte in
 `crates/brasa/tests/programs.rs`, each against a committed fixture under
 `real/data/` so the expectation never moves with unrelated repository

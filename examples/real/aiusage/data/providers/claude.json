@@ -1,0 +1,10 @@
+{
+  "five_hour": { "utilization": 42.4, "resets_at": "2026-03-07T18:00:00Z" },
+  "seven_day": { "utilization": 63.5, "resets_at": "2026-03-09T00:00:00Z" },
+  "spend": {
+    "enabled": true,
+    "percent": 25,
+    "used": { "amount_minor": 1250, "exponent": 2 },
+    "limit": { "amount_minor": 5000, "exponent": 2 }
+  }
+}

@@ -1,0 +1,225 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::File("provider.bras")
+FuncDef window(node, label, into)
+  Let pct
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(node)
+            StringLit
+              Text(raw=false) "utilization"
+      Unary(-)
+        Float(1)
+  If
+    cond
+      Binary(>=)
+        Ident(pct)
+        Float(0)
+    then
+      Call
+        Field(push)
+          Ident(into)
+        StructLit(provider.Window)
+          field label
+            Ident(label)
+          field usedPercent
+            Call
+              Field(percent)
+                Ident(provider)
+              Ident(pct)
+          field resetAt
+            Coalesce
+              Call
+                Field(asString)
+                  Index
+                    Ident(node)
+                    StringLit
+                      Text(raw=false) "resets_at"
+              StringLit
+FuncDef spendNote(data, into)
+  Let spend
+    Index
+      Ident(data)
+      StringLit
+        Text(raw=false) "spend"
+  If
+    cond
+      Unary(!)
+        Coalesce
+          Call
+            Field(asBool)
+              Index
+                Ident(spend)
+                StringLit
+                  Text(raw=false) "enabled"
+          Bool(false)
+    then
+      Return
+  Let usedMinor
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Index
+              Ident(spend)
+              StringLit
+                Text(raw=false) "used"
+            StringLit
+              Text(raw=false) "amount_minor"
+      Unary(-)
+        Int(1)
+  Let limitMinor
+    Coalesce
+      Call
+        Field(asInt)
+          Index
+            Index
+              Ident(spend)
+              StringLit
+                Text(raw=false) "limit"
+            StringLit
+              Text(raw=false) "amount_minor"
+      Unary(-)
+        Int(1)
+  If
+    cond
+      Binary(&&)
+        Binary(>=)
+          Ident(usedMinor)
+          Int(0)
+        Binary(>=)
+          Ident(limitMinor)
+          Int(0)
+    then
+      Let used
+        Call
+          Field(dollars)
+            Ident(provider)
+          Ident(usedMinor)
+          Coalesce
+            Call
+              Field(asInt)
+                Index
+                  Index
+                    Ident(spend)
+                    StringLit
+                      Text(raw=false) "used"
+                  StringLit
+                    Text(raw=false) "exponent"
+            Int(2)
+      Let limit
+        Call
+          Field(dollars)
+            Ident(provider)
+          Ident(limitMinor)
+          Coalesce
+            Call
+              Field(asInt)
+                Index
+                  Index
+                    Ident(spend)
+                    StringLit
+                      Text(raw=false) "limit"
+                  StringLit
+                    Text(raw=false) "exponent"
+            Int(2)
+      Let value
+        Match
+          Call
+            Field(asInt)
+              Index
+                Ident(spend)
+                StringLit
+                  Text(raw=false) "percent"
+          Ctor(Some)
+            Binding(pct)
+            StringLit
+              Interp
+                Ident(used)
+              Text(raw=false) " / "
+              Interp
+                Ident(limit)
+              Text(raw=false) " ("
+              Interp
+                Ident(pct)
+              Text(raw=false) "%)"
+          Ctor(None)
+            StringLit
+              Interp
+                Ident(used)
+              Text(raw=false) " / "
+              Interp
+                Ident(limit)
+      Call
+        Field(push)
+          Ident(into)
+        StructLit(provider.Note)
+          field label
+            StringLit
+              Text(raw=false) "Extra usage"
+          field value
+            Ident(value)
+pub FuncDef read(dir)
+  Let data
+    Call
+      Field(response)
+        Ident(provider)
+      Ident(dir)
+      StringLit
+        Text(raw=false) "claude"
+  If
+    cond
+      Call
+        Field(null?)
+          Ident(data)
+    then
+      Return
+        Call
+          Field(unavailable)
+            Ident(provider)
+          StringLit
+            Text(raw=false) "Claude"
+          StringLit
+            Text(raw=false) "no-credentials"
+  Let windows
+    VectorLit
+  Let notes
+    VectorLit
+  Call
+    Ident(window)
+    Index
+      Ident(data)
+      StringLit
+        Text(raw=false) "five_hour"
+    StringLit
+      Text(raw=false) "5-hour"
+    Ident(windows)
+  Call
+    Ident(window)
+    Index
+      Ident(data)
+      StringLit
+        Text(raw=false) "seven_day"
+    StringLit
+      Text(raw=false) "Weekly"
+    Ident(windows)
+  Call
+    Ident(spendNote)
+    Ident(data)
+    Ident(notes)
+  StructLit(provider.Provider)
+    field name
+      StringLit
+        Text(raw=false) "Claude"
+    field available
+      Bool(true)
+    field reason
+      StringLit
+    field windows
+      Ident(windows)
+    field notes
+      Ident(notes)

@@ -1,0 +1,61 @@
+# Claude's usage shape.
+#
+# Percentages arrive as floats under a named window, reset times as ISO
+# strings, and the extra-usage cap as minor units with the exponent that
+# places the decimal point.
+
+import "provider.bras"
+
+def window(node: Option<Json>, label: string, into: Vector<provider.Window>)
+  let pct = node["utilization"].asFloat() ?? -1.0
+
+  # A window the account does not have is absent rather than zero, and
+  # the two must not render the same.
+  if pct >= 0.0
+    into.push(provider.Window {
+      label: label,
+      usedPercent: provider.percent(pct),
+      resetAt: node["resets_at"].asString() ?? "",
+    })
+  end
+end
+
+def spendNote(data: Json, into: Vector<provider.Note>)
+  let spend = data["spend"]
+
+  if !(spend["enabled"].asBool() ?? false)
+    return
+  end
+
+  let usedMinor = spend["used"]["amount_minor"].asInt() ?? -1
+  let limitMinor = spend["limit"]["amount_minor"].asInt() ?? -1
+
+  if usedMinor >= 0 && limitMinor >= 0
+    let used = provider.dollars(usedMinor, spend["used"]["exponent"].asInt() ?? 2)
+    let limit = provider.dollars(limitMinor, spend["limit"]["exponent"].asInt() ?? 2)
+
+    let value = match spend["percent"].asInt()
+      Some(pct) => "#{used} / #{limit} (#{pct}%)"
+      None => "#{used} / #{limit}"
+    end
+
+    into.push(provider.Note { label: "Extra usage", value: value })
+  end
+end
+
+pub def read(dir: string): provider.Provider
+  let data = provider.response(dir, "claude")
+
+  if data.null?()
+    return provider.unavailable("Claude", "no-credentials")
+  end
+
+  let windows: Vector<provider.Window> = []
+  let notes: Vector<provider.Note> = []
+
+  window(data["five_hour"], "5-hour", windows)
+  window(data["seven_day"], "Weekly", windows)
+  spendNote(data, notes)
+
+  provider.Provider { name: "Claude", available: true, reason: "", windows: windows, notes: notes }
+end

@@ -1,0 +1,94 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::fs)
+Import::Std(std::json)
+pub StructDef Window
+  field label
+  field usedPercent
+  field resetAt
+pub StructDef Note
+  field label
+  field value
+pub StructDef Provider
+  field name
+  field available
+  field reason
+  field windows
+  field notes
+pub FuncDef unavailable(name, reason)
+  Let windows
+    VectorLit
+  Let notes
+    VectorLit
+  StructLit(Provider)
+    field name
+      Ident(name)
+    field available
+      Bool(false)
+    field reason
+      Ident(reason)
+    field windows
+      Ident(windows)
+    field notes
+      Ident(notes)
+pub FuncDef response(dir, name)
+  Let text
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(read)
+          Ident(fs)
+        Call
+          Field(join)
+            Ident(fs)
+          Ident(dir)
+          StringLit
+            Interp
+              Ident(name)
+            Text(raw=false) ".json"
+      arm _
+          StringLit
+  Catch(exhaustive=false, binding=e)
+    Call
+      Field(parse)
+        Ident(json)
+      Ident(text)
+    arm json.ParseError
+        Call
+          Field(parse)
+            Ident(json)
+          StringLit
+            Text(raw=false) "null"
+pub FuncDef dollars(amountMinor, exponent)
+  Let mut div
+    Int(1)
+  For
+    Wildcard
+    Range(inclusive=false)
+      Int(0)
+      Ident(exponent)
+    Assign =
+      Ident(div)
+      Binary(*)
+        Ident(div)
+        Int(10)
+  StringLit
+    Text(raw=false) "$"
+    Interp
+      Call
+        Field(toFixed)
+          Binary(/)
+            Call
+              Field(toFloat)
+                Ident(amountMinor)
+            Call
+              Field(toFloat)
+                Ident(div)
+        Int(2)
+pub FuncDef percent(value)
+  Call
+    Field(toInt)
+      Binary(+)
+        Ident(value)
+        Float(0.5)

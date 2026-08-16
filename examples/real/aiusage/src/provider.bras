@@ -1,0 +1,78 @@
+# The normalized shape every provider is reduced to.
+#
+# This is the whole point of the tool: four services report usage in
+# four different shapes — a float percentage here, an epoch second
+# there, a period named by an enum somewhere else — and a bar can only
+# draw one of them. Each provider module owns its own parsing and
+# answers in these types; nothing downstream knows which service it
+# came from.
+
+import std::fs
+import std::json
+
+# A usage window: how much of an allowance is spent, and when it comes
+# back. `resetAt` is empty when the provider does not say.
+pub struct Window
+  label: string
+  usedPercent: int
+  resetAt: string
+end
+
+# Anything else worth a line — a spend cap, a credit balance. Free-form
+# on purpose: it is display text, and inventing a type per provider's
+# extra would put every provider's vocabulary in this file.
+pub struct Note
+  label: string
+  value: string
+end
+
+pub struct Provider
+  name: string
+  available: bool
+  # Why it could not answer, when `available` is false. A provider that
+  # cannot be reached still appears in the report: silence and zero
+  # usage look identical otherwise.
+  reason: string
+  windows: Vector<Window>
+  notes: Vector<Note>
+end
+
+pub def unavailable(name: string, reason: string): Provider
+  let windows: Vector<Window> = []
+  let notes: Vector<Note> = []
+
+  Provider { name: name, available: false, reason: reason, windows: windows, notes: notes }
+end
+
+# A provider's response, or the null node when it is missing. Standing
+# in for the HTTP call the real tool makes: the parsing below is the
+# part worth showing, and a fixture keeps the example runnable with no
+# network and no credentials.
+pub def response(dir: string, name: string): Json
+  let text = fs.read(fs.join(dir, "#{name}.json")) catch (e)
+    _ => ""
+  end
+
+  json.parse(text) catch (e)
+    json.ParseError => json.parse("null")
+  end
+end
+
+# Minor units to a rendered amount: providers report money as an
+# integer plus the exponent that places the point, so that neither side
+# has to agree on a currency's number of decimals in advance.
+pub def dollars(amountMinor: int, exponent: int): string
+  let mut div = 1
+
+  for _ in 0..exponent
+    div = div * 10
+  end
+
+  "$#{(amountMinor.toFloat() / div.toFloat()).toFixed(2)}"
+end
+
+# Rounds without pulling in `std::math` for one call: the percentages
+# are non-negative, so half-up is the whole rule.
+pub def percent(value: float): int
+  (value + 0.5).toInt()
+end

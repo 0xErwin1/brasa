@@ -1,0 +1,162 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::time)
+Import::File("provider.bras")
+FuncDef label(seconds)
+  If
+    cond
+      Binary(<=)
+        Ident(seconds)
+        Int(0)
+    then
+      StringLit
+        Text(raw=false) "Window"
+    elsif
+      Binary(<)
+        Ident(seconds)
+        Int(86400)
+    then
+      StringLit
+        Interp
+          Call
+            Field(toString)
+              Binary(/)
+                Ident(seconds)
+                Int(3600)
+        Text(raw=false) "-hour"
+    elsif
+      Binary(==)
+        Ident(seconds)
+        Int(604800)
+    then
+      StringLit
+        Text(raw=false) "Weekly"
+    else
+      StringLit
+        Interp
+          Call
+            Field(toString)
+              Binary(/)
+                Ident(seconds)
+                Int(86400)
+        Text(raw=false) "-day"
+FuncDef window(node, into)
+  Let used
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(node)
+            StringLit
+              Text(raw=false) "used_percent"
+      Unary(-)
+        Float(1)
+  If
+    cond
+      Binary(>=)
+        Ident(used)
+        Float(0)
+    then
+      Let reset
+        Match
+          Call
+            Field(asInt)
+              Index
+                Ident(node)
+                StringLit
+                  Text(raw=false) "reset_at"
+          Ctor(Some)
+            Binding(sec)
+            Binary(+)
+              Call
+                Field(slice)
+                  Call
+                    Field(iso)
+                      Ident(time)
+                    Binary(*)
+                      Ident(sec)
+                      Int(1000)
+                Int(0)
+                Int(19)
+              StringLit
+                Text(raw=false) "Z"
+          Ctor(None)
+            StringLit
+      Call
+        Field(push)
+          Ident(into)
+        StructLit(provider.Window)
+          field label
+            Call
+              Ident(label)
+              Coalesce
+                Call
+                  Field(asInt)
+                    Index
+                      Ident(node)
+                      StringLit
+                        Text(raw=false) "limit_window_seconds"
+                Int(0)
+          field usedPercent
+            Call
+              Field(percent)
+                Ident(provider)
+              Ident(used)
+          field resetAt
+            Ident(reset)
+pub FuncDef read(dir)
+  Let data
+    Call
+      Field(response)
+        Ident(provider)
+      Ident(dir)
+      StringLit
+        Text(raw=false) "codex"
+  If
+    cond
+      Call
+        Field(null?)
+          Ident(data)
+    then
+      Return
+        Call
+          Field(unavailable)
+            Ident(provider)
+          StringLit
+            Text(raw=false) "Codex"
+          StringLit
+            Text(raw=false) "no-credentials"
+  Let none
+    VectorLit
+  Let windows
+    VectorLit
+  Let notes
+    VectorLit
+  For
+    Binding(node)
+    Coalesce
+      Call
+        Field(asArray)
+          Index
+            Ident(data)
+            StringLit
+              Text(raw=false) "rate_limits"
+      Ident(none)
+    Call
+      Ident(window)
+      Ident(node)
+      Ident(windows)
+  StructLit(provider.Provider)
+    field name
+      StringLit
+        Text(raw=false) "Codex"
+    field available
+      Bool(true)
+    field reason
+      StringLit
+    field windows
+      Ident(windows)
+    field notes
+      Ident(notes)

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "creditUsagePercent": 88.1,
+    "currentPeriod": { "type": "BILLING_MONTH", "end": "2026-03-31T23:59:59Z" },
+    "billingPeriodEnd": "2026-03-31T23:59:59Z"
+  },
+  "credits": { "remaining": 1190, "exponent": 2 }
+}
