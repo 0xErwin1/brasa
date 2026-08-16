@@ -145,3 +145,97 @@ pub FuncDef usd(p, inTok, outTok, writeTok, readTok)
         Field(cacheRead)
           Ident(p)
     Float(1000000)
+TestDef("a model id collapses to its tier")
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      StringLit
+        Text(raw=false) "claude-opus-5"
+    StringLit
+      Text(raw=false) "Opus"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      StringLit
+        Text(raw=false) "CLAUDE-HAIKU-4-5"
+    StringLit
+      Text(raw=false) "Haiku"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      StringLit
+        Text(raw=false) "claude-sonnet-5-20260101"
+    StringLit
+      Text(raw=false) "Sonnet"
+TestDef("an unknown model keeps its raw id rather than hiding in the default")
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      StringLit
+        Text(raw=false) "some-model-nobody-added-yet"
+    StringLit
+      Text(raw=false) "some-model-nobody-added-yet"
+TestDef("the four counters are priced apart, which is why usd takes them apart")
+  Let p
+    Call
+      Ident(forModel)
+      StringLit
+        Text(raw=false) "claude-opus-5"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(usd)
+      Ident(p)
+      Int(1000000)
+      Int(0)
+      Int(0)
+      Int(0)
+    Float(15)
+  Call
+    Ident(assertEq)
+    Call
+      Ident(usd)
+      Ident(p)
+      Int(0)
+      Int(1000000)
+      Int(0)
+      Int(0)
+    Float(75)
+  Call
+    Ident(assertEq)
+    Call
+      Ident(usd)
+      Ident(p)
+      Int(0)
+      Int(0)
+      Int(1000000)
+      Int(0)
+    Float(18.75)
+  Call
+    Ident(assertEq)
+    Call
+      Ident(usd)
+      Ident(p)
+      Int(0)
+      Int(0)
+      Int(0)
+      Int(1000000)
+    Float(1.5)
+TestDef("a turn's cost is the sum of its four counters at their own rates")
+  Call
+    Ident(assertEq)
+    Call
+      Ident(usd)
+      Call
+        Ident(forModel)
+        StringLit
+          Text(raw=false) "claude-opus-5"
+      Int(1000000)
+      Int(2000000)
+      Int(0)
+      Int(0)
+    Float(165)

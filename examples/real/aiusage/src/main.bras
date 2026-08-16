@@ -30,11 +30,13 @@ import "claude.bras"
 import "codex.bras"
 import "corpus.bras"
 import "grok.bras"
+import "kimi.bras"
 import "provider.bras"
 
 let spec = [
   ["option", "days", "d", "how many days the window spans (default 7)"],
   ["option", "responses", "r", "canned provider responses (default data/providers)"],
+  ["option", "ledger", "l", "Kimi spend ledger (default data/kimi-ledger.json)"],
   ["flag", "help", "h", "print this help"],
   ["arg", "dir", "", "directory to walk for `.jsonl` transcripts"],
 ]
@@ -113,7 +115,7 @@ def reportProvider(p: provider.Provider)
       "   resets #{w.resetAt}"
     end
 
-    puts "  #{name.padEnd(12, " ")}#{w.label.padEnd(14, " ")}#{w.usedPercent.toString().padStart(3, " ")}%#{resets}"
+    puts "  #{name.padEnd(12, " ")}#{w.label.padEnd(16, " ")}#{w.usedPercent.toString().padStart(3, " ")}%#{resets}"
     first = false
   end
 
@@ -124,7 +126,7 @@ def reportProvider(p: provider.Provider)
       ""
     end
 
-    puts "  #{name.padEnd(12, " ")}#{n.label.padEnd(14, " ")}#{n.value}"
+    puts "  #{name.padEnd(12, " ")}#{n.label.padEnd(16, " ")}#{n.value}"
     first = false
   end
 end
@@ -215,7 +217,7 @@ def main()
   # The cost above is Claude's alone, because transcripts are the only
   # usage recoverable from disk. The rest is what each service says
   # about itself — four different answers to the same two questions,
-  # which is what `provider.bras` and its three readers exist to
+  # which is what `provider.bras` and its four readers exist to
   # flatten.
   #
   # A separate input from the corpus, and separately defaulted: the
@@ -223,13 +225,11 @@ def main()
   # maintains, and an example may do neither.
   let responses = args.option("responses") ?? "data/providers"
 
-  # Kimi is the fourth provider and has no fixture here, standing in
-  # for the credentials the real tool reads and this example must not.
   let providers = [
     claude.read(responses),
     codex.read(responses),
     grok.read(responses),
-    provider.unavailable("Kimi", "no-credentials"),
+    kimi.read(responses, args.option("ledger") ?? "data/kimi-ledger.json"),
   ]
 
   puts ""

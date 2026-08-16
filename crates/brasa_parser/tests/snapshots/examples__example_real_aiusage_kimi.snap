@@ -1,0 +1,312 @@
+---
+source: crates/brasa_parser/tests/examples.rs
+expression: dump
+---
+Import::Std(std::fs)
+Import::Std(std::json)
+Import::File("provider.bras")
+Let epsilon
+  Float(0.0005)
+pub StructDef Ledger
+  field credited
+  field available
+pub FuncDef readLedger(path)
+  Let text
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(read)
+          Ident(fs)
+        Ident(path)
+      arm _
+          StringLit
+  Let doc
+    Catch(exhaustive=false, binding=e)
+      Call
+        Field(parse)
+          Ident(json)
+        Ident(text)
+      arm json.ParseError
+          Call
+            Field(parse)
+              Ident(json)
+            StringLit
+              Text(raw=false) "null"
+  StructLit(Ledger)
+    field credited
+      Coalesce
+        Call
+          Field(asFloat)
+            Index
+              Ident(doc)
+              StringLit
+                Text(raw=false) "credited"
+        Unary(-)
+          Float(1)
+    field available
+      Coalesce
+        Call
+          Field(asFloat)
+            Index
+              Ident(doc)
+              StringLit
+                Text(raw=false) "available"
+        Unary(-)
+          Float(1)
+pub FuncDef advance(prior, available)
+  If
+    cond
+      Binary(<)
+        Field(credited)
+          Ident(prior)
+        Float(0)
+    then
+      Return
+        StructLit(Ledger)
+          field credited
+            Ident(available)
+          field available
+            Ident(available)
+  Let delta
+    Binary(-)
+      Ident(available)
+      Field(available)
+        Ident(prior)
+  Let credited
+    If
+      cond
+        Binary(>)
+          Ident(delta)
+          Ident(epsilon)
+      then
+        Binary(+)
+          Field(credited)
+            Ident(prior)
+          Ident(delta)
+      else
+        Field(credited)
+          Ident(prior)
+  StructLit(Ledger)
+    field credited
+      Ident(credited)
+    field available
+      Ident(available)
+pub FuncDef read(dir, ledgerPath)
+  Let data
+    Call
+      Field(response)
+        Ident(provider)
+      Ident(dir)
+      StringLit
+        Text(raw=false) "kimi"
+  If
+    cond
+      Call
+        Field(null?)
+          Ident(data)
+    then
+      Return
+        Call
+          Field(unavailable)
+            Ident(provider)
+          StringLit
+            Text(raw=false) "Kimi"
+          StringLit
+            Text(raw=false) "no-credentials"
+  Let balance
+    Index
+      Ident(data)
+      StringLit
+        Text(raw=false) "data"
+  Let available
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(balance)
+            StringLit
+              Text(raw=false) "available_balance"
+      Unary(-)
+        Float(1)
+  If
+    cond
+      Binary(<)
+        Ident(available)
+        Float(0)
+    then
+      Return
+        Call
+          Field(unavailable)
+            Ident(provider)
+          StringLit
+            Text(raw=false) "Kimi"
+          StringLit
+            Text(raw=false) "bad-response"
+  Let ledger
+    Call
+      Ident(advance)
+      Call
+        Ident(readLedger)
+        Ident(ledgerPath)
+      Ident(available)
+  Let cash
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(balance)
+            StringLit
+              Text(raw=false) "cash_balance"
+      Float(0)
+  Let voucher
+    Coalesce
+      Call
+        Field(asFloat)
+          Index
+            Ident(balance)
+            StringLit
+              Text(raw=false) "voucher_balance"
+      Float(0)
+  Let notes
+    VectorLit
+      StructLit(provider.Note)
+        field label
+          StringLit
+            Text(raw=false) "Available"
+        field value
+          StringLit
+            Text(raw=false) "$"
+            Interp
+              Call
+                Field(toFixed)
+                  Ident(available)
+                Int(2)
+      StructLit(provider.Note)
+        field label
+          StringLit
+            Text(raw=false) "Spent"
+        field value
+          StringLit
+            Text(raw=false) "$"
+            Interp
+              Call
+                Field(toFixed)
+                  Binary(-)
+                    Field(credited)
+                      Ident(ledger)
+                    Ident(available)
+                Int(2)
+  If
+    cond
+      Binary(>)
+        Ident(voucher)
+        Float(0)
+    then
+      Call
+        Field(push)
+          Ident(notes)
+        StructLit(provider.Note)
+          field label
+            StringLit
+              Text(raw=false) "Cash + voucher"
+          field value
+            StringLit
+              Text(raw=false) "$"
+              Interp
+                Call
+                  Field(toFixed)
+                    Ident(cash)
+                  Int(2)
+              Text(raw=false) " + $"
+              Interp
+                Call
+                  Field(toFixed)
+                    Ident(voucher)
+                  Int(2)
+  Let windows
+    VectorLit
+  StructLit(provider.Provider)
+    field name
+      StringLit
+        Text(raw=false) "Kimi"
+    field available
+      Bool(true)
+    field reason
+      StringLit
+    field windows
+      Ident(windows)
+    field notes
+      Ident(notes)
+TestDef("a first run baselines, so an existing balance is not read as spend")
+  Let fresh
+    StructLit(Ledger)
+      field credited
+        Unary(-)
+          Float(1)
+      field available
+        Unary(-)
+          Float(1)
+  Let after
+    Call
+      Ident(advance)
+      Ident(fresh)
+      Float(20)
+  Call
+    Ident(assertEq)
+    Field(credited)
+      Ident(after)
+    Float(20)
+  Call
+    Ident(assertEq)
+    Field(available)
+      Ident(after)
+    Float(20)
+TestDef("a drop is consumption, so credited stays where it was")
+  Let after
+    Call
+      Ident(advance)
+      StructLit(Ledger)
+        field credited
+          Float(50)
+        field available
+          Float(20)
+      Float(18.4)
+  Call
+    Ident(assertEq)
+    Field(credited)
+      Ident(after)
+    Float(50)
+  Call
+    Ident(assertEq)
+    Field(available)
+      Ident(after)
+    Float(18.4)
+TestDef("a rise is a recharge, so credited grows with it")
+  Let after
+    Call
+      Ident(advance)
+      StructLit(Ledger)
+        field credited
+          Float(50)
+        field available
+          Float(20)
+      Float(25)
+  Call
+    Ident(assertEq)
+    Field(credited)
+      Ident(after)
+    Float(55)
+TestDef("sub-cent float noise is neither a purchase nor a refund")
+  Let after
+    Call
+      Ident(advance)
+      StructLit(Ledger)
+        field credited
+          Float(50)
+        field available
+          Float(20)
+      Float(20.0003)
+  Call
+    Ident(assertEq)
+    Field(credited)
+      Ident(after)
+    Float(50)

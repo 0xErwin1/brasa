@@ -11,6 +11,7 @@ Import::File("claude.bras")
 Import::File("codex.bras")
 Import::File("corpus.bras")
 Import::File("grok.bras")
+Import::File("kimi.bras")
 Import::File("provider.bras")
 Let spec
   VectorLit
@@ -32,6 +33,15 @@ Let spec
         Text(raw=false) "r"
       StringLit
         Text(raw=false) "canned provider responses (default data/providers)"
+    VectorLit
+      StringLit
+        Text(raw=false) "option"
+      StringLit
+        Text(raw=false) "ledger"
+      StringLit
+        Text(raw=false) "l"
+      StringLit
+        Text(raw=false) "Kimi spend ledger (default data/kimi-ledger.json)"
     VectorLit
       StringLit
         Text(raw=false) "flag"
@@ -260,7 +270,7 @@ FuncDef reportProvider(p)
             Field(padEnd)
               Field(label)
                 Ident(w)
-            Int(14)
+            Int(16)
             StringLit
               Text(raw=false) " "
         Interp
@@ -308,7 +318,7 @@ FuncDef reportProvider(p)
             Field(padEnd)
               Field(label)
                 Ident(n)
-            Int(14)
+            Int(16)
             StringLit
               Text(raw=false) " "
         Interp
@@ -613,12 +623,17 @@ FuncDef main()
           Ident(grok)
         Ident(responses)
       Call
-        Field(unavailable)
-          Ident(provider)
-        StringLit
-          Text(raw=false) "Kimi"
-        StringLit
-          Text(raw=false) "no-credentials"
+        Field(read)
+          Ident(kimi)
+        Ident(responses)
+        Coalesce
+          Call
+            Field(option)
+              Ident(args)
+            StringLit
+              Text(raw=false) "ledger"
+          StringLit
+            Text(raw=false) "data/kimi-ledger.json"
   Call
     Ident(puts)
     StringLit

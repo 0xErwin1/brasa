@@ -56,3 +56,12 @@ pub def read(dir: string): provider.Provider
 
   provider.Provider { name: "Codex", available: true, reason: "", windows: windows, notes: notes }
 end
+
+# The window names itself from its width, so a provider that adds one
+# needs no change here — which is only true if this holds.
+test "a window is named by its width"
+  assertEq label(18000), "5-hour"
+  assertEq label(604800), "Weekly"
+  assertEq label(2592000), "30-day"
+  assertEq label(0), "Window"
+end

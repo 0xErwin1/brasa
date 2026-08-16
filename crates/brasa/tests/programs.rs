@@ -579,9 +579,31 @@ fn example_real_aiusage() {
         &[
             PathBuf::from("--responses"),
             example_path("real/aiusage/data/providers"),
+            PathBuf::from("--ledger"),
+            example_path("real/aiusage/data/kimi-ledger.json"),
             example_path("real/aiusage/data"),
         ],
-        AIUSAGE_REPORT,
+        &aiusage_report(AIUSAGE_PROVIDERS),
+    );
+}
+
+/// Every provider unreachable, which is the other half of the contract:
+/// one that cannot answer still gets a line naming why, because an
+/// absent row and a genuine zero read the same. Pointed at a directory
+/// that does not exist, so all four take the path rather than none —
+/// with a fixture each, that branch would ship untested.
+#[test]
+fn example_real_aiusage_without_responses() {
+    assert_example_args(
+        "real/aiusage/src/main.bras",
+        &[
+            PathBuf::from("--responses"),
+            example_path("real/aiusage/data/absent"),
+            PathBuf::from("--ledger"),
+            example_path("real/aiusage/data/absent.json"),
+            example_path("real/aiusage/data"),
+        ],
+        &aiusage_report(AIUSAGE_UNAVAILABLE),
     );
 }
 
@@ -603,13 +625,64 @@ fn example_real_aiusage_runs_from_its_manifest() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
     assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), AIUSAGE_REPORT);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        aiusage_report(AIUSAGE_PROVIDERS)
+    );
 }
 
-/// Shared so the two ways of reaching the program — an explicit script
-/// with an explicit corpus, and the manifest's entry walking `.` — are
-/// held to one expectation rather than two that can drift apart.
-const AIUSAGE_REPORT: &str = "\
+/// The project's own tests are written in Brasa and live beside the
+/// code they cover, which is where the pure logic belongs: the ledger
+/// derivation cannot be reached from a pinned report at all, because it
+/// only says anything when the balance MOVES and a fixture cannot move.
+///
+/// Pinned here so they cannot quietly stop running. `brasa test` with no
+/// argument is answered by `[test].globs`, so this also holds the last
+/// manifest key nothing else exercises.
+#[test]
+fn example_real_aiusage_runs_its_own_tests() {
+    let output = Command::new(env!("CARGO_BIN_EXE_brasa"))
+        .arg("test")
+        .current_dir(example_path("real/aiusage"))
+        .output()
+        .expect("failed to run brasa");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+
+    let passed: usize = stdout
+        .lines()
+        .filter_map(|line| line.strip_suffix(" passed, 0 failed"))
+        .filter_map(|count| count.parse::<usize>().ok())
+        .sum();
+
+    // A count rather than the exact output: adding a test to a module
+    // should not be a diff in this file, but silently losing every one
+    // of them should be.
+    assert!(
+        passed >= 9,
+        "expected the project's Brasa tests to run and pass, got: {stdout}"
+    );
+    assert!(
+        stdout
+            .lines()
+            .filter(|line| line.contains(" failed"))
+            .all(|line| line.ends_with(", 0 failed")),
+        "a project test failed: {stdout}"
+    );
+}
+
+/// The cost half is identical in all three runs and only the provider
+/// half varies, so it is written once: three copies of the same table
+/// would drift, and a diff in the part under test would be buried in
+/// the part that is not.
+fn aiusage_report(providers: &str) -> String {
+    format!("{AIUSAGE_COST}{providers}")
+}
+
+const AIUSAGE_COST: &str = "\
 3 transcripts, 2,333 bytes, 7 assistant turns
 window 2026-03-01..2026-03-07 — 34,000,000 tokens, $353.90
 
@@ -627,13 +700,28 @@ by model:
   Fable             2,000,000 tokens   $    60.00
 
 providers:
-  Claude      5-hour         42%   resets 2026-03-07T18:00:00Z
-              Weekly         64%   resets 2026-03-09T00:00:00Z
-              Extra usage   $12.50 / $50.00 (25%)
-  Codex       5-hour         11%   resets 2026-03-07T15:30:00Z
-              Weekly         48%   resets 2026-03-10T00:00:00Z
-  Grok        Monthly        88%   resets 2026-03-31T23:59:59Z
-              Credits left  $11.90
+";
+
+/// Kimi's `Spent` is the one figure here that is derived rather than
+/// read: Moonshot reports only the live balance, so $31.60 is the
+/// committed ledger's $50.00 credited minus the $18.40 still available.
+/// The ledger's own $20.00 previous balance makes this poll a $1.60
+/// consumption, which is what leaves `credited` where it was.
+const AIUSAGE_PROVIDERS: &str = "  Claude      5-hour           42%   resets 2026-03-07T18:00:00Z
+              Weekly           64%   resets 2026-03-09T00:00:00Z
+              Extra usage     $12.50 / $50.00 (25%)
+  Codex       5-hour           11%   resets 2026-03-07T15:30:00Z
+              Weekly           48%   resets 2026-03-10T00:00:00Z
+  Grok        Monthly          88%   resets 2026-03-31T23:59:59Z
+              Credits left    $11.90
+  Kimi        Available       $18.40
+              Spent           $31.60
+              Cash + voucher  $8.40 + $10.00
+";
+
+const AIUSAGE_UNAVAILABLE: &str = "  Claude      unavailable — no-credentials
+  Codex       unavailable — no-credentials
+  Grok        unavailable — no-credentials
   Kimi        unavailable — no-credentials
 ";
 
@@ -647,6 +735,7 @@ fn example_real_aiusage_modules() {
     assert_example("real/aiusage/src/codex.bras", "");
     assert_example("real/aiusage/src/corpus.bras", "");
     assert_example("real/aiusage/src/grok.bras", "");
+    assert_example("real/aiusage/src/kimi.bras", "");
     assert_example("real/aiusage/src/provider.bras", "");
     assert_example("real/aiusage/src/pricing.bras", "");
 }

@@ -1,0 +1,138 @@
+# Kimi's usage, which is the odd one and the reason this module is
+# worth reading.
+#
+# Moonshot exposes no consumption endpoint at all — only the live
+# balance. So spend is not read, it is DERIVED from how the balance
+# moved since the last poll: a drop is consumption billed across every
+# client sharing the key, a rise is a recharge or a voucher grant. That
+# makes this the only provider whose answer depends on the previous
+# run, which is why it needs a ledger and the other three do not.
+#
+# The ledger is read here and not written. The real command writes it
+# back on every poll — `fs.write` is all that takes — but an example
+# that rewrote its own fixture would report something different on the
+# second run, and could not be pinned. The derivation is the part with
+# the ideas in it; the write is one line.
+
+import std::fs
+import std::json
+import "provider.bras"
+
+# Sub-cent float noise is not a purchase and not a refund. Without this
+# every poll would record a movement in one direction or the other.
+let epsilon = 0.0005
+
+# What the previous poll left behind. `credited` is everything ever put
+# into the account, which is the only way to answer "spent" when the
+# provider will only say what is left.
+pub struct Ledger
+  credited: float
+  available: float
+end
+
+pub def readLedger(path: string): Ledger
+  let text = fs.read(path) catch (e)
+    _ => ""
+  end
+
+  let doc = json.parse(text) catch (e)
+    json.ParseError => json.parse("null")
+  end
+
+  Ledger {
+    credited: doc["credited"].asFloat() ?? -1.0,
+    available: doc["available"].asFloat() ?? -1.0,
+  }
+end
+
+# The ledger after this poll. A first run — or a ledger that cannot be
+# read — baselines at the current balance, so spend accumulates from
+# here rather than reporting the whole balance as if it had been spent.
+pub def advance(prior: Ledger, available: float): Ledger
+  if prior.credited < 0.0
+    return Ledger { credited: available, available: available }
+  end
+
+  let delta = available - prior.available
+
+  # Only a rise changes `credited`: a drop is consumption, which is
+  # already accounted for by `credited` staying where it was.
+  let credited = if delta > epsilon
+    prior.credited + delta
+  else
+    prior.credited
+  end
+
+  Ledger { credited: credited, available: available }
+end
+
+pub def read(dir: string, ledgerPath: string): provider.Provider
+  let data = provider.response(dir, "kimi")
+
+  if data.null?()
+    return provider.unavailable("Kimi", "no-credentials")
+  end
+
+  let balance = data["data"]
+
+  # The provider answered, but not with a balance. Distinct from being
+  # unreachable: the credentials worked and the shape did not, and a
+  # reader who cannot tell those apart debugs the wrong end.
+  let available = balance["available_balance"].asFloat() ?? -1.0
+
+  if available < 0.0
+    return provider.unavailable("Kimi", "bad-response")
+  end
+
+  let ledger = advance(readLedger(ledgerPath), available)
+  let cash = balance["cash_balance"].asFloat() ?? 0.0
+  let voucher = balance["voucher_balance"].asFloat() ?? 0.0
+
+  let notes: Vector<provider.Note> = [
+    provider.Note { label: "Available", value: "$#{available.toFixed(2)}" },
+    provider.Note { label: "Spent", value: "$#{(ledger.credited - available).toFixed(2)}" },
+  ]
+
+  # Only worth a line when there is a voucher to separate out; with
+  # none, it repeats the balance above.
+  if voucher > 0.0
+    notes.push(provider.Note {
+      label: "Cash + voucher",
+      value: "$#{cash.toFixed(2)} + $#{voucher.toFixed(2)}",
+    })
+  end
+
+  let windows: Vector<provider.Window> = []
+
+  provider.Provider { name: "Kimi", available: true, reason: "", windows: windows, notes: notes }
+end
+
+# The derivation is the whole module, and none of it is reachable from
+# the report's pinned output: the balance moves between polls and a
+# fixture cannot move.
+test "a first run baselines, so an existing balance is not read as spend"
+  let fresh = Ledger { credited: -1.0, available: -1.0 }
+  let after = advance(fresh, 20.0)
+
+  assertEq after.credited, 20.0
+  assertEq after.available, 20.0
+end
+
+test "a drop is consumption, so credited stays where it was"
+  let after = advance(Ledger { credited: 50.0, available: 20.0 }, 18.4)
+
+  assertEq after.credited, 50.0
+  assertEq after.available, 18.4
+end
+
+test "a rise is a recharge, so credited grows with it"
+  let after = advance(Ledger { credited: 50.0, available: 20.0 }, 25.0)
+
+  assertEq after.credited, 55.0
+end
+
+test "sub-cent float noise is neither a purchase nor a refund"
+  let after = advance(Ledger { credited: 50.0, available: 20.0 }, 20.0003)
+
+  assertEq after.credited, 50.0
+end

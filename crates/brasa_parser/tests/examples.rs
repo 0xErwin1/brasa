@@ -64,6 +64,7 @@ example_tests! {
     example_real_aiusage_codex => "real/aiusage/src/codex.bras",
     example_real_aiusage_corpus => "real/aiusage/src/corpus.bras",
     example_real_aiusage_grok => "real/aiusage/src/grok.bras",
+    example_real_aiusage_kimi => "real/aiusage/src/kimi.bras",
     example_real_aiusage_main => "real/aiusage/src/main.bras",
     example_real_aiusage_pricing => "real/aiusage/src/pricing.bras",
     example_real_aiusage_provider => "real/aiusage/src/provider.bras",

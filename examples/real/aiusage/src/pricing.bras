@@ -52,3 +52,28 @@ end
 pub def usd(p: Price, inTok: int, outTok: int, writeTok: int, readTok: int): float
   (inTok.toFloat() * p.input + outTok.toFloat() * p.output + writeTok.toFloat() * p.cacheWrite + readTok.toFloat() * p.cacheRead) / 1000000.0
 end
+
+# Run with `brasa test` from the project root; `[test].globs` in
+# `brasa.toml` is what finds these without naming a file.
+test "a model id collapses to its tier"
+  assertEq label("claude-opus-5"), "Opus"
+  assertEq label("CLAUDE-HAIKU-4-5"), "Haiku"
+  assertEq label("claude-sonnet-5-20260101"), "Sonnet"
+end
+
+test "an unknown model keeps its raw id rather than hiding in the default"
+  assertEq label("some-model-nobody-added-yet"), "some-model-nobody-added-yet"
+end
+
+test "the four counters are priced apart, which is why usd takes them apart"
+  let p = forModel("claude-opus-5")
+
+  assertEq usd(p, 1000000, 0, 0, 0), 15.0
+  assertEq usd(p, 0, 1000000, 0, 0), 75.0
+  assertEq usd(p, 0, 0, 1000000, 0), 18.75
+  assertEq usd(p, 0, 0, 0, 1000000), 1.5
+end
+
+test "a turn's cost is the sum of its four counters at their own rates"
+  assertEq usd(forModel("claude-opus-5"), 1000000, 2000000, 0, 0), 165.0
+end

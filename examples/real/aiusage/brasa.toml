@@ -13,3 +13,9 @@ name = "aiusage"
 entry = "src/main.bras"
 # Where `brasa bundle` puts the executable, named after `project.name`.
 out_dir = "build"
+
+[test]
+# `brasa test` with no argument runs these, so the tests travel with
+# the modules they cover rather than with a runner that has to be told
+# where to look.
+globs = ["src/*.bras"]

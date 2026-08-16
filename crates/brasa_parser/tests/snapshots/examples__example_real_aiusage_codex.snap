@@ -160,3 +160,32 @@ pub FuncDef read(dir)
       Ident(windows)
     field notes
       Ident(notes)
+TestDef("a window is named by its width")
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      Int(18000)
+    StringLit
+      Text(raw=false) "5-hour"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      Int(604800)
+    StringLit
+      Text(raw=false) "Weekly"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      Int(2592000)
+    StringLit
+      Text(raw=false) "30-day"
+  Call
+    Ident(assertEq)
+    Call
+      Ident(label)
+      Int(0)
+    StringLit
+      Text(raw=false) "Window"

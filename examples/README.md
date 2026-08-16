@@ -79,7 +79,7 @@ measure the M4 stdlib against real work rather than to tour a feature.
 | `real/gitreport.bras` | a bash release-readiness script | `std::proc` (`run`/`tryRun`), `proc.NonZeroExit`, `proc.SpawnError`, `std::env` |
 | `real/lockaudit.bras` | a Python `flake.lock` auditor | `std::fs` walking and path helpers, `std::json`, `std::time` |
 | `real/tally.bras` | helper module imported by the report scripts | exported struct and shared `Map` counting/ranking helpers |
-| `real/aiusage/` | a Go multi-provider usage command | a `brasa.toml` project over seven modules, `fs.tryWalk` and `fs.stat`, `std::json` at scale, `time.parseIso`, a lambda parameter, `Set` dedup |
+| `real/aiusage/` | a Go multi-provider usage command | a `brasa.toml` project over eight modules with its own `brasa test` suite, `fs.tryWalk` and `fs.stat`, `std::json` at scale, `time.parseIso`, a lambda parameter, `Set` dedup |
 
 Run them as:
 
@@ -117,14 +117,46 @@ the program is for, and it is why the modules fall where they do:
 | Module | Moves when |
 |--------|-----------|
 | `src/provider.bras` | the normalized shape changes — the one thing every reader agrees on |
-| `src/claude.bras`, `src/codex.bras`, `src/grok.bras` | *that* service changes its response |
+| `src/claude.bras`, `src/codex.bras`, `src/grok.bras`, `src/kimi.bras` | *that* service changes its response |
 | `src/corpus.bras` | the on-disk transcript shape changes |
 | `src/pricing.bras` | a provider reprices |
 | `src/main.bras` | the report changes |
 
+Kimi is the one worth reading. Moonshot exposes no consumption endpoint
+at all — only the live balance — so spend is not read but *derived*
+from how the balance moved since the last poll: a drop is consumption
+billed across every client sharing the key, a rise is a recharge or a
+voucher grant, and movement under half a cent is float noise rather
+than either. That makes it the only provider whose answer depends on
+the previous run, which is why it has a ledger and the other three do
+not. It reads the ledger and does not write it: the real command writes
+it back every poll, but an example that rewrote its own fixture would
+report something different the second time and could not be pinned.
+
 A provider that cannot answer still gets a line, with the reason:
-silence and genuine zero usage look identical otherwise, and the fourth
-provider here has no fixture precisely so that path is exercised.
+silence and genuine zero usage look identical otherwise. All four have
+fixtures, so that path is held by its own pinned run against a
+directory that does not exist — with a fixture each and no such run, it
+would ship untested.
+
+### Tests
+
+The project's own tests are written in Brasa, in `test` items beside
+the code they cover, and `[test].globs` in the manifest is what finds
+them:
+
+```sh
+cd examples/real/aiusage
+brasa test
+```
+
+They cover what a pinned report cannot reach: the ledger derivation
+only says anything when the balance *moves*, and a fixture cannot move.
+The Rust pins in `crates/brasa/tests/programs.rs` stay because this
+repository's guard requires every example to be exercised there — that
+guard exists because `stars.bras` once spent a whole milestone here
+without compiling. One of those pins runs `brasa test` and checks the
+count, so the Brasa tests cannot quietly stop running either.
 
 The Go command it replaces is a single file, which is what one concern
 in one language usually earns; the split is the claim being
@@ -147,7 +179,7 @@ would start excluding fixtures and the pin would then fail for a reason
 that has nothing to do with the code.
 
 `tally.bras` is a declaration-only helper and is pinned to load and run
-silently on its own, as are `aiusage`'s five. `logstat.bras`,
+silently on its own, as are `aiusage`'s six. `logstat.bras`,
 `lockaudit.bras` and `aiusage` are pinned byte-for-byte in
 `crates/brasa/tests/programs.rs`, each against a committed fixture under
 `real/data/` so the expectation never moves with unrelated repository
